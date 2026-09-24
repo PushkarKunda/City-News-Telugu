@@ -1,0 +1,39 @@
+import os
+
+from dotenv import load_dotenv
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"), override=True)
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL must be set")
+
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    pool_recycle=1800,
+)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+Base = declarative_base()
+
+
+def init_db() -> None:
+    if os.getenv("ENVIRONMENT", "development").lower() == "production":
+        raise RuntimeError("init_db() is disabled in production; run Alembic migrations instead")
+
+    # Import all model modules so SQLAlchemy can register every table.
+    from models import base_location, content, engagement, guest, insorts, news, settings, user  # noqa: F401
+    Base.metadata.create_all(bind=engine)
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+        

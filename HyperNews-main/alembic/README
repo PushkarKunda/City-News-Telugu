@@ -1,0 +1,17 @@
+# Alembic migrations
+
+- **Config:** `alembic.ini` in this directory’s parent (`FastAPIProject6/`).  
+- **DB URL:** Taken from the same `DATABASE_URL` as the app (see `database.py` / `.env`); `alembic/env.py` sets it and loads `python-dotenv` when available.
+
+**Commands** (from `FastAPIProject6/`, venv active):
+
+```bash
+alembic current
+alembic history
+alembic upgrade head
+alembic downgrade -1
+```
+
+**Role remap revision (`0001_role_remap`)** rewrites `users.role` for the pre–UserRole-5 scheme (old 3=employee, 4=admin → new 4=employee, 5=admin, slot 3=MODERATOR). If your database never had that old encoding and you already have users with `role=3` (moderator only), do **not** apply the `UPDATE` blindly—see the docstring in that revision file, or `alembic stamp 0001_role_remap` to mark it applied if you have no rows to fix.
+
+For **autogenerate** of future schema changes: ensure all model packages are imported in `alembic/env.py` (already done), then e.g. `alembic revision --autogenerate -m "describe change"`.

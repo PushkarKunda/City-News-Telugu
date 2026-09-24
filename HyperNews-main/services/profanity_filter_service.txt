@@ -1,0 +1,329 @@
+# services/profanity_filter_service.py
+import os
+import re
+import logging
+from typing import Dict, List, Optional, Tuple
+from openai import OpenAI
+
+logger = logging.getLogger(__name__)
+
+# =========================================================
+# MANUAL PROFANITY LIST (Customizable)
+# =========================================================
+
+
+
+
+
+
+
+
+PROFANITY_WORDS = {
+    # English profanity
+    "en": {
+        "words": [
+            "fuck", "shit", "asshole", "bitch", "bastard", "damn", "crap",
+            "dick", "pussy", "cunt", "whore", "slut", "retard", "idiot",
+            "stupid", "moron", "loser", "sucker", "cock", "piss", "screw",
+            "bullshit", "motherfucker", "goddamn", "hell", "ass", "bollocks",
+            "wanker", "twat", "tosser", "git", "bloody", "bugger"
+        ],
+        "patterns": [
+            r'\bf+u+c+k+\b',  # f*ck variations
+            r'\bs+h+i+t+\b',  # sh*t variations
+            r'\ba+s+s+h+o+l+e+\b',  # asshole variations
+            r'\bb+i+t+c+h+\b',  # bitch variations
+        ]
+    },
+    # Hindi profanity
+    "hi": {
+        "words": [
+            "बकवास", "गधा", "चूतिया", "भोसड़ी", "मादरचोद", "बहनचोद",
+            "हरामी", "चमार", "शैतान", "पागल", "बेवकूफ", "जाहिल"
+        ],
+        "patterns": []
+    },
+    # Telugu profanity
+    "te": {
+        "words": [
+            "బాబు", "జెత్త", "పిచ్చి", "అబద్ధం", "తెలివి లేని",
+            "అర్ధం", "తెలివి", "అర్ధం లేని", "మూర్ఖుడు",
+            "బుద్ధి లేని", "తుచ్ఛం", "అనాచారం"
+        ],
+        "patterns": []
+    },
+    # Tamil profanity
+    "ta": {
+        "words": [
+            "போக்கிரி", "தெளிவற்ற", "முட்டாள்", "அறிவிலி",
+            "கழுதை", "திமிரு", "அகங்காரம்"
+        ],
+        "patterns": []
+    }
+}
+
+# Spam keywords
+SPAM_WORDS = [
+    "click here", "buy now", "free money", "earn money", "viagra",
+    "casino", "lottery", "prize", "winner", "cheap", "discount",
+    "offer", "limited time", "call now", "subscribe", "follow me",
+    "check out", "link in bio", "dm me", "whatsapp", "telegram",
+    "bitcoin", "crypto", "investment", "get rich", "cash"
+]
+
+# Racial/ethnic slurs
+RACIAL_SLURS = [
+    # Add comprehensive list (keep internal)
+]
+
+
+class ProfanityFilterService:
+    """Hybrid profanity filter with manual + OpenAI moderation"""
+    
+    def __init__(self):
+        self.client = None
+        self.is_openai_available = False
+        
+        # Initialize OpenAI client
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if openai_key:
+            try:
+                self.client = OpenAI(api_key=openai_key)
+                self.is_openai_available = True
+                logger.info("✅ OpenAI Moderation API enabled")
+            except Exception as e:
+                logger.error(f"Failed to initialize OpenAI: {e}")
+        else:
+            logger.warning("⚠️ OPENAI_API_KEY not set. Using manual filter only.")
+    
+    # =========================================================
+    # MANUAL FILTER METHODS
+    # =========================================================
+    
+    def _contains_profanity(self, text: str, language: str = "en") -> Tuple[bool, List[str]]:
+        """Check if text contains manual profanity words"""
+        text_lower = text.lower()
+        found_words = []
+        
+        # Get words for language
+        lang_data = PROFANITY_WORDS.get(language, PROFANITY_WORDS.get("en", {}))
+        profanity_list = lang_data.get("words", [])
+        
+        # Check each word
+        for word in profanity_list:
+            if word.lower() in text_lower:
+                found_words.append(word)
+        
+        return len(found_words) > 0, found_words
+    
+    def _contains_spam(self, text: str) -> Tuple[bool, List[str]]:
+        """Check if text contains spam keywords"""
+        text_lower = text.lower()
+        found_words = []
+        
+        for word in SPAM_WORDS:
+            if word.lower() in text_lower:
+                found_words.append(word)
+        
+        return len(found_words) > 0, found_words
+    
+    def _contains_patterns(self, text: str) -> Tuple[bool, List[str]]:
+        """Check if text matches profanity patterns"""
+        text_lower = text.lower()
+        found_patterns = []
+        
+        for pattern in PROFANITY_WORDS.get("en", {}).get("patterns", []):
+            if re.search(pattern, text_lower, re.IGNORECASE):
+                found_patterns.append(pattern)
+        
+        return len(found_patterns) > 0, found_patterns
+    
+    def _contains_racial_slurs(self, text: str) -> Tuple[bool, List[str]]:
+        """Check if text contains racial slurs"""
+        text_lower = text.lower()
+        found_words = []
+        
+        for word in RACIAL_SLURS:
+            if word.lower() in text_lower:
+                found_words.append(word)
+        
+        return len(found_words) > 0, found_words
+    
+    def manual_moderate(self, text: str, language: str = "en") -> Dict:
+        """Manual moderation with word list"""
+        results = {
+            "flagged": False,
+            "categories": {},
+            "details": {}
+        }
+        
+        # Check profanity
+        has_profanity, profanity_words = self._contains_profanity(text, language)
+        if has_profanity:
+            results["flagged"] = True
+            results["categories"]["profanity"] = True
+            results["details"]["profanity_words"] = profanity_words
+        
+        # Check spam
+        has_spam, spam_words = self._contains_spam(text)
+        if has_spam:
+            results["flagged"] = True
+            results["categories"]["spam"] = True
+            results["details"]["spam_words"] = spam_words
+        
+        # Check patterns
+        has_pattern, pattern_matches = self._contains_patterns(text)
+        if has_pattern:
+            results["flagged"] = True
+            results["categories"]["pattern"] = True
+            results["details"]["pattern_matches"] = pattern_matches
+        
+        # Check racial slurs
+        has_racial, racial_words = self._contains_racial_slurs(text)
+        if has_racial:
+            results["flagged"] = True
+            results["categories"]["racial"] = True
+            results["details"]["racial_words"] = racial_words
+        
+        return results
+    
+    # =========================================================
+    # OPENAI MODERATION METHOD
+    # =========================================================
+    
+    def openai_moderate(self, text: str) -> Dict:
+        """Moderate text using OpenAI Moderation API"""
+        if not self.is_openai_available:
+            return {
+                "flagged": False,
+                "categories": {},
+                "category_scores": {},
+                "message": "OpenAI not available"
+            }
+        
+        try:
+            response = self.client.moderations.create(
+                input=text,
+                model="text-moderation-latest"
+            )
+            
+            result = response.results[0]
+            
+            return {
+                "flagged": result.flagged,
+                "categories": result.categories.model_dump(),
+                "category_scores": result.category_scores.model_dump(),
+                "message": "OpenAI moderation complete"
+            }
+            
+        except Exception as e:
+            logger.error(f"OpenAI Moderation API error: {e}")
+            return {
+                "flagged": False,
+                "categories": {},
+                "category_scores": {},
+                "message": f"OpenAI error: {str(e)}"
+            }
+    
+    # =========================================================
+    # HYBRID MODERATION (Main Method)
+    # =========================================================
+    
+    def moderate_text(self, text: str, language: str = "en", use_openai: bool = True) -> Dict:
+        """
+        Hybrid moderation: Manual filter first, then OpenAI (if needed)
+        
+        Returns:
+        {
+            "flagged": bool,
+            "source": "manual" or "openai" or "clean",
+            "categories": dict,
+            "details": dict,
+            "message": str
+        }
+        """
+        result = {
+            "flagged": False,
+            "source": "clean",
+            "categories": {},
+            "details": {},
+            "message": "Comment is clean"
+        }
+        
+        # STEP 1: Manual moderation (FAST)
+        manual_result = self.manual_moderate(text, language)
+        
+        if manual_result["flagged"]:
+            result["flagged"] = True
+            result["source"] = "manual"
+            result["categories"] = manual_result["categories"]
+            result["details"] = manual_result["details"]
+            result["message"] = self._get_manual_message(manual_result["categories"])
+            return result
+        
+        # STEP 2: OpenAI moderation (ACCURATE) - only if manual passes
+        if use_openai and self.is_openai_available:
+            openai_result = self.openai_moderate(text)
+            
+            if openai_result.get("flagged"):
+                result["flagged"] = True
+                result["source"] = "openai"
+                result["categories"] = openai_result.get("categories", {})
+                result["details"]["openai_scores"] = openai_result.get("category_scores", {})
+                result["message"] = self._get_openai_message(openai_result.get("categories", {}))
+                return result
+        
+        # STEP 3: Clean
+        return result
+    
+    # =========================================================
+    # MESSAGE GENERATORS
+    # =========================================================
+    
+    def _get_manual_message(self, categories: Dict) -> str:
+        """Generate message based on manual filter categories"""
+        if categories.get("profanity"):
+            return "Your comment contains inappropriate language. Please keep it civil."
+        if categories.get("spam"):
+            return "Your comment appears to be spam. Please write meaningful content."
+        if categories.get("racial"):
+            return "Your comment contains offensive content. Please be respectful."
+        if categories.get("pattern"):
+            return "Your comment contains masked profanity. Please keep it clean."
+        return "Your comment contains inappropriate content. Please revise."
+    
+    def _get_openai_message(self, categories: Dict) -> str:
+        """Generate message based on OpenAI categories"""
+        if categories.get("harassment"):
+            return "Your comment contains harassment. Please be respectful."
+        if categories.get("harassment/threatening"):
+            return "Your comment contains threatening content. Please be civil."
+        if categories.get("hate"):
+            return "Your comment contains hate speech. Please keep it civil."
+        if categories.get("hate/threatening"):
+            return "Your comment contains threatening hate speech."
+        if categories.get("self-harm"):
+            return "Your comment contains harmful content. Please be kind."
+        if categories.get("sexual"):
+            return "Your comment contains inappropriate content. Please keep it clean."
+        if categories.get("sexual/minors"):
+            return "Your comment contains inappropriate content."
+        if categories.get("violence"):
+            return "Your comment contains violent content. Please be peaceful."
+        if categories.get("violence/graphic"):
+            return "Your comment contains graphic violent content."
+        return "Your comment contains inappropriate content. Please revise."
+    
+    def get_flagged_categories(self, text: str, language: str = "en") -> List[str]:
+        """Get list of flagged categories"""
+        result = self.moderate_text(text, language)
+        return [cat for cat, flagged in result.get("categories", {}).items() if flagged]
+    
+    def is_flagged(self, text: str, language: str = "en") -> bool:
+        """Check if text is flagged"""
+        result = self.moderate_text(text, language)
+        return result.get("flagged", False)
+
+
+# Create global instance
+profanity_filter = ProfanityFilterService()
