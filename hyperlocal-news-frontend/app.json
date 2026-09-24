@@ -1,0 +1,79 @@
+{
+  "expo": {
+    "name": "Hyperlocal News",
+    "slug": "hyperlocal-news",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "scheme": "hyperlocalnews",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.hypernews.app",
+      "googleServicesFile": "./GoogleService-Info.plist"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "package": "com.hypernews.app",
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUseUsageDescription": "Show local news for your area"
+        }
+      ],
+      "expo-video",
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.849371654758-jb831p3e0mv4n8bupaep4cu691ifbpr5"
+        }
+      ],
+      "expo-build-properties",
+      "@react-native-community/datetimepicker"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "newArchEnabled": false,
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "googleOAuth": {
+        "webClientId": "849371654758-oc0ne88p18ikcdamc7ns62ve8caa7n6e.apps.googleusercontent.com",
+        "iosClientId": "849371654758-jb831p3e0mv4n8bupaep4cu691ifbpr5.apps.googleusercontent.com",
+        "androidClientId": "849371654758-tk9um9rv6a81l11nl65qq2qsekq83372.apps.googleusercontent.com"
+      },
+      "eas": {
+        "projectId": "b9f1a822-16f8-4054-8964-d83ab44f8d3c"
+      }
+    }
+  }
+}
