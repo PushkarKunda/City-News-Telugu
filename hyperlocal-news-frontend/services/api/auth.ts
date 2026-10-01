@@ -1,6 +1,7 @@
 // services/api/auth.ts
 import { request } from './client';
 import { API_ROUTES } from './routes';
+import { API_CONFIG } from './config';
 import { saveTokens, clearTokens } from './token';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -35,6 +36,10 @@ export interface BackendLoginResponse {
     is_new_user?: boolean;   // actual location in server response
     profile_picture?: string | null;
     created_at?: string;
+    google_id?: string | null;
+    auth_provider?: string | null;
+    providers?: string[] | null;
+    is_google_linked?: boolean;
   };
 }
 
@@ -81,6 +86,68 @@ export const authApi = {
     );
 
     return response;
+  },
+
+  /**
+   * Sync external provider (e.g. Google) with backend user record
+   * Sends Firebase ID token in Authorization header
+   */
+  syncProvider: async (
+    firebaseToken: string
+  ): Promise<BackendLoginResponse> => {
+    const fullUrl = `${API_CONFIG.baseUrl}${API_ROUTES.auth.syncProvider}`;
+    const method = 'POST';
+    const hasAuthHeader = Boolean(firebaseToken);
+
+    // Requirement 1: Before call, log full URL, HTTP method, and whether Authorization header is set (never log token)
+    console.log(`[authApi.syncProvider] Calling: ${method} ${fullUrl} | Authorization header set: ${hasAuthHeader}`);
+
+    try {
+      const response = await request<BackendLoginResponse>({
+        url: API_ROUTES.auth.syncProvider,
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${firebaseToken}`,
+        },
+        data: { firebase_token: firebaseToken },
+      });
+
+      if ((response as any)?.access_token && (response as any)?.refresh_token) {
+        await saveTokens(
+          (response as any).access_token,
+          (response as any).refresh_token
+        );
+      }
+
+      return response;
+    } catch (err: any) {
+      const status = err?.response?.status ?? err?.status ?? 'UNKNOWN';
+      const body = err?.response?.data ?? err?.message;
+
+      // Requirement 1: Log response status and body on failure
+      console.error(`[authApi.syncProvider] Failed: ${method} ${fullUrl} - Status: ${status}, Body:`, body);
+
+      // Enrich error with endpoint and status for descriptive logging
+      err.endpoint = `${method} ${API_ROUTES.auth.syncProvider}`;
+      err.status = status;
+
+      const is404 =
+        status === 404 ||
+        err?.response?.data?.detail === 'Not Found' ||
+        err?.message === 'Not Found' ||
+        err?.message?.includes('Not Found') ||
+        err?.code === 'NOT_FOUND';
+
+      if (is404) {
+        try {
+          console.warn('⚠️ /user/auth/sync-provider returned 404, attempting fallback to /user/auth/firebase/login...');
+          return await authApi.loginWithFirebase(firebaseToken);
+        } catch (fallbackErr: any) {
+          console.warn('[authApi.syncProvider] Fallback to /user/auth/firebase/login also failed:', fallbackErr?.message);
+        }
+      }
+      throw err;
+    }
   },
 
   /**

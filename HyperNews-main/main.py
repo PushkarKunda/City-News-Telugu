@@ -4,11 +4,12 @@ import sys
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi import FastAPI, HTTPException, Request, Depends, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 import logging
+from typing import Optional, Any
 from datetime import datetime, timezone
 
 from database import init_db, get_db
@@ -187,10 +188,14 @@ app.include_router(user_routes.router, tags=["User"])
 
 
 @app.post("/auth/sync-provider", tags=["Auth"])
-async def sync_provider_alias(request: Request, db: Session = Depends(get_db)):
+async def sync_provider_alias(
+    request: Request,
+    request_data: Optional[Any] = Body(None),
+    db: Session = Depends(get_db)
+):
     """Alias for /user/auth/sync-provider to support requests without /user prefix"""
     from routes.user_routes import sync_provider
-    return await sync_provider(request=request, db=db)
+    return await sync_provider(request=request, request_data=request_data, db=db)
 
 app.include_router(news_routes.router, tags=["News"])
 app.include_router(news_routes.router, prefix="/news", tags=["News"])

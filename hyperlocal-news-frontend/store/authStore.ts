@@ -14,6 +14,7 @@ import {
 } from '@/services/firebase';
 import {
   authApi,
+  API_ROUTES,
   BackendLoginResponse,
   PublisherEligibilityResponse,
   usersApi,
@@ -33,6 +34,7 @@ export interface User {
   phone: string | null;
   role: number;
   email_verified: boolean;
+  email_verified_at?: string | null;
   mobile_verified: boolean;
   is_suspended: boolean;
   created_at: string;
@@ -56,6 +58,10 @@ export interface User {
   isPublisher?: boolean;
   gender?: string | null;
   date_of_birth?: string | null;
+  google_id?: string | null;
+  auth_provider?: string | null;
+  providers?: string[] | null;
+  is_google_linked?: boolean;
 }
 
 type RawUser = Omit<User, 'is_suspended' | 'created_at' | 'profile_picture'> & {
@@ -65,7 +71,45 @@ type RawUser = Omit<User, 'is_suspended' | 'created_at' | 'profile_picture'> & {
   is_new_user?: boolean;
   profile_picture?: string | null;
   categories?: Array<{ id: number; name: string; slug?: string | null }>;
+  google_id?: string | null;
+  auth_provider?: string | null;
+  providers?: string[] | null;
+  is_google_linked?: boolean;
+  email_verified_at?: string | null;
 };
+
+export const isUserGoogleLinked = (user: RawUser | User | null | undefined): boolean => {
+  if (!user) return false;
+  return Boolean(
+    user.is_google_linked ||
+    user.google_id ||
+    user.auth_provider === 'google' ||
+    user.providers?.includes('google') ||
+    user.providers?.includes('google.com')
+  );
+};
+
+export const isEmailVerified = (
+  user: {
+    email_verified?: boolean | null;
+    google_id?: string | null;
+    auth_provider?: string | null;
+    is_google_linked?: boolean | null;
+    providers?: string[] | null;
+  } | null | undefined
+): boolean => {
+  if (!user) return false;
+  return Boolean(
+    user.email_verified ||
+    user.google_id ||
+    user.auth_provider === 'google' ||
+    user.is_google_linked ||
+    user.providers?.includes('google') ||
+    user.providers?.includes('google.com')
+  );
+};
+
+export const computeIsEmailVerified = isEmailVerified;
 
 const sanitizeUser = (user: RawUser): User => {
   const isPhone = (str: string | null): boolean => {
@@ -83,6 +127,10 @@ const sanitizeUser = (user: RawUser): User => {
   }
 
   const profilePicture = user.profile_picture ?? null;
+  const isGoogleLinked = isUserGoogleLinked(user);
+  // Google-verified emails are always considered verified.
+  // This derives the state from real data and corrects stale persisted state.
+  const emailVerified = computeIsEmailVerified(user);
 
   return {
     ...user,
@@ -91,6 +139,8 @@ const sanitizeUser = (user: RawUser): User => {
     name: updatedName,
     phone: updatedPhone,
     phoneNumber: updatedPhone ?? null,
+    email_verified: emailVerified,
+    email_verified_at: user.email_verified_at ?? (emailVerified ? new Date().toISOString() : null),
     mobile_verified: user.mobile_verified === true,
     isPublisher: user.role >= 2,
     avatar: profilePicture,
@@ -100,6 +150,10 @@ const sanitizeUser = (user: RawUser): User => {
     district: user.district ?? user.district_name ?? null,
     interests: user.interests ?? null,
     category_ids: user.category_ids ?? user.categories?.map((category) => category.id) ?? null,
+    google_id: user.google_id ?? null,
+    auth_provider: user.auth_provider ?? null,
+    providers: user.providers ?? (user.google_id ? ['google'] : []),
+    is_google_linked: isGoogleLinked,
   };
 };
 
@@ -155,6 +209,7 @@ interface AuthState {
   fetchPreferences: () => Promise<UserPreferences>;
   updateCachedPreferences: (updates: Partial<UserPreferences>) => void;
   fetchUser: () => Promise<User | null>;
+  syncProvider: () => Promise<User | null>;
   loginAsDemo: (customUser?: Partial<User>) => void;
 }
 
@@ -177,10 +232,63 @@ const isAlreadyLinkedError = (error: any): boolean => {
   return false;
 };
 
-const handleAuthError = (error: any): AuthError => {
+let syncRetryTimeout: ReturnType<typeof setTimeout> | null = null;
+
+const queueBackgroundSync = (firebaseToken?: string, attempt = 1) => {
+  if (attempt > 4) {
+    console.warn('[authStore] Max background sync retries reached. Will retry on next app launch.');
+    return;
+  }
+  const delayMs = Math.min(attempt * 4000, 20000);
+  if (syncRetryTimeout) clearTimeout(syncRetryTimeout);
+  syncRetryTimeout = setTimeout(async () => {
+    try {
+      console.log(`[authStore] Background syncProvider retry attempt #${attempt}...`);
+      const fbUser = auth().currentUser;
+      const freshToken = fbUser ? await fbUser.getIdToken(true) : firebaseToken;
+      if (!freshToken) return;
+
+      const response = await authApi.syncProvider(freshToken);
+      if (response?.user) {
+        console.log('[authStore] Background syncProvider succeeded on retry!');
+        let fullUserData: RawUser = response.user;
+        try {
+          const meProfile = await usersApi.me();
+          fullUserData = { ...response.user, ...meProfile };
+        } catch (_) {}
+
+        if (!fullUserData.auth_provider) fullUserData.auth_provider = 'google';
+        if (!fullUserData.providers || !fullUserData.providers.includes('google')) {
+          fullUserData.providers = [...(fullUserData.providers || []), 'google'];
+        }
+        fullUserData.is_google_linked = true;
+        fullUserData.email_verified = true;
+
+        const updated = sanitizeUser(fullUserData);
+        useAuthStore.setState({ user: updated });
+      }
+    } catch (e: any) {
+      console.warn(`[authStore] Background syncProvider retry #${attempt} failed:`, e?.message);
+      queueBackgroundSync(firebaseToken, attempt + 1);
+    }
+  }, delayMs);
+};
+
+const handleAuthError = (error: any, endpoint?: string): AuthError => {
+  const status = error?.response?.status ?? error?.status;
   const serverDetail = error?.response?.data?.detail || error?.response?.data?.message;
-  if (serverDetail) {
-    return new AuthError(serverDetail, error?.response?.data?.code || 'SERVER_ERROR');
+  const endpointInfo = endpoint
+    ? `[${endpoint} ${status || error?.code || 'ERROR'}]`
+    : status
+    ? `[HTTP ${status}]`
+    : error?.code || 'AUTH_ERROR';
+
+  if (serverDetail || status) {
+    console.error(`[AuthError] ${endpointInfo}:`, serverDetail || error?.message);
+    return new AuthError(
+      "Couldn't complete sign-in, please try again",
+      endpointInfo
+    );
   }
 
   if (error.code === 'auth/network-request-failed') {
@@ -217,8 +325,8 @@ const handleAuthError = (error: any): AuthError => {
     return new AuthError('This account is already linked.', 'ALREADY_LINKED');
   }
   return new AuthError(
-    error.message || 'Authentication failed',
-    error.code || 'UNKNOWN_ERROR'
+    "Couldn't complete sign-in, please try again",
+    endpointInfo
   );
 };
 
@@ -303,9 +411,34 @@ export const useAuthStore = create<AuthState>()(
             set({ user: null, isAuthenticated: false });
             return null;
           }
+
+          // If Firebase user is active, run syncProvider to update provider state with fresh ID token
+          const currentUser = auth().currentUser;
+          if (currentUser) {
+            try {
+              const freshToken = await currentUser.getIdToken(true);
+              if (freshToken) {
+                await authApi.syncProvider(freshToken);
+              }
+            } catch (syncErr) {
+              console.warn('[authStore] Background syncProvider during fetchUser skipped:', syncErr);
+            }
+          }
+
           const res = await usersApi.me();
           if (res && res.user_uid) {
-            const sanitized = sanitizeUser(res as any);
+            const rawUser = { ...(res as any) };
+            const hasFbGoogle = currentUser?.providerData?.some((p) => p.providerId === 'google.com');
+            if (hasFbGoogle) {
+              if (!rawUser.auth_provider) rawUser.auth_provider = 'google';
+              if (!rawUser.providers || !rawUser.providers.includes('google')) {
+                rawUser.providers = [...(rawUser.providers || []), 'google'];
+              }
+              rawUser.is_google_linked = true;
+              rawUser.email_verified = true;
+            }
+
+            const sanitized = sanitizeUser(rawUser);
             set({
               user: sanitized,
               isAuthenticated: true,
@@ -446,22 +579,102 @@ export const useAuthStore = create<AuthState>()(
       // ─── Google Sign-In ────────────────────────────────────────────────────
 
       loginWithGoogle: async (idToken: string) => {
-        set({ isLoading: true, error: null });
+        // Clear any cached user from before the login
+        set({ isLoading: true, error: null, user: null, isAuthenticated: false });
         try {
           await checkNetwork();
           const firebaseToken = await firebaseGoogleSignIn(idToken);
-          const response = await authApi.loginWithFirebase(firebaseToken);
+          
+          let response: BackendLoginResponse;
+          try {
+            // Call sync-provider with the fresh Firebase ID token
+            response = await authApi.syncProvider(firebaseToken);
+          } catch (syncErr: any) {
+            const status = syncErr?.response?.status ?? syncErr?.status;
+            const isFatalAuthError = status === 401 || status === 403;
+
+            if (isFatalAuthError) {
+              console.error(
+                `[authStore] Real auth failure during syncProvider [${syncErr?.endpoint || 'POST ' + API_ROUTES.auth.syncProvider} ${status}]:`,
+                syncErr?.message
+              );
+              throw syncErr;
+            }
+
+            // Don't block login on sync failure (404, 5xx, or offline)
+            console.warn(
+              `[authStore] Non-blocking sync failure [${syncErr?.endpoint || 'POST ' + API_ROUTES.auth.syncProvider} ${status || 'OFFLINE'}]. Keeping user signed in via Firebase and queueing background retry.`
+            );
+
+            const fbUser = auth().currentUser;
+            const googleProvider = fbUser?.providerData?.find((p) => p.providerId === 'google.com');
+            const googleId = googleProvider?.uid || fbUser?.uid || null;
+
+            const fallbackUser: RawUser = {
+              user_uid: fbUser?.uid || 'google_user',
+              user_name: fbUser?.displayName || null,
+              name: fbUser?.displayName || null,
+              email: fbUser?.email || null,
+              phone: fbUser?.phoneNumber || null,
+              role: 1,
+              email_verified: true,
+              mobile_verified: Boolean(fbUser?.phoneNumber),
+              profile_picture: fbUser?.photoURL || null,
+              google_id: googleId,
+              auth_provider: 'google',
+              providers: ['google'],
+              is_google_linked: true,
+              is_new_user: false,
+              created_at: new Date().toISOString(),
+            };
+
+            response = {
+              access_token: '',
+              refresh_token: '',
+              token_type: 'bearer',
+              user: fallbackUser as any,
+              is_new_user: false,
+            };
+
+            queueBackgroundSync(firebaseToken);
+          }
+
+          // Refetch fresh profile and update shared state before navigation
+          let fullUserData: RawUser = response.user;
+          try {
+            const meProfile = await usersApi.me();
+            fullUserData = { ...response.user, ...meProfile };
+          } catch (meErr) {
+            console.warn('[authStore] Failed to refetch /me profile on Google login:', meErr);
+          }
+
+          if (!fullUserData.auth_provider) fullUserData.auth_provider = 'google';
+          if (!fullUserData.providers || !fullUserData.providers.includes('google')) {
+            fullUserData.providers = [...(fullUserData.providers || []), 'google'];
+          }
+          fullUserData.is_google_linked = true;
+          fullUserData.email_verified = true;
+
+          const sanitized = sanitizeUser(fullUserData);
+          console.log('[authStore] Post-Google login verification status:', {
+            user_google_id: sanitized.google_id,
+            user_auth_provider: sanitized.auth_provider,
+            user_email_verified: sanitized.email_verified,
+            is_google_linked: sanitized.is_google_linked,
+            providers: sanitized.providers,
+          });
 
           set({
-            user: sanitizeUser(response.user),
+            user: sanitized,
             isAuthenticated: true,
             isOnboarded: !(response.user?.is_new_user ?? response.is_new_user),
             isLoading: false,
+            error: null,
           });
 
           return response;
         } catch (error: any) {
-          const authError = handleAuthError(error);
+          const authError = handleAuthError(error, `POST ${API_ROUTES.auth.syncProvider}`);
           set({ isLoading: false, error: authError.message });
           throw authError;
         }
@@ -474,18 +687,137 @@ export const useAuthStore = create<AuthState>()(
         try {
           await checkNetwork();
           const firebaseToken = await linkGoogleAccount(idToken);
-          const response = await authApi.loginWithFirebase(firebaseToken);
+          
+          let response: BackendLoginResponse;
+          try {
+            response = await authApi.syncProvider(firebaseToken);
+          } catch (syncErr: any) {
+            const status = syncErr?.response?.status ?? syncErr?.status;
+            const isFatalAuthError = status === 401 || status === 403;
+
+            if (isFatalAuthError) {
+              console.error(
+                `[authStore] Real auth failure during linkGoogle [${syncErr?.endpoint || 'POST ' + API_ROUTES.auth.syncProvider} ${status}]:`,
+                syncErr?.message
+              );
+              throw syncErr;
+            }
+
+            console.warn(
+              `[authStore] Non-blocking sync failure on linkGoogle [${syncErr?.endpoint || 'POST ' + API_ROUTES.auth.syncProvider} ${status || 'OFFLINE'}]. User kept linked in local state.`
+            );
+
+            const current = get().user;
+            const fbUser = auth().currentUser;
+            const googleProvider = fbUser?.providerData?.find((p) => p.providerId === 'google.com');
+            const googleId = googleProvider?.uid || fbUser?.uid || null;
+
+            const fallbackUser: RawUser = {
+              ...(current as any),
+              google_id: googleId || current?.google_id || null,
+              auth_provider: 'google',
+              providers: [...(current?.providers || []).filter((p) => p !== 'google'), 'google'],
+              is_google_linked: true,
+              email_verified: true,
+            };
+
+            response = {
+              access_token: '',
+              refresh_token: '',
+              token_type: 'bearer',
+              user: fallbackUser as any,
+              is_new_user: false,
+            };
+
+            queueBackgroundSync(firebaseToken);
+          }
+
+          // Refetch fresh profile and update shared state
+          let fullUserData: RawUser = response.user;
+          try {
+            const meProfile = await usersApi.me();
+            fullUserData = { ...response.user, ...meProfile };
+          } catch (meErr) {
+            console.warn('[authStore] Failed to refetch /me profile on Google link:', meErr);
+          }
+
+          if (!fullUserData.auth_provider) fullUserData.auth_provider = 'google';
+          if (!fullUserData.providers || !fullUserData.providers.includes('google')) {
+            fullUserData.providers = [...(fullUserData.providers || []), 'google'];
+          }
+          fullUserData.is_google_linked = true;
+          fullUserData.email_verified = true;
+
+          const sanitized = sanitizeUser(fullUserData);
+          console.log('[authStore] Post-Google link verification status:', {
+            user_google_id: sanitized.google_id,
+            user_auth_provider: sanitized.auth_provider,
+            user_email_verified: sanitized.email_verified,
+            is_google_linked: sanitized.is_google_linked,
+            providers: sanitized.providers,
+          });
 
           set({
-            user: sanitizeUser(response.user),
+            user: sanitized,
             isLoading: false,
+            error: null,
           });
 
           return response;
         } catch (error: any) {
-          const authError = handleAuthError(error);
+          const authError = handleAuthError(error, `POST ${API_ROUTES.auth.syncProvider}`);
           set({ isLoading: false, error: authError.message });
           throw authError;
+        }
+      },
+
+      // ─── Sync External Provider ───────────────────────────────────────────
+
+      syncProvider: async (): Promise<User | null> => {
+        try {
+          const currentUser = auth().currentUser;
+          if (!currentUser) return null;
+          const freshIdToken = await currentUser.getIdToken(true);
+          if (!freshIdToken) return null;
+          console.log('[authStore] Calling syncProvider with fresh Firebase ID token...');
+          const response = await authApi.syncProvider(freshIdToken);
+
+          let fullUserData: RawUser = response.user;
+          try {
+            const meProfile = await usersApi.me();
+            fullUserData = { ...response.user, ...meProfile };
+          } catch (meErr) {
+            console.warn('[authStore] Failed to refetch /me on syncProvider:', meErr);
+          }
+
+          const hasFbGoogle = currentUser.providerData?.some((p) => p.providerId === 'google.com');
+          if (hasFbGoogle) {
+            if (!fullUserData.auth_provider) fullUserData.auth_provider = 'google';
+            if (!fullUserData.providers || !fullUserData.providers.includes('google')) {
+              fullUserData.providers = [...(fullUserData.providers || []), 'google'];
+            }
+            fullUserData.is_google_linked = true;
+            fullUserData.email_verified = true;
+          }
+
+          const sanitized = sanitizeUser(fullUserData);
+          console.log('[authStore] syncProvider completed:', {
+            user_google_id: sanitized.google_id,
+            user_auth_provider: sanitized.auth_provider,
+            user_email_verified: sanitized.email_verified,
+            providers: sanitized.providers,
+            is_google_linked: sanitized.is_google_linked,
+          });
+
+          set({ user: sanitized, isAuthenticated: true });
+          return sanitized;
+        } catch (err: any) {
+          const status = err?.response?.status ?? err?.status;
+          console.warn(
+            `[authStore] Background syncProvider skipped [${err?.endpoint || 'POST ' + API_ROUTES.auth.syncProvider} ${status || 'OFFLINE'}]:`,
+            err?.message
+          );
+          return get().user;
         }
       },
 
@@ -714,6 +1046,11 @@ export const useAuthStore = create<AuthState>()(
         pendingPhone: state.pendingPhone,
         pendingVerificationId: state.pendingVerificationId,
       }),
+      onRehydrateStorage: () => (state) => {
+        if (state?.user) {
+          state.user = sanitizeUser(state.user as any);
+        }
+      },
     }
   )
 );

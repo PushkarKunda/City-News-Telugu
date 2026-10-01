@@ -13,6 +13,7 @@ from starlette.requests import Request
 # =============================
 # FastAPI
 # =============================
+from pydantic import BaseModel
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, logger, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -851,10 +852,14 @@ async def firebase_login(
         raise HTTPException(status_code=500, detail=f"Login failed: {str(e)}")
 
 
+class SyncProviderRequest(BaseModel):
+    firebase_token: Optional[str] = None
+
+
 @router.post("/auth/sync-provider", tags=["Auth"])
 async def sync_provider(
     request: Request,
-    request_data: Optional[FirebaseLoginRequest] = None,
+    request_data: Optional[SyncProviderRequest] = Body(None),
     db: Session = Depends(get_db)
 ):
     """

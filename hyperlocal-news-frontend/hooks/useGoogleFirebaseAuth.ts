@@ -89,7 +89,14 @@ export function useGoogleFirebaseAuth(options: UseGoogleFirebaseAuthOptions = {}
       console.log('✅ Google auth successful');
       options.onSuccess?.(backendResponse);
     } catch (error: any) {
-      console.error('❌ Google Sign-In failed:', error.message, error.code);
+      const endpointCode =
+        error?.code && error.code !== 'SERVER_ERROR'
+          ? error.code
+          : error?.status
+          ? `[POST /user/auth/sync-provider ${error.status}]`
+          : '[POST /user/auth/sync-provider ERROR]';
+
+      console.error(`❌ Google Sign-In failed: ${endpointCode}`, error?.message || error);
 
       if (
         error.code === statusCodes.SIGN_IN_CANCELLED ||
@@ -127,7 +134,10 @@ export function useGoogleFirebaseAuth(options: UseGoogleFirebaseAuthOptions = {}
         return;
       }
 
-      options.onError?.(error);
+      // Requirement 6: Show the user a simple "Couldn't complete sign-in, please try again" message
+      const userFacingError = new Error("Couldn't complete sign-in, please try again");
+      (userFacingError as any).code = endpointCode;
+      options.onError?.(userFacingError);
     } finally {
       setIsGoogleLoading(false);
     }
