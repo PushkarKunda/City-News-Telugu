@@ -111,9 +111,75 @@ def init_db() -> None:
         # Create all tables
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created successfully")
+        ensure_user_columns()
     except Exception as e:
         logger.error(f"Failed to create database tables: {str(e)}")
         raise
+
+
+def ensure_user_columns() -> None:
+    """
+    Ensure google_id, auth_provider, and providers columns exist in users table.
+    Works for both SQLite and PostgreSQL.
+    """
+    try:
+        with engine.connect() as conn:
+            if _is_sqlite:
+                result = conn.execute(text("PRAGMA table_info(users)")).fetchall()
+                existing_cols = {r[1] for r in result}
+            else:
+                result = conn.execute(text(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'users'"
+                )).fetchall()
+                existing_cols = {r[0] for r in result}
+
+            if existing_cols:
+                if "google_id" not in existing_cols:
+                    logger.info("Migrating: Adding google_id column to users table")
+                    conn.execute(text("ALTER TABLE users ADD COLUMN google_id VARCHAR(128)"))
+                if "auth_provider" not in existing_cols:
+                    logger.info("Migrating: Adding auth_provider column to users table")
+                    conn.execute(text("ALTER TABLE users ADD COLUMN auth_provider VARCHAR(50) DEFAULT 'phone'"))
+                if "providers" not in existing_cols:
+                    logger.info("Migrating: Adding providers column to users table")
+                    conn.execute(text("ALTER TABLE users ADD COLUMN providers VARCHAR(255)"))
+                if "email_verified_at" not in existing_cols:
+                    logger.info("Migrating: Adding email_verified_at column to users table")
+                    if _is_sqlite:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN email_verified_at TIMESTAMP"))
+                    else:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN email_verified_at TIMESTAMP WITH TIME ZONE"))
+                conn.commit()
+
+                # One-time migration fix for existing users created before this change
+                try:
+                    conn.execute(text(
+                        "UPDATE users SET auth_provider = 'google', providers = '[\"google\"]' "
+                        "WHERE auth_provider IS NULL AND (email IS NOT NULL AND phone IS NULL)"
+                    ))
+                    conn.execute(text(
+                        "UPDATE users SET auth_provider = 'phone', providers = '[\"phone\"]' "
+                        "WHERE auth_provider IS NULL AND phone IS NOT NULL"
+                    ))
+                    # One-time migration: mark email_verified = True and email_verified_at for all Google accounts
+                    if _is_sqlite:
+                        conn.execute(text(
+                            "UPDATE users SET email_verified = 1, email_verified_at = CURRENT_TIMESTAMP "
+                            "WHERE (google_id IS NOT NULL OR auth_provider = 'google' OR providers LIKE '%google%') "
+                            "AND (email_verified = 0 OR email_verified IS NULL)"
+                        ))
+                    else:
+                        conn.execute(text(
+                            "UPDATE users SET email_verified = TRUE, email_verified_at = CURRENT_TIMESTAMP "
+                            "WHERE (google_id IS NOT NULL OR auth_provider = 'google' OR providers LIKE '%google%') "
+                            "AND email_verified = FALSE"
+                        ))
+                    conn.commit()
+                except Exception as backfill_err:
+                    logger.debug(f"User provider/email backfill check: {backfill_err}")
+    except Exception as e:
+        logger.warning(f"ensure_user_columns check: {e}")
+
 
 
 def get_db():

@@ -46,6 +46,9 @@ class User(Base):
     hashed_password = Column(String(255), nullable=True)  # Secure password hash
     profile_picture = Column(String(500), nullable=True)
     firebase_uid = Column(String(128), unique=True, nullable=True, index=True)
+    google_id = Column(String(128), unique=True, nullable=True, index=True)
+    auth_provider = Column(String(50), nullable=True, default="phone")
+    providers = Column(String(255), nullable=True)
 
     language = Column(String(10), nullable=True, index=True)
     state_id = Column(Integer, ForeignKey("states.id"), nullable=True)
@@ -54,6 +57,7 @@ class User(Base):
     email = Column(String(100), unique=True, nullable=True)
     user_name = Column(String(30), unique=True, nullable=True)
     email_verified = Column(Boolean, default=False)
+    email_verified_at = Column(DateTime(timezone=True), nullable=True)
     mobile_verified = Column(Boolean, default=False)
     date_of_birth = Column(Date, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
@@ -85,6 +89,41 @@ class User(Base):
     @password_hash.setter
     def password_hash(self, value):
         self.hashed_password = value
+
+    @property
+    def provider_list(self):
+        import json
+        res = set()
+        if self.providers:
+            try:
+                val = json.loads(self.providers)
+                if isinstance(val, list):
+                    res.update(val)
+                elif isinstance(val, str):
+                    res.add(val)
+            except Exception:
+                for p in self.providers.split(","):
+                    if p.strip():
+                        res.add(p.strip())
+        if self.google_id or self.auth_provider == "google":
+            res.add("google")
+        if self.phone or self.auth_provider == "phone":
+            res.add("phone")
+        return sorted(list(res))
+
+    @property
+    def is_google_linked(self):
+        return bool(self.google_id) or ("google" in self.provider_list)
+
+    def add_provider(self, provider: str, provider_id: str = None):
+        import json
+        plist = list(self.provider_list)
+        if provider not in plist:
+            plist.append(provider)
+        self.providers = json.dumps(sorted(plist))
+        if provider == "google" and provider_id:
+            self.google_id = provider_id
+
 
     # Location relationships
     state = relationship("State", foreign_keys=[state_id])

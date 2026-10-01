@@ -147,3 +147,240 @@ def test_suspended_user_blocked(client: TestClient, suspended_user: User):
     res = client.get("/user/users/me", headers=headers)
     assert res.status_code == 403
     assert "suspended" in res.json()["detail"].lower()
+
+
+def test_google_login_new_user_and_me_endpoint(client: TestClient, monkeypatch):
+    """Test fresh Google sign-in stores provider info and returns in login and /me endpoint."""
+    fake_firebase_user = {
+        "uid": "firebase_goog_123",
+        "user_id": "firebase_goog_123",
+        "phone_number": None,
+        "phone_number_verified": False,
+        "email": "newgoogleuser@example.com",
+        "email_verified": True,
+        "name": "Google User",
+        "picture": "https://example.com/pic.jpg",
+        "sign_in_provider": "google.com",
+        "google_id": "google_sub_987654",
+        "providers": ["google"],
+        "firebase": {"sign_in_provider": "google.com"},
+        "is_verified": True
+    }
+    monkeypatch.setattr("routes.user_routes.verify_firebase_token", lambda token: fake_firebase_user)
+
+    login_res = client.post("/user/auth/firebase/login", json={"firebase_token": "valid_token"})
+    assert login_res.status_code == 200
+    data = login_res.json()
+    assert data["success"] is True
+    user_data = data["user"]
+    assert user_data["google_id"] == "google_sub_987654"
+    assert user_data["auth_provider"] == "google"
+    assert "google" in user_data["providers"]
+    assert user_data["is_google_linked"] is True
+    assert user_data["email"] == "newgoogleuser@example.com"
+    assert user_data["email_verified"] is True
+    assert user_data["email_verified_at"] is not None
+
+    # Test /me endpoint returns provider fields and verified status
+    token = data["access_token"]
+    me_res = client.get("/user/users/me", headers={"Authorization": f"Bearer {token}"})
+    assert me_res.status_code == 200
+    me_data = me_res.json()
+    assert me_data["google_id"] == "google_sub_987654"
+    assert me_data["auth_provider"] == "google"
+    assert "google" in me_data["providers"]
+    assert me_data["is_google_linked"] is True
+    assert me_data["email_verified"] is True
+    assert me_data["email_verified_at"] is not None
+
+
+def test_existing_email_user_links_google_without_duplicate(client: TestClient, db: Session, regular_user: User, monkeypatch):
+    """Test existing user with email signs in with Google; accounts merge, Google provider is attached, marked verified."""
+    user_email = regular_user.email
+    original_uid = regular_user.user_uid
+    # Ensure regular_user starts unverified
+    regular_user.email_verified = False
+    regular_user.email_verified_at = None
+    db.commit()
+
+    fake_firebase_user = {
+        "uid": "firebase_goog_456",
+        "user_id": "firebase_goog_456",
+        "phone_number": None,
+        "phone_number_verified": False,
+        "email": user_email,
+        "email_verified": True,
+        "name": "Google Linked Name",
+        "picture": "https://example.com/pic2.jpg",
+        "sign_in_provider": "google.com",
+        "google_id": "google_sub_112233",
+        "providers": ["google"],
+        "firebase": {"sign_in_provider": "google.com"},
+        "is_verified": True
+    }
+    monkeypatch.setattr("routes.user_routes.verify_firebase_token", lambda token: fake_firebase_user)
+
+    login_res = client.post("/user/auth/firebase/login", json={"firebase_token": "valid_token_2"})
+    assert login_res.status_code == 200
+    data = login_res.json()
+    user_data = data["user"]
+    # Must be the SAME user UID, not a new user
+    assert user_data["user_uid"] == original_uid
+    assert user_data["google_id"] == "google_sub_112233"
+    assert "google" in user_data["providers"]
+    assert user_data["is_google_linked"] is True
+    assert user_data["email_verified"] is True
+    assert user_data["email_verified_at"] is not None
+
+    # Check database directly
+    db.refresh(regular_user)
+    assert regular_user.google_id == "google_sub_112233"
+    assert regular_user.is_google_linked is True
+    assert "google" in regular_user.provider_list
+    assert regular_user.email_verified is True
+    assert regular_user.email_verified_at is not None
+
+    # Check publisher eligibility does not complain about email
+    token = data["access_token"]
+    elig_res = client.get("/user/users/me/publisher-eligibility", headers={"Authorization": f"Bearer {token}"})
+    assert elig_res.status_code == 200
+    elig_data = elig_res.json()
+    missing_fields = [m["field"] for m in elig_data["missing_requirements"]]
+    assert "email" not in missing_fields
+
+
+def test_sync_provider_endpoint(client, db, monkeypatch):
+    """
+    Test POST /user/auth/sync-provider syncs Google provider and marks email verified.
+    """
+    from services import firebase_auth
+    fake_payload = {
+        "uid": "fb_sync_uid_99",
+        "email": "syncuser@gmail.com",
+        "email_verified": True,
+        "phone_number": None,
+        "name": "Sync User",
+        "picture": "https://example.com/pic.png",
+        "sign_in_provider": "google.com",
+        "google_id": "google_sync_id_999",
+        "providers": ["google"],
+        "decoded_token": {
+            "uid": "fb_sync_uid_99",
+            "email": "syncuser@gmail.com",
+            "email_verified": True,
+            "firebase": {
+                "sign_in_provider": "google.com",
+                "identities": {
+                    "google.com": ["google_sync_id_999"]
+                }
+            }
+        },
+        "is_verified": True
+    }
+    monkeypatch.setattr("routes.user_routes.verify_firebase_token", lambda tok: fake_payload)
+    monkeypatch.setattr(firebase_auth, "verify_firebase_token", lambda tok: fake_payload)
+
+    # 1. Call sync-provider with Authorization header
+    res = client.post("/user/auth/sync-provider", headers={"Authorization": "Bearer fake_token_123"})
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["success"] is True
+    user_info = data["user"]
+    assert user_info["email"] == "syncuser@gmail.com"
+    assert user_info["google_id"] == "google_sync_id_999"
+    assert user_info["auth_provider"] == "google"
+    assert "google" in user_info["providers"]
+    assert user_info["email_verified"] is True
+    assert user_info["is_google_linked"] is True
+
+    # 2. Verify /users/me returns the updated provider state
+    token = data["access_token"]
+    me_res = client.get("/user/users/me", headers={"Authorization": f"Bearer {token}"})
+    assert me_res.status_code == 200, me_res.text
+    me_data = me_res.json()
+    assert me_data["google_id"] == "google_sync_id_999"
+    assert me_data["auth_provider"] == "google"
+    assert "google" in me_data["providers"]
+    assert me_data["email_verified"] is True
+    assert me_data["is_google_linked"] is True
+
+
+def test_sync_provider_existing_user_and_publisher_eligibility(client, db, monkeypatch):
+    """
+    Test that an existing unverified user (e.g. sujanakorupolu319@gmail.com) gets updated on sync-provider,
+    and their publisher eligibility reflects can_apply=True and filtered_missing=[].
+    """
+    from services import firebase_auth
+    from models.user import User
+
+    # Create existing unverified user with completed profile fields
+    from datetime import date
+    existing = User(
+        user_uid="SUJANA_UID_123",
+        user_name="sujanak",
+        name="Sujana Korupolu",
+        email="sujanakorupolu319@gmail.com",
+        phone="+919876543210",
+        mobile_verified=True,
+        email_verified=False,
+        email_verified_at=None,
+        google_id=None,
+        auth_provider=None,
+        providers=None,
+        date_of_birth=date(1995, 5, 15),
+        gender="female",
+        role=1
+    )
+    db.add(existing)
+    db.commit()
+
+    fake_payload = {
+        "uid": "fb_sujana_uid",
+        "email": "sujanakorupolu319@gmail.com",
+        "email_verified": True,
+        "phone_number": "+919876543210",
+        "name": "Sujana Korupolu",
+        "picture": "https://example.com/pic.png",
+        "sign_in_provider": "google.com",
+        "google_id": "google_sujana_id_777",
+        "providers": ["google"],
+        "decoded_token": {
+            "uid": "fb_sujana_uid",
+            "email": "sujanakorupolu319@gmail.com",
+            "email_verified": True,
+            "firebase": {
+                "sign_in_provider": "google.com",
+                "identities": {
+                    "google.com": ["google_sujana_id_777"]
+                }
+            }
+        },
+        "is_verified": True
+    }
+    monkeypatch.setattr("routes.user_routes.verify_firebase_token", lambda tok: fake_payload)
+    monkeypatch.setattr(firebase_auth, "verify_firebase_token", lambda tok: fake_payload)
+
+    # Sync provider
+    res = client.post("/user/auth/sync-provider", headers={"Authorization": "Bearer token_sujana_123"})
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["success"] is True
+    u_info = data["user"]
+    assert u_info["google_id"] == "google_sujana_id_777"
+    assert u_info["auth_provider"] == "google"
+    assert "google" in u_info["providers"]
+    assert u_info["email_verified"] is True
+    assert u_info["is_google_linked"] is True
+
+    # Check publisher eligibility
+    access_token = data["access_token"]
+    pub_res = client.get("/user/publisher/status", headers={"Authorization": f"Bearer {access_token}"})
+    assert pub_res.status_code == 200, pub_res.text
+    pub_data = pub_res.json()
+    assert pub_data["can_apply"] is True
+    assert pub_data["is_eligible"] is True
+    assert pub_data["filtered_missing"] == []
+    assert pub_data["completed_requirements"]["email_verified"] is True
+
+
+

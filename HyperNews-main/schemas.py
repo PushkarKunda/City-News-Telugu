@@ -174,7 +174,12 @@ class UserBase(BaseModel):
     city: Optional[str] = None
     date_of_birth: Optional[datetime] = None
     email_verified: Optional[bool] = False
+    email_verified_at: Optional[datetime] = None
     mobile_verified: Optional[bool] = False
+    google_id: Optional[str] = None
+    auth_provider: Optional[str] = None
+    providers: Optional[List[str]] = None
+    is_google_linked: Optional[bool] = False
 
 
 class UserCreate(UserBase):
@@ -1973,11 +1978,14 @@ class UserProfileOut(BaseModel):
     user_name: Optional[str] = None
     name: Optional[str] = None
     email: Optional[str] = None
-    profile_picture: Optional[str] = None  # ✅ ADD THIS
     phone: Optional[str] = None
     gender: Optional[str] = None
-    date_of_birth: Optional[datetime] = None
+    profile_picture: Optional[str] = None
+    date_of_birth: Optional[Union[date, datetime]] = None
     language: Optional[str] = None
+    language_id: Optional[int] = None
+    language_code: Optional[str] = None
+    language_name: Optional[str] = None
     state_id: Optional[int] = None
     state_name: Optional[str] = None
     district_id: Optional[int] = None
@@ -1987,20 +1995,24 @@ class UserProfileOut(BaseModel):
     role: int
     role_name: str
     email_verified: bool = False
+    email_verified_at: Optional[datetime] = None
     mobile_verified: bool = False
     is_suspended: bool = False
     suspension_reason: Optional[str] = None
     suspension_until: Optional[datetime] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
+    last_login: Optional[datetime] = None
     preferences: Optional[dict] = None
     stats: Optional[dict] = None
-    
-    class Config:
-        from_attributes = True
+    google_id: Optional[str] = None
+    auth_provider: Optional[str] = None
+    providers: Optional[List[str]] = None
+    is_google_linked: Optional[bool] = False
+    location: Optional[dict] = None
 
+    model_config = ConfigDict(from_attributes=True, extra="ignore")
 
-# schemas.py - ADD THIS
 
 class UserUpdate(BaseModel):
     user_name: Optional[str] = Field(None, min_length=3, max_length=18)
@@ -2020,100 +2032,7 @@ class UserDetailOut(UserProfileOut):
     recent_posts: Optional[List[dict]] = None
     admin_info: Optional[dict] = None
     
-    class Config:
-        from_attributes = True
-        
-
-# Add these after your existing User schemas (around line 80-100)
-
-# =============================================================================
-# User Profile Extended Schemas (NEW)
-# =============================================================================
-
-# schemas.py - UPDATE UserProfileOut
-
-class UserProfileOut(BaseModel):
-    """User profile output schema"""
-    user_uid: str
-    user_name: Optional[str] = None
-    name: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    gender: Optional[str] = None
-    date_of_birth: Optional[date] = None
-    profile_picture: Optional[str] = None
-    
-    # ✅ FIXED: Use language_id instead of language
-    language_id: Optional[int] = None
-    language_code: Optional[str] = None
-    language_name: Optional[str] = None
-    
-    # ✅ FIXED: Location fields
-    state_id: Optional[int] = None
-    state_name: Optional[str] = None
-    district_id: Optional[int] = None
-    district_name: Optional[str] = None
-    city_id: Optional[int] = None
-    city_name: Optional[str] = None
-    
-    role: int
-    role_name: str
-    email_verified: bool
-    mobile_verified: bool
-    is_suspended: bool
-    created_at: datetime
-    updated_at: datetime
-    last_login: Optional[datetime] = None
-    
-    preferences: Optional[dict] = None
-    
-    class Config:
-        from_attributes = True
-
-# class UserUpdate(BaseModel):
-#     """User profile update"""
-#     user_name: Optional[str] = Field(None, min_length=3, max_length=18)
-#     name: Optional[str] = Field(None, min_length=2, max_length=100)
-#     gender: Optional[str] = Field(None, pattern="^(male|female|other|prefer_not_to_say)$")
-#     date_of_birth: Optional[date] = None  # ✅ Changed from datetime to date
-#     language_id: Optional[int] = None
-#     state_id: Optional[int] = None
-#     district_id: Optional[int] = None
-#     city_id: Optional[int] = None
-#     profile_picture: Optional[str] = None
-    
-#     class Config:
-#         from_attributes = True
-# # Add these after your existing User schemas
-
-# =============================================================================
-# User Profile Schemas (Minimal)
-# =============================================================================
-
-class UserProfileOut(BaseModel):
-    """User profile output (without heavy stats)"""
-    user_uid: str
-    user_name: Optional[str] = None
-    name: Optional[str] = None
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    gender: Optional[str] = None
-    profile_picture: Optional[str] = None  # ✅ ADD THIS
-
-    date_of_birth: Optional[datetime] = None
-    language: Optional[str] = None
-    state_id: Optional[int] = None
-    district_id: Optional[int] = None
-    city_id: Optional[int] = None
-    role: int
-    email_verified: bool = False
-    mobile_verified: bool = False
-    is_suspended: bool = False
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True, extra="ignore")
 
 
 # class UserUpdate(BaseModel):

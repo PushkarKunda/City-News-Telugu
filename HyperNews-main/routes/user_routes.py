@@ -7,6 +7,7 @@ import random
 import logging
 from typing import List, Optional, Union
 import os
+import json
 import logging
 from starlette.requests import Request
 # =============================
@@ -121,6 +122,22 @@ def _get_post_status(news) -> str:
         return "pending"
 
 
+def is_email_verified(user: Optional[User]) -> bool:
+    """
+    Single source of truth for email verification across backend checks.
+    Returns True if email_verified is true, or if the user has a google_id, or if auth_provider is google.
+    """
+    if not user:
+        return False
+    return bool(
+        user.email_verified
+        or user.google_id
+        or user.auth_provider == "google"
+        or (hasattr(user, "is_google_linked") and user.is_google_linked)
+        or (user.providers and "google" in (user.providers or ""))
+    )
+
+
 def _get_quick_actions(user: User) -> list:
     """Get quick actions based on user role and profile completion"""
     actions = [
@@ -130,7 +147,8 @@ def _get_quick_actions(user: User) -> list:
     if user.role == 2:  # PUBLISHER
         actions.append({"label": "View Analytics", "url": "/analytics", "icon": "chart", "type": "secondary"})
     
-    if not user.email_verified:
+    # Google sign-in always means email is verified — don't prompt for it
+    if not is_email_verified(user):
         actions.append({"label": "Verify Email", "url": "/verify-email", "icon": "mail", "type": "warning"})
     
     if not user.mobile_verified:
@@ -582,35 +600,54 @@ async def firebase_login(
         phone = firebase_user.get("phone_number")
         email = firebase_user.get("email")
         name = firebase_user.get("name")
-        firebase_uid = firebase_user.get("user_id")
+        firebase_uid = firebase_user.get("uid") or firebase_user.get("user_id")
         photo_url = firebase_user.get("picture")
+        google_id = firebase_user.get("google_id")
+        sign_in_provider = firebase_user.get("sign_in_provider")
+        token_providers = firebase_user.get("providers") or []
+        is_google_signin = (sign_in_provider == "google.com") or bool(google_id) or ("google" in token_providers)
+
+        # Email verified directly from Firebase token (Google Sign-In is always verified)
+        email_verified = bool(firebase_user.get("email_verified", False) or is_google_signin)
         
-        # ✅ FIX: Use email_verified DIRECTLY from Firebase token
-        # For Google Sign-In, Firebase token already has email_verified: true
-        email_verified = firebase_user.get("email_verified", False)
-        
-        # ✅ Phone verification - if phone exists, it's verified
+        # Phone verification - if phone exists, it's verified
         phone_verified = True if phone else False
         
         # =========================================================
-        # FIND EXISTING USER
+        # FIND EXISTING USER (Priority: google_id > verified email > Firebase UID > Phone)
+        # One user, not two: match by google_id first, then by verified email.
         # =========================================================
         user = None
         
-        # 1️⃣ Try by Firebase UID
-        if firebase_uid:
-            user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
+        # 1️⃣ Try by google_id (most direct provider match)
+        if google_id:
+            user = db.query(User).filter(User.google_id == google_id).first()
         
-        # 2️⃣ Try by phone
-        if not user and phone:
-            user = db.query(User).filter(User.phone == phone).first()
-        
-        # 3️⃣ Try by email
+        # 2️⃣ Try by email (attach Google provider to existing email account instead of duplicate)
         if not user and email:
             user = db.query(User).filter(User.email == email).first()
         
+        # 3️⃣ Try by Firebase UID
+        if not user and firebase_uid:
+            user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
+        
+        # 4️⃣ Try by phone
+        if not user and phone:
+            user = db.query(User).filter(User.phone == phone).first()
+        
         is_new_user = False
         verification_added = False
+
+        # Compute initial provider list
+        providers_list = list(token_providers)
+        if is_google_signin and "google" not in providers_list:
+            providers_list.append("google")
+        if phone and "phone" not in providers_list:
+            providers_list.append("phone")
+        if email and "email" not in providers_list and not is_google_signin:
+            providers_list.append("email")
+
+        auth_provider = "google" if is_google_signin else ("phone" if phone else "email")
         
         # =========================================================
         # CREATE NEW USER
@@ -619,18 +656,23 @@ async def firebase_login(
             user_uid = generate_user_uid(db)
             user_name = generate_unique_username(db)
             
+            now = _get_utc_now()
             user = User(
                 user_uid=user_uid,
                 user_name=user_name,
                 firebase_uid=firebase_uid,
+                google_id=google_id,
+                auth_provider=auth_provider,
+                providers=json.dumps(sorted(providers_list)),
                 phone=phone,
                 email=email,
                 name=name or (email or phone),
                 profile_picture=photo_url,
                 role=UserRole.USER,
                 mobile_verified=phone_verified,
-                email_verified=email_verified,  # ✅ Now correctly set
-                created_at=_get_utc_now(),
+                email_verified=email_verified,
+                email_verified_at=now if email_verified else None,
+                created_at=now,
                 token_version=0
             )
             db.add(user)
@@ -639,11 +681,38 @@ async def firebase_login(
             is_new_user = True
         
         # =========================================================
-        # UPDATE EXISTING USER
+        # UPDATE EXISTING USER (Attach provider, backfill google_id)
         # =========================================================
         else:
             updated = False
             
+            # Attach Google provider and google_id on login
+            if is_google_signin:
+                if google_id and user.google_id != google_id:
+                    user.google_id = google_id
+                    updated = True
+                curr_plist = list(user.provider_list)
+                if "google" not in curr_plist:
+                    curr_plist.append("google")
+                    user.providers = json.dumps(sorted(curr_plist))
+                    updated = True
+                if user.auth_provider != "google":
+                    user.auth_provider = "google"
+                    updated = True
+                if not user.email_verified:
+                    user.email_verified = True
+                    user.email_verified_at = _get_utc_now()
+                    updated = True
+                    verification_added = True
+                elif hasattr(user, 'email_verified_at') and user.email_verified_at is None:
+                    user.email_verified_at = _get_utc_now()
+                    updated = True
+
+            # Backfill existing users who signed in via Google previously
+            if not user.google_id and google_id:
+                user.google_id = google_id
+                updated = True
+
             if not user.firebase_uid and firebase_uid:
                 user.firebase_uid = firebase_uid
                 updated = True
@@ -656,17 +725,20 @@ async def firebase_login(
                 user.email = email
                 updated = True
             
-            # ✅ Update verification statuses
+            # Update verification statuses
             if phone and not user.mobile_verified:
                 user.mobile_verified = True
                 updated = True
                 verification_added = True
             
-            # ✅ email_verified comes DIRECTLY from Firebase token
             if email_verified and not user.email_verified:
                 user.email_verified = True
+                user.email_verified_at = _get_utc_now()
                 updated = True
                 verification_added = True
+            elif email_verified and hasattr(user, 'email_verified_at') and user.email_verified_at is None:
+                user.email_verified_at = _get_utc_now()
+                updated = True
             
             if name and not user.name:
                 user.name = name
@@ -693,7 +765,7 @@ async def firebase_login(
         publisher_requirements = []
         
         if user.role == UserRole.USER:
-            if not user.email_verified:
+            if not is_email_verified(user):
                 publisher_requirements.append({
                     "field": "email",
                     "status": "not_verified",
@@ -748,12 +820,17 @@ async def firebase_login(
                 "name": user.name,
                 "email": user.email,
                 "phone": user.phone,
-                "email_verified": user.email_verified,  # ✅ Should be True for Google
+                "email_verified": user.email_verified,
+                "email_verified_at": getattr(user, "email_verified_at", None),
                 "mobile_verified": user.mobile_verified,
                 "profile_picture": user.profile_picture,
                 "role": user.role,
                 "role_name": schemas.user_role_label(user.role),
-                "is_new_user": is_new_user
+                "is_new_user": is_new_user,
+                "google_id": user.google_id,
+                "auth_provider": user.auth_provider,
+                "providers": user.provider_list,
+                "is_google_linked": user.is_google_linked
             },
             "verification_added": verification_added,
             "publisher_eligibility": {
@@ -772,8 +849,234 @@ async def firebase_login(
         db.rollback()
         logger.error(f"Firebase login error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Login failed: {str(e)}")
-    
-    
+
+
+@router.post("/auth/sync-provider", tags=["Auth"])
+async def sync_provider(
+    request: Request,
+    request_data: Optional[FirebaseLoginRequest] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Sync external provider (Google) with backend user record.
+    Receives Firebase ID token in Authorization header (Bearer <token>)
+    or request_data.firebase_token. Verified with Firebase Admin SDK (verifyIdToken).
+    Never trusts provider or verified flags sent in the request body.
+    """
+    try:
+        auth_header = request.headers.get("Authorization", "")
+        firebase_token = None
+        if auth_header.startswith("Bearer "):
+            firebase_token = auth_header[7:].strip()
+        elif auth_header:
+            firebase_token = auth_header.strip()
+
+        if not firebase_token and request_data and request_data.firebase_token:
+            firebase_token = request_data.firebase_token
+
+        if not firebase_token:
+            raise HTTPException(status_code=401, detail="Firebase ID token required in Authorization header")
+
+        firebase_user = verify_firebase_token(firebase_token)
+
+        decoded_token = firebase_user.get("decoded_token") or {}
+        firebase_info = firebase_user.get("firebase") or decoded_token.get("firebase", {})
+        sign_in_provider = firebase_user.get("sign_in_provider") or firebase_info.get("sign_in_provider")
+        identities = firebase_info.get("identities", {})
+
+        email = firebase_user.get("email") or decoded_token.get("email")
+        token_email_verified = bool(decoded_token.get("email_verified") or firebase_user.get("email_verified", False))
+        firebase_uid = firebase_user.get("uid") or decoded_token.get("uid")
+        phone = firebase_user.get("phone_number") or decoded_token.get("phone_number")
+        name = firebase_user.get("name") or decoded_token.get("name")
+        photo_url = firebase_user.get("picture") or decoded_token.get("picture")
+
+        google_ids = identities.get("google.com", [])
+        google_id = google_ids[0] if google_ids else firebase_user.get("google_id")
+        if not google_id and (sign_in_provider == "google.com" or "google" in (sign_in_provider or "")):
+            google_id = firebase_uid
+
+        has_google = bool(google_id) or (sign_in_provider == "google.com") or ("google.com" in identities) or ("google" in firebase_user.get("providers", []))
+        email_verified = token_email_verified or (has_google and bool(email))
+
+        user = None
+        if firebase_uid:
+            user = db.query(User).filter(User.firebase_uid == firebase_uid).first()
+        if not user and google_id:
+            user = db.query(User).filter(User.google_id == google_id).first()
+        if not user and email and email_verified:
+            user = db.query(User).filter(User.email == email).first()
+        if not user and email:
+            user = db.query(User).filter(User.email == email).first()
+        if not user and phone:
+            user = db.query(User).filter(User.phone == phone).first()
+
+        now = _get_utc_now()
+        is_new_user = False
+
+        if not user:
+            user_uid = generate_user_uid(db)
+            user_name = generate_unique_username(db)
+            providers_list = ["google"] if has_google else []
+            if phone and "phone" not in providers_list:
+                providers_list.append("phone")
+            if email and not has_google:
+                providers_list.append("email")
+
+            user = User(
+                user_uid=user_uid,
+                user_name=user_name,
+                firebase_uid=firebase_uid,
+                google_id=google_id if has_google else None,
+                auth_provider="google" if has_google else ("phone" if phone else "email"),
+                providers=json.dumps(sorted(list(set(providers_list)))),
+                phone=phone,
+                email=email,
+                name=name or (email or phone),
+                profile_picture=photo_url,
+                role=UserRole.USER,
+                mobile_verified=bool(phone),
+                email_verified=email_verified,
+                email_verified_at=now if email_verified else None,
+                created_at=now,
+                token_version=0
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            is_new_user = True
+        else:
+            updated = False
+            if has_google:
+                if google_id and user.google_id != google_id:
+                    user.google_id = google_id
+                    updated = True
+                if user.auth_provider != "google":
+                    user.auth_provider = "google"
+                    updated = True
+                raw_plist = []
+                if user.providers:
+                    try:
+                        p = json.loads(user.providers)
+                        if isinstance(p, list):
+                            raw_plist = p
+                        elif isinstance(p, str):
+                            raw_plist = [p]
+                    except Exception:
+                        raw_plist = [x.strip() for x in user.providers.split(",") if x.strip()]
+                if "google" not in raw_plist:
+                    raw_plist.append("google")
+                    user.providers = json.dumps(sorted(list(set(raw_plist))))
+                    updated = True
+                if email_verified:
+                    if not user.email_verified:
+                        user.email_verified = True
+                        user.email_verified_at = now
+                        updated = True
+                    elif hasattr(user, 'email_verified_at') and user.email_verified_at is None:
+                        user.email_verified_at = now
+                        updated = True
+
+            if firebase_uid and not user.firebase_uid:
+                user.firebase_uid = firebase_uid
+                updated = True
+            if email and not user.email:
+                user.email = email
+                updated = True
+            if phone and not user.phone:
+                user.phone = phone
+                user.mobile_verified = True
+                updated = True
+            if name and not user.name:
+                user.name = name
+                updated = True
+            if photo_url and not user.profile_picture:
+                user.profile_picture = photo_url
+                updated = True
+
+            if updated:
+                user.updated_at = now
+                db.commit()
+                db.refresh(user)
+
+        token_data = {"sub": str(user.user_uid), "role": user.role}
+        access_token = create_access_token(data=token_data, token_version=user.token_version)
+        refresh_token = create_refresh_token(data=token_data)
+
+        verified = is_email_verified(user)
+        can_become_publisher = all([
+            verified,
+            user.mobile_verified,
+            bool(user.name),
+            bool(user.date_of_birth),
+            bool(user.gender)
+        ])
+
+        publisher_requirements = []
+        if not verified:
+            publisher_requirements.append({"field": "email_verified", "message": "Email verification required"})
+        if not user.mobile_verified:
+            publisher_requirements.append({"field": "mobile_verified", "message": "Phone verification required"})
+        if not user.name:
+            publisher_requirements.append({"field": "name", "message": "Full name required"})
+        if not user.date_of_birth:
+            publisher_requirements.append({"field": "date_of_birth", "message": "Date of birth required"})
+        if not user.gender:
+            publisher_requirements.append({"field": "gender", "message": "Gender required"})
+
+        logger.info(
+            f"[sync_provider] User {user.user_uid} synced: "
+            f"user_google_id={user.google_id}, user_auth_provider={user.auth_provider}, "
+            f"providers={user.provider_list}, user_email_verified={verified}, "
+            f"can_apply={can_become_publisher}, filtered_missing={[r['field'] for r in publisher_requirements]}"
+        )
+
+        return {
+            "success": True,
+            "message": "Provider synced successfully",
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "user": {
+                "user_uid": user.user_uid,
+                "user_name": user.user_name,
+                "name": user.name,
+                "email": user.email,
+                "phone": user.phone,
+                "gender": user.gender,
+                "profile_picture": user.profile_picture,
+                "date_of_birth": user.date_of_birth,
+                "role": user.role,
+                "role_name": schemas.user_role_label(user.role),
+                "email_verified": verified,
+                "email_verified_at": getattr(user, "email_verified_at", None),
+                "mobile_verified": user.mobile_verified,
+                "is_suspended": user.is_suspended,
+                "is_new_user": is_new_user,
+                "google_id": user.google_id,
+                "auth_provider": user.auth_provider,
+                "providers": user.provider_list,
+                "is_google_linked": user.is_google_linked,
+                "created_at": user.created_at,
+                "updated_at": getattr(user, "updated_at", user.created_at),
+            },
+            "publisher_eligibility": {
+                "can_become_publisher": can_become_publisher,
+                "missing_requirements": [r["field"] for r in publisher_requirements],
+                "switch_endpoint": "POST /auth/switch-to-publisher"
+            }
+        }
+    except HTTPException:
+        raise
+    except ValueError as e:
+        logger.error(f"Firebase token error in sync_provider: {str(e)}")
+        raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Sync provider error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
+
+
 @router.get("/auth/firebase/test", tags=["Auth", "Testing"])
 async def test_firebase_setup():
     """
@@ -1363,6 +1666,8 @@ def confirm_password_reset(
 
 
 @router.get("/users/me/publisher-eligibility", tags=["User"])
+@router.get("/publisher/status", tags=["User"])
+@router.get("/users/me/publisher-status", tags=["User"])
 def check_publisher_eligibility(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -1370,14 +1675,8 @@ def check_publisher_eligibility(
     """
     Check if current user can become a publisher.
     
-    IMPORTANT: Email and Phone verification is handled by Firebase.
+    IMPORTANT: Email and Phone verification is handled by Firebase/Google.
     Your backend only READS the verification status from the user record.
-    
-    When user verifies email/phone in Firebase:
-    1. Firebase updates its internal record
-    2. User refreshes token (or next login)
-    3. Your backend gets updated verification status
-    4. This API will show updated status
     """
     
     if current_user.role == UserRole.PUBLISHER:
@@ -1396,8 +1695,21 @@ def check_publisher_eligibility(
     
     missing = []
     
-    # ✅ Firebase handles these - we just read the status
-    if not current_user.email_verified:
+    email_ok = is_email_verified(current_user)
+    if (bool(current_user.google_id) or current_user.auth_provider == "google") and not current_user.email_verified:
+        current_user.email_verified = True
+        current_user.email_verified_at = _get_utc_now()
+        db.commit()
+        db.refresh(current_user)
+        email_ok = True
+
+    logger.info(
+        f"[PublisherStatus] User {current_user.user_uid} publisher eligibility check: "
+        f"email_verified={current_user.email_verified}, google_id={current_user.google_id}, "
+        f"auth_provider={current_user.auth_provider} -> isEmailVerified={email_ok}"
+    )
+
+    if not email_ok:
         missing.append({
             "field": "email",
             "status": "not_verified",
@@ -1443,11 +1755,21 @@ def check_publisher_eligibility(
             "endpoint": "PATCH /users/me"
         })
     
+    raw_missing_fields = [m["field"] for m in missing]
+    filtered_missing_fields = [
+        m["field"] for m in missing
+        if not (m["field"] == "email" and email_ok)
+    ]
+    can_apply = len(filtered_missing_fields) == 0
+
     return {
-        "is_eligible": len(missing) == 0,
+        "is_eligible": can_apply,
+        "can_apply": can_apply,
         "missing_requirements": missing,
+        "raw_missing": raw_missing_fields,
+        "filtered_missing": filtered_missing_fields,
         "completed_requirements": {
-            "email_verified": current_user.email_verified,
+            "email_verified": email_ok,
             "mobile_verified": current_user.mobile_verified,
             "name_filled": bool(current_user.name),
             "dob_filled": bool(current_user.date_of_birth),
@@ -1496,8 +1818,16 @@ def switch_to_publisher(
     
     missing_requirements = []
     
-    # 1. Email verification (from Firebase)
-    if not current_user.email_verified:
+    email_ok = is_email_verified(current_user)
+    if (bool(current_user.google_id) or current_user.auth_provider == "google") and not current_user.email_verified:
+        current_user.email_verified = True
+        current_user.email_verified_at = _get_utc_now()
+        db.commit()
+        db.refresh(current_user)
+        email_ok = True
+
+    # 1. Email verification (from Firebase / Google)
+    if not email_ok:
         missing_requirements.append({
             "field": "email",
             "message": "Email not verified",
@@ -1920,7 +2250,8 @@ def _get_quick_actions(user: User) -> list:
         actions.append({"label": "Write News", "url": "/news/create", "icon": "newspaper", "type": "primary"})
         actions.append({"label": "View Analytics", "url": "/analytics", "icon": "chart", "type": "secondary"})
     
-    if not user.email_verified:
+    # Google sign-in always means email is verified — don't prompt for it
+    if not is_email_verified(user):
         actions.append({"label": "Verify Email", "url": "/verify-email", "icon": "mail", "type": "warning"})
     
     if not user.mobile_verified:
@@ -2259,8 +2590,17 @@ def get_user_dashboard(
     # 🔟 ADD PUBLISHER VERIFICATION CTA (Only for regular users)
     # =========================================================
     if is_user:
+        # ─── Login-time backfill for Google users ──────────────────────────────
+        email_ok = is_email_verified(user)
+        if (bool(user.google_id) or user.auth_provider == "google") and not user.email_verified:
+            user.email_verified = True
+            user.email_verified_at = _get_utc_now()
+            db.commit()
+            db.refresh(user)
+            email_ok = True
+
         can_become_publisher = all([
-            user.email_verified,
+            email_ok,
             user.mobile_verified,
             bool(user.name),
             bool(user.date_of_birth),
@@ -2268,7 +2608,7 @@ def get_user_dashboard(
         ])
         
         missing_requirements = []
-        if not user.email_verified:
+        if not email_ok:
             missing_requirements.append("email_verified")
         if not user.mobile_verified:
             missing_requirements.append("mobile_verified")
@@ -2545,6 +2885,14 @@ def get_my_profile(
     user = db.query(User).filter(User.user_uid == current_user.user_uid).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    # Auto-backfill verified status for Google users
+    if is_email_verified(user) and not user.email_verified:
+        user.email_verified = True
+        if hasattr(user, 'email_verified_at') and not user.email_verified_at:
+            user.email_verified_at = _get_utc_now()
+        db.commit()
+        db.refresh(user)
     
     # Get location names
     state_name = None
@@ -2587,12 +2935,17 @@ def get_my_profile(
         },
         "role": user.role,
         "role_name": _get_role_name(user.role),
-        "email_verified": user.email_verified,
+        "email_verified": is_email_verified(user),
+        "email_verified_at": getattr(user, "email_verified_at", None),
         "mobile_verified": user.mobile_verified,
         "is_suspended": user.is_suspended,
         "created_at": user.created_at,
         "updated_at": user.updated_at if hasattr(user, 'updated_at') else user.created_at,
-        "last_login": user.last_login
+        "last_login": user.last_login,
+        "google_id": user.google_id,
+        "auth_provider": user.auth_provider,
+        "providers": user.provider_list,
+        "is_google_linked": user.is_google_linked
     }
     
     if include_preferences:

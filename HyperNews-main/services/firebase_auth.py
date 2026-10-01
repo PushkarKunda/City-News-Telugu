@@ -92,12 +92,48 @@ def verify_firebase_token(id_token: str) -> dict:
     
     try:
         decoded_token = auth.verify_id_token(id_token)
+        firebase_info = decoded_token.get("firebase", {})
+        sign_in_provider = firebase_info.get("sign_in_provider")
+        identities = firebase_info.get("identities", {})
+
+        google_ids = identities.get("google.com", [])
+        google_id = google_ids[0] if google_ids else None
+        if not google_id and (sign_in_provider == "google.com" or (sign_in_provider and "google" in sign_in_provider)):
+            google_id = decoded_token.get("uid")
+
+        providers = []
+        for p in identities.keys():
+            if p == "google.com":
+                providers.append("google")
+            elif p == "phone":
+                providers.append("phone")
+            elif p == "password":
+                providers.append("email")
+            else:
+                providers.append(p)
+        if (sign_in_provider == "google.com" or google_id) and "google" not in providers:
+            providers.append("google")
+
+        is_email_verified = bool(decoded_token.get("email_verified", False))
+        if google_id or sign_in_provider == "google.com":
+            is_email_verified = True
+
+        phone_verified = bool(decoded_token.get("phone_number"))
+
         return {
             "uid": decoded_token.get("uid"),
+            "user_id": decoded_token.get("uid"),
             "phone_number": decoded_token.get("phone_number"),
+            "phone_number_verified": phone_verified,
             "email": decoded_token.get("email"),
+            "email_verified": is_email_verified,
             "name": decoded_token.get("name"),
             "picture": decoded_token.get("picture"),
+            "sign_in_provider": sign_in_provider,
+            "google_id": google_id,
+            "providers": providers,
+            "firebase": firebase_info,
+            "decoded_token": decoded_token,
             "is_verified": True
         }
     except Exception as e:

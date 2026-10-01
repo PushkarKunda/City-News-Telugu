@@ -184,6 +184,14 @@ app.add_middleware(
 
 app.include_router(base_location_routes.router, tags=["Base Location"])
 app.include_router(user_routes.router, tags=["User"])
+
+
+@app.post("/auth/sync-provider", tags=["Auth"])
+async def sync_provider_alias(request: Request, db: Session = Depends(get_db)):
+    """Alias for /user/auth/sync-provider to support requests without /user prefix"""
+    from routes.user_routes import sync_provider
+    return await sync_provider(request=request, db=db)
+
 app.include_router(news_routes.router, tags=["News"])
 app.include_router(news_routes.router, prefix="/news", tags=["News"])
 app.include_router(content_routes.router, tags=["Content"])

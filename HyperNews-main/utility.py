@@ -5,7 +5,10 @@ import requests
 from uuid import uuid4
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
-import newspaper
+try:
+    import newspaper
+except ImportError:
+    newspaper = None
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 

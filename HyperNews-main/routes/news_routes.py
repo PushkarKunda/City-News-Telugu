@@ -9,7 +9,8 @@ import logging
 # =============================
 # Third Party
 # =============================
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status, Body
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status, Body, Header
+from pydantic import BaseModel
 import requests
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc, func, or_, and_, case
@@ -531,7 +532,8 @@ def get_news_data(news: News) -> dict:
         "created_at": news.created_at.isoformat() if news.created_at else None,
         "views": news.views_count,
         "likes": news.likes_count,
-        "comments": news.comments_count,
+        "comments": news.comments_count or 0,
+        "comments_count": news.comments_count or 0,
         "shares": news.shares_count,
         "is_breaking": news.is_breaking if hasattr(news, 'is_breaking') else False,
         "category_names": [c.name for c in news.categories] if news.categories else [],
@@ -2322,10 +2324,12 @@ def get_news(
         source_name=news.source_name,
         category_ids=[c.id for c in news.categories],
         engagement={
-            "likes": news.likes_count,
-            "comments": news.comments_count,
-            "shares": news.shares_count,
-            "views": news.views_count,
+            "likes": news.likes_count or 0,
+            "comments": news.comments_count or 0,
+            "comments_count": news.comments_count or 0,
+            "total_comments": news.comments_count or 0,
+            "shares": news.shares_count or 0,
+            "views": news.views_count or 0,
             "user_liked": user_liked
         }
     )
@@ -2337,68 +2341,242 @@ def get_news(
 
 # routes/news_routes.py - Update your add_comment endpoint
 
-@router.post("/user/news/{news_uid}/comment", tags=["News Engagement"])
+class CommentCreatePayload(BaseModel):
+    comment_text: Optional[str] = None
+    text: Optional[str] = None
+    comment: Optional[str] = None
+    idempotency_key: Optional[str] = None
+    request_id: Optional[str] = None
+
+
+def _build_comment_response(comment: Comment, news: News, current_user: User) -> dict:
+    author_name = current_user.name or current_user.user_name or "Anonymous"
+    created_at_val = (
+        comment.created_at.isoformat()
+        if hasattr(comment.created_at, "isoformat") and comment.created_at
+        else (str(comment.created_at) if comment.created_at else datetime.now(timezone.utc).isoformat())
+    )
+    user_avatar = current_user.profile_picture or get_avatar_for_user(current_user.user_uid)
+    return {
+        "id": comment.id,
+        "article_id": news.news_uid,
+        "user_id": current_user.user_uid,
+        "user_name": author_name,
+        "text": comment.comment_text,
+        "created_at": created_at_val,
+        "comments_count": news.comments_count or 0,
+        # Backward-compatibility aliases
+        "comment_id": comment.id,
+        "comment_text": comment.comment_text,
+        "comment": comment.comment_text,
+        "user_uid": current_user.user_uid,
+        "news_uid": news.news_uid,
+        "user_avatar": user_avatar,
+        "avatar": user_avatar,
+        "profile_picture": user_avatar,
+        "message": "Comment added",
+        "points_earned": 0,
+    }
+
+
+def _process_comment_side_effects(
+    news_uid: str,
+    user_uid: str,
+    comment_id: int,
+    article_title: Optional[str] = None
+):
+    """
+    Non-blocking side effects for comments:
+    - Cache invalidation
+    - Rewards points
+    - Bingo/challenge progress
+    - Notifications
+    Wrapped in try/catch to NEVER fail the comment creation.
+    """
+    # 1. Invalidate caches safely
+    try:
+        cache.delete(f"news:detail:{news_uid}")
+        cache.delete_pattern(f"*comment*{news_uid}*")
+        cache.delete_pattern(f"*news*{news_uid}*")
+    except Exception as e:
+        logger.warning(f"Cache invalidation failed for comment {comment_id}: {e}")
+
+    # 2. Rewards and Bingo in an isolated database session
+    db = None
+    try:
+        from database import SessionLocal
+        db = SessionLocal()
+        from models.rewards import UserTransaction
+        from datetime import date
+
+        daily_comments = db.query(UserTransaction).filter(
+            UserTransaction.user_uid == user_uid,
+            UserTransaction.description.contains("Comment"),
+            func.date(UserTransaction.created_at) == date.today()
+        ).count()
+
+        if daily_comments < RewardsConfig.COMMENT_DAILY_LIMIT:
+            try:
+                rewards_service = RewardsService(db)
+                rewards_service.add_points(
+                    user_uid,
+                    RewardsConfig.COMMENT_ARTICLE_POINTS,
+                    f"Commented on article: {(article_title or news_uid)[:50]}",
+                    reference_id=news_uid,
+                    metadata={"action_type": "comment", "news_uid": news_uid}
+                )
+            except Exception as re:
+                logger.info(f"Rewards points awarding skipped/limited for user {user_uid}: {re}")
+
+            try:
+                bingo_service = BingoService(db)
+                bingo_service.update_bingo_progress(user_uid, "comment")
+                bingo_service.update_challenge_progress(user_uid, "comment")
+            except Exception as be:
+                logger.info(f"Bingo progress update skipped for user {user_uid}: {be}")
+
+        db.commit()
+    except Exception as e:
+        if db:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+        logger.warning(f"Rewards/bingo side effect error for comment {comment_id}: {e}")
+    finally:
+        if db:
+            try:
+                db.close()
+            except Exception:
+                pass
+
+
+@router.post(
+    "/user/news/{news_uid}/comment",
+    status_code=status.HTTP_201_CREATED,
+    tags=["News Engagement"]
+)
 def add_comment(
     news_uid: str,
-    request: Request,  # ✅ ADD THIS
-    comment_text: str = Body(..., embed=True, min_length=1, max_length=1000),
+    request: Request,
+    background_tasks: BackgroundTasks,
+    payload: Optional[CommentCreatePayload] = Body(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+    x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
+    x_request_id: Optional[str] = Header(None, alias="X-Request-ID"),
 ):
-    """Add comment to news (Authenticated) - Earn points"""
+    """
+    Add comment to news article (Authenticated).
+    - Returns 201 with full comment object and updated comments_count
+    - Atomically increments comments_count and inserts comment
+    - Non-blocking side effects (rewards, cache, bingo) via background tasks
+    - Deduplication via idempotency keys and recent repeat check
+    """
     user_uid = current_user.user_uid
-    
+
+    # 1. Validate news existence (404)
     news = db.query(News).filter_by(news_uid=news_uid).first()
     if not news:
-        raise HTTPException(404, "News not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="News not found"
+        )
 
+    # 2. Extract and validate comment text (400 for empty or too long)
+    raw_text = None
+    body_idem_key = None
+    if payload:
+        raw_text = payload.text if payload.text is not None else (
+            payload.comment_text if payload.comment_text is not None else payload.comment
+        )
+        body_idem_key = payload.idempotency_key or payload.request_id
+
+    if not raw_text or not raw_text.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Comment text cannot be empty"
+        )
+
+    clean_text = raw_text.strip()
+    if len(clean_text) > 1000:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Comment text cannot exceed 1000 characters"
+        )
+
+    # 3. Determine idempotency key
+    idem_key = (
+        idempotency_key
+        or x_idempotency_key
+        or x_request_id
+        or body_idem_key
+    )
+
+    # Check cached response for idempotency key
+    if idem_key:
+        cached_resp = cache.get(f"idempotency:comment:{idem_key}")
+        if cached_resp:
+            logger.info(f"Returning cached idempotent response for key: {idem_key}")
+            return cached_resp
+
+    # Check recent duplicate (within 5 seconds) by same user on same article
+    recent_cutoff = datetime.now(timezone.utc) - timedelta(seconds=5)
+    existing_recent = db.query(Comment).filter(
+        Comment.user_uid == user_uid,
+        Comment.news_uid == news_uid,
+        Comment.comment_text == clean_text,
+        Comment.created_at >= recent_cutoff
+    ).order_by(desc(Comment.id)).first()
+
+    if existing_recent:
+        logger.info(f"Ignoring duplicate comment within 5s for user {user_uid} on news {news_uid}")
+        resp = _build_comment_response(existing_recent, news, current_user)
+        if idem_key:
+            cache.set(f"idempotency:comment:{idem_key}", resp, ttl=300)
+        return resp
+
+    # 4. Atomic transaction: comment insert + comments_count increment
     comment = Comment(
         news_uid=news_uid,
         user_uid=user_uid,
-        comment_text=comment_text.strip()
+        comment_text=clean_text
     )
-    news.comments_count += 1
-    db.add(comment)
-    
-    # ✅ TRIGGER REWARDS FOR COMMENTING
-    points_earned = 0
-    rewards_service = RewardsService(db, request)
-    
-    from models.rewards import UserTransaction
-    from datetime import date
-    
-    # Check daily limit
-    daily_comments = db.query(UserTransaction).filter(
-        UserTransaction.user_uid == user_uid,
-        UserTransaction.description.contains("Comment"),
-        func.date(UserTransaction.created_at) == date.today()
-    ).count()
-    
-    if daily_comments < RewardsConfig.COMMENT_DAILY_LIMIT:
-        rewards_service.add_points(
-            user_uid,
-            RewardsConfig.COMMENT_ARTICLE_POINTS,
-            f"Commented on article: {news.title[:50]}",
-            reference_id=news_uid,
-            metadata={"action_type": "comment", "news_uid": news_uid}
-        )
-        points_earned = RewardsConfig.COMMENT_ARTICLE_POINTS
-        
-        # Update bingo progress
-        bingo_service = BingoService(db, request)
-        bingo_service.update_bingo_progress(user_uid, "comment")
-        bingo_service.update_challenge_progress(user_uid, "comment")
-    
-    db.commit()
-    db.refresh(comment)
 
-    return {
-        "message": "Comment added",
-        "comment_id": comment.id,
-        "comment": comment.comment_text,
-        "created_at": comment.created_at,
-        "points_earned": points_earned
-    }
+    try:
+        news.comments_count = (news.comments_count or 0) + 1
+        db.add(comment)
+        db.commit()
+        db.refresh(comment)
+        db.refresh(news)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error saving comment for news {news_uid}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save comment"
+        )
+
+    # 5. Build response object
+    response_data = _build_comment_response(comment, news, current_user)
+
+    if idem_key:
+        try:
+            cache.set(f"idempotency:comment:{idem_key}", response_data, ttl=300)
+        except Exception:
+            pass
+
+    # 6. Non-blocking side effects via BackgroundTasks
+    background_tasks.add_task(
+        _process_comment_side_effects,
+        news_uid=news_uid,
+        user_uid=user_uid,
+        comment_id=comment.id,
+        article_title=news.title
+    )
+
+    return response_data
 
 @router.delete("/user/news/{news_uid}/comment/{comment_id}", tags=["News Engagement"])
 def delete_comment(
@@ -2418,13 +2596,18 @@ def delete_comment(
         raise HTTPException(404, "Comment not found or unauthorized")
 
     news = db.query(News).filter_by(news_uid=news_uid).first()
-    if news and news.comments_count > 0:
-        news.comments_count -= 1
+    if news:
+        news.comments_count = max(0, (news.comments_count or 1) - 1)
 
     db.delete(comment)
     db.commit()
+    if news:
+        db.refresh(news)
 
-    return {"message": "Comment deleted"}
+    return {
+        "message": "Comment deleted",
+        "comments_count": news.comments_count if news else 0
+    }
 
 
 @router.get("/news/{news_uid}/comments", tags=["News Engagement"])
@@ -2445,8 +2628,18 @@ def get_comments(
 
     total = db.query(Comment).filter(Comment.news_uid == news_uid).count()
 
+    # Sync news.comments_count if drifted
+    news = db.query(News).filter_by(news_uid=news_uid).first()
+    if news and (news.comments_count is None or news.comments_count != total):
+        try:
+            news.comments_count = total
+            db.commit()
+        except Exception:
+            db.rollback()
+
     return {
         "total": total,
+        "comments_count": total,
         "page": page,
         "limit": limit,
         "items": [
