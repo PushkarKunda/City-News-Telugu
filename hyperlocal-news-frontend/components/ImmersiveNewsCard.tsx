@@ -8,11 +8,16 @@ import {
   Share,
   Alert,
   Animated,
+  Linking,
+  Platform,
+  useWindowDimensions,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
 import { Image } from 'expo-image';
 import { Ionicons, Feather, MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   NewsArticle,
   FeedItem,
@@ -29,8 +34,12 @@ import {
 } from '@/hooks/useEngagement';
 import { useLikePost, useSharePost } from '@/hooks/usePosts';
 import { useAuthStore } from '@/store/authStore';
-import { formatTimeAgo } from '@/utils/formatters';
+import { formatTimeAgo, calculateTeluguReadTime } from '@/utils/formatters';
 import { useRecordView } from '@/hooks/useNews';
+import { useReaderFontStore } from '@/store/readerFontStore';
+import { PollCard } from './PollCard';
+import { SwipeHint } from './SwipeHint';
+import { TELUGU_FONT_STACK } from '@/constants/Typography';
 import {
   resolveArticleImageUrl,
   resolveAdImageUrl,
@@ -87,6 +96,7 @@ const AdCard = React.memo(
       <TouchableOpacity
         style={[styles.cardContainer, { height: containerHeight }]}
         activeOpacity={0.95}
+        delayPressIn={80}
         onPress={handleAdClick}
       >
         <Image
@@ -162,6 +172,13 @@ const SponsoredCard = React.memo(
       setSponsoredImg(resolvedSponsoredImg);
     }, [resolvedSponsoredImg]);
 
+    const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+    const insets = useSafeAreaInsets();
+    const isNarrow = screenWidth < 400;
+    const isShortScreen = screenHeight < 700 || containerHeight < 700;
+    const sidePadding = isNarrow ? 16 : 20;
+    const imageHeight = Math.round(containerHeight * (isShortScreen ? 0.35 : 0.42));
+
     return (
       <View
         style={[
@@ -170,8 +187,9 @@ const SponsoredCard = React.memo(
         ]}
       >
         <TouchableOpacity
-          style={styles.imageContainer}
+          style={[styles.imageContainer, { height: imageHeight }]}
           activeOpacity={0.95}
+          delayPressIn={80}
           onPress={onToggleUI}
         >
           <Image
@@ -191,7 +209,12 @@ const SponsoredCard = React.memo(
         <View
           style={[
             styles.contentContainer,
-            { backgroundColor: colors.background },
+            {
+              backgroundColor: colors.background,
+              paddingHorizontal: sidePadding,
+              paddingTop: isShortScreen ? 12 : 16,
+              paddingBottom: Math.max(insets.bottom, 10) + (isShortScreen ? 4 : 8),
+            },
           ]}
         >
           <View style={styles.textWrapper}>
@@ -256,6 +279,14 @@ const NewsCard = React.memo(
     onToggleUI?: () => void;
   }) => {
     const { user } = useAuthStore();
+    const {
+      fontSizeLevel,
+      headlineSize,
+      bodySize,
+      headlineLineHeight,
+      bodyLineHeight,
+      openModal,
+    } = useReaderFontStore();
 
     const contentUid = item.news_uid || (item as any).post_uid || (item as any).id;
 
@@ -295,6 +326,9 @@ const NewsCard = React.memo(
 
     const handleToggleLike = () => {
       if (!contentUid) return;
+      if (Platform.OS !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
       const nextLiked = !liked;
       setLiked(nextLiked);
       setLikeCount((c) => (nextLiked ? c + 1 : Math.max(0, c - 1)));
@@ -328,6 +362,9 @@ const NewsCard = React.memo(
 
     const handleToggleBookmark = () => {
       if (!contentUid) return;
+      if (Platform.OS !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
       triggerSpring(bookmarkScale, 1.35);
       if (isBookmarked) {
         removeBookmark({ contentUid, contentType: itemType });
@@ -345,11 +382,52 @@ const NewsCard = React.memo(
             recordShare({ newsUid: contentUid, platform: 'general' });
           }
         }
+        const newsLink = item.source_url || (contentUid ? `https://citynewstelugu.com/news/${contentUid}` : '');
+        const shareMsg = [
+          displayTitle,
+          displaySummary,
+          newsLink,
+          'Shared via City News Telugu',
+        ].filter(Boolean).join('\n\n');
+
         await Share.share({
-          message: `${displayTitle}\n\n${displaySummary}\n\nShared via HyperLocal`,
+          message: shareMsg,
           title: displayTitle,
+          url: newsLink || undefined,
         });
       } catch (_) { }
+    };
+
+    const handleWhatsAppStatusShare = async () => {
+      try {
+        if (Platform.OS !== 'web') {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        }
+        if (contentUid) {
+          if (itemType === 'post') {
+            sharePostMutation({ postUid: contentUid, platform: 'whatsapp_status' });
+          } else {
+            recordShare({ newsUid: contentUid, platform: 'whatsapp_status' });
+          }
+        }
+
+        const newsLink = item.source_url || (contentUid ? `https://citynewstelugu.com/news/${contentUid}` : '');
+        const statusMessage = `⚡ *ముఖ్యాంశాలు* (Key Highlights)\n\n📌 *${displayTitle}*\n\n${displaySummary}\n\n📱 *సిటీ న్యూస్ తెలుగు* (City News Telugu)\n👉 మరిన్ని తాజా వివరాలు: ${newsLink}\n\n#CityNewsTelugu #TeluguNews`.trim();
+
+        const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(statusMessage)}`;
+        const canOpen = await Linking.canOpenURL(whatsappUrl);
+
+        if (canOpen) {
+          await Linking.openURL(whatsappUrl);
+        } else {
+          await Share.share({
+            message: statusMessage,
+            title: displayTitle,
+          });
+        }
+      } catch (_) {
+        handleShare();
+      }
     };
 
 
@@ -374,9 +452,67 @@ const NewsCard = React.memo(
       setImgSrc(resolvedImage);
     }, [resolvedImage]);
 
-    const displaySource = item.source_name || item.source || (item as any).user_display_name || (item as any).user_name || 'HyperLocal';
+    const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+    const insets = useSafeAreaInsets();
 
-    const hasSourceLink = Boolean(item.source_url);
+    const isUnder360 = screenWidth < 360;
+    const isNarrow = screenWidth < 400;
+    const isShortScreen = screenHeight < 700 || containerHeight < 700;
+    const sidePadding = isNarrow ? 16 : 20;
+
+    // Hero image scales: ~35% on short screens (<700px), ~42% on standard screens
+    const imageHeight = Math.round(containerHeight * (isShortScreen ? 0.35 : 0.42));
+
+    // Telugu breathing room: >= 1.5 for headline, >= 1.6 for description
+    const adjustedHeadlineSize = isUnder360 ? Math.max(18, headlineSize - 2) : headlineSize;
+    const adjustedHeadlineLineHeight = isUnder360
+      ? Math.round(adjustedHeadlineSize * 1.52)
+      : Math.max(headlineLineHeight, Math.round(adjustedHeadlineSize * 1.5));
+    const headlineLines = isShortScreen ? 2 : (fontSizeLevel === 'xlarge' ? 2 : 3);
+
+    const adjustedBodySize = isUnder360 ? Math.max(13, bodySize - 2) : bodySize;
+    const adjustedBodyLineHeight = isUnder360
+      ? Math.round(adjustedBodySize * 1.62)
+      : Math.max(bodyLineHeight, Math.round(adjustedBodySize * 1.6));
+    const summaryLines = isShortScreen
+      ? (fontSizeLevel === 'xlarge' ? 3 : 4)
+      : (fontSizeLevel === 'xlarge' ? 3 : (fontSizeLevel === 'large' ? 4 : 5));
+
+    // Estimated read time (~150 words/min for Telugu, min 1 min)
+    const readTimeContent = (item as any).full_content || (item as any).content || `${displayTitle} ${displaySummary}`;
+    const readTime = useMemo(() => calculateTeluguReadTime(readTimeContent), [readTimeContent]);
+
+    // Footer info line: compact views (e.g. 63K) under 360px
+    const rawViews = item.engagement?.total_views ?? item.views ?? 0;
+    const numViews = typeof rawViews === 'number' ? rawViews : parseInt(String(rawViews).replace(/,/g, ''), 10) || 0;
+    const hasViews = numViews > 0;
+    const formatViewsCount = (num: number, compactAll: boolean): string => {
+      if (num >= 1000000) {
+        return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+      }
+      if (compactAll) {
+        if (num >= 1000) {
+          return (num / 1000).toFixed(num >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'K';
+        }
+        return num.toString();
+      }
+      if (num >= 100000) {
+        return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+      }
+      return num.toLocaleString();
+    };
+    const formattedViews = formatViewsCount(numViews, isUnder360);
+    const relativeTime = item.created_at ? formatTimeAgo(item.created_at) : '';
+
+    // Action buttons sizing & touch targets (comfortable default size for 4 buttons)
+    const btnSize = isUnder360 ? 40 : (isNarrow ? 42 : 44);
+    const iconSize = isUnder360 ? 19 : 20;
+    const actionGap = 8;
+    const hitSlopValue = { top: 6, bottom: 6, left: 4, right: 4 };
+
+    const commentCount = item.engagement?.total_comments ?? item.comments ?? 0;
+    const showCommentCount = !isUnder360 && (!isNarrow || (typeof commentCount === 'number' ? commentCount > 0 : Boolean(commentCount && commentCount !== '0')));
+
     const actionIconColor = isDark ? '#A5B4FC' : '#464554';
     const actionBg = isDark ? 'rgba(24, 23, 54, 0.88)' : '#E5EEFF';
     const actionBorder = isDark ? { borderWidth: 1, borderColor: colors.border } : {};
@@ -399,6 +535,17 @@ const NewsCard = React.memo(
 
     const handleMoreOptions = () => {
       const options = [];
+      options.push({
+        text: 'Text Size Settings (Aa)',
+        onPress: () => {
+          if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          openModal();
+        },
+      });
+      options.push({
+        text: 'Share to WhatsApp Status (ముఖ్యాంశాలు)',
+        onPress: handleWhatsAppStatusShare,
+      });
       if (hasSource) {
         options.push({
           text: 'Open Source Website',
@@ -427,153 +574,229 @@ const NewsCard = React.memo(
           { height: containerHeight, backgroundColor: colors.background },
         ]}
       >
-        {/* Top 46% Image — tapping toggles header and footer */}
-        <TouchableOpacity
-          style={styles.imageContainer}
-          activeOpacity={0.95}
-          onPress={onToggleUI}
-        >
-          <Image
-            source={{ uri: imgSrc }}
-            style={styles.image}
-            contentFit="cover"
-            transition={150}
-            cachePolicy="disk"
-            recyclingKey={imgSrc}
-            priority={isActive ? 'high' : 'normal'}
-            onError={() => {
-              const fallback = getCategoryFallbackImage(categoryName, item.is_breaking);
-              if (imgSrc !== fallback) {
-                setImgSrc(fallback);
-              }
-            }}
-          />
+        {/* Top Hero Image — scales responsively with screen height */}
+        <TouchableWithoutFeedback onPress={onToggleUI}>
+          <View style={[styles.imageContainer, { height: imageHeight }]}>
+            <Image
+              source={{ uri: imgSrc }}
+              style={styles.image}
+              contentFit="cover"
+              transition={150}
+              cachePolicy="disk"
+              recyclingKey={imgSrc}
+              priority={isActive ? 'high' : 'normal'}
+              onError={() => {
+                const fallback = getCategoryFallbackImage(categoryName, item.is_breaking);
+                if (imgSrc !== fallback) {
+                  setImgSrc(fallback);
+                }
+              }}
+            />
 
-          {/* Category tag */}
-          <View style={[styles.categoryTag, { backgroundColor: colors.primary }]}>
-            <Text style={styles.categoryText}>{categoryName}</Text>
-          </View>
-
-          {/* Breaking badge */}
-          {item.is_breaking && (
-            <View style={styles.breakingBadge}>
-              <View style={styles.breakingDot} />
-              <Text style={styles.breakingText}>BREAKING</Text>
+            {/* Category tag */}
+            <View style={[styles.categoryTag, { backgroundColor: colors.primary }]}>
+              <Text style={styles.categoryText}>{categoryName}</Text>
             </View>
-          )}
-        </TouchableOpacity>
 
-          {/* Bottom 56% Content */}
-          <View
-            style={[
-              styles.contentContainer,
-              { backgroundColor: colors.background },
-            ]}
-          >
-            {/* Headline + summary — tapping toggles header/footer without redirecting */}
+            {/* Aa Font Size Control button */}
             <TouchableOpacity
-              style={styles.textWrapper}
-              activeOpacity={0.95}
-              onPress={onToggleUI}
+              style={[
+                styles.fontToggleBtn,
+                {
+                  backgroundColor: isDark ? 'rgba(15, 23, 42, 0.78)' : 'rgba(255, 255, 255, 0.92)',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.1)',
+                },
+              ]}
+              onPress={() => {
+                if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                openModal();
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.8}
+              accessibilityLabel="Text size settings"
+              accessibilityRole="button"
             >
               <Text
-                style={[styles.headline, { color: colors.text }]}
-                numberOfLines={3}
+                style={[
+                  styles.fontToggleText,
+                  { color: fontSizeLevel !== 'medium' ? colors.primary : colors.text },
+                ]}
               >
-                {displayTitle}
-              </Text>
-              <Text
-                style={[styles.summaryText, { color: colors.textSecondary }]}
-                numberOfLines={6}
-              >
-                {displaySummary}
+                {fontSizeLevel === 'small' ? 'A-' : fontSizeLevel === 'large' ? 'A+' : fontSizeLevel === 'xlarge' ? 'XL' : 'Aa'}
               </Text>
             </TouchableOpacity>
 
-            {/* Footer — no navigation, only source link + action buttons */}
-            <View style={styles.footerWrapper}>
+            {/* Breaking badge */}
+            {item.is_breaking && (
+              <View
+                style={[
+                  styles.breakingBadge,
+                  { top: Math.max(insets.top + 6, 20) },
+                ]}
+              >
+                <View style={styles.breakingDot} />
+                <Text style={styles.breakingText}>BREAKING</Text>
+              </View>
+            )}
+          </View>
+        </TouchableWithoutFeedback>
 
-              {/* Source link — always visible if article has a source */}
-              {hasSource && (
-                <TouchableOpacity
+        {/* Content Container (flex: 1, pinned footer) */}
+        <View
+          style={[
+            styles.contentContainer,
+            {
+              backgroundColor: colors.background,
+              paddingHorizontal: sidePadding,
+              paddingTop: isShortScreen ? 12 : 16,
+              paddingBottom: Math.max(insets.bottom, 10) + (isShortScreen ? 4 : 8),
+            },
+          ]}
+        >
+          {/* Middle Text Area: flex: 1, minHeight: 0, overflow: hidden */}
+          <TouchableWithoutFeedback onPress={onToggleUI}>
+            <View style={styles.textWrapper}>
+              <TouchableOpacity
+                onPress={hasSource ? handleOpenSource : onToggleUI}
+                activeOpacity={hasSource ? 0.75 : 1}
+                accessibilityRole={hasSource ? 'link' : undefined}
+                accessibilityLabel={displayTitle}
+              >
+                <Text
                   style={[
-                    styles.sourceLink,
+                    styles.headline,
                     {
-                      backgroundColor: isDark ? 'rgba(24, 23, 54, 0.85)' : '#F1F5F9',
-                      borderColor: colors.border,
-                      borderWidth: 1,
+                      color: colors.text,
+                      fontSize: adjustedHeadlineSize,
+                      lineHeight: adjustedHeadlineLineHeight,
+                      marginBottom: isShortScreen ? 6 : 8,
                     },
                   ]}
-                  onPress={handleOpenSource}
-                  activeOpacity={0.8}
+                  numberOfLines={headlineLines}
+                  ellipsizeMode="tail"
+                  maxFontSizeMultiplier={1.25}
                 >
-                  <Ionicons name="link-outline" size={13} color={colors.primary} />
-                  <Text
-                    style={[styles.sourceLinkText, { color: isDark ? '#A5B4FC' : colors.primary }]}
-                    numberOfLines={1}
-                  >
-                    {item.source_name || item.source || item.source_url}
-                  </Text>
-                  <Ionicons
-                    name="open-outline"
-                    size={13}
-                    color={isDark ? '#A5B4FC' : colors.primary}
-                  />
-                </TouchableOpacity>
-              )}
+                  {displayTitle}
+                </Text>
+              </TouchableOpacity>
+              <Text
+                style={[
+                  styles.summaryText,
+                  {
+                    color: colors.textSecondary,
+                    fontSize: adjustedBodySize,
+                    lineHeight: adjustedBodyLineHeight,
+                  },
+                ]}
+                numberOfLines={summaryLines}
+                ellipsizeMode="tail"
+                maxFontSizeMultiplier={1.25}
+              >
+                {displaySummary}
+              </Text>
+            </View>
+          </TouchableWithoutFeedback>
 
-              <View
-                style={[styles.divider, { backgroundColor: colors.divider }]}
-              />
+          {/* First Launch Animated Swipe Hint - positioned cleanly above footer text and buttons */}
+          {isActive && itemType === 'news' && (
+            <SwipeHint bottomOffset={isShortScreen ? 56 : 64} />
+          )}
 
-              <View style={styles.footerRow}>
-                {/* Source & time */}
-                <View style={styles.metaContainer}>
-                  <Ionicons
-                    name="globe-outline"
-                    size={14}
-                    color={colors.textTertiary}
-                  />
+          {/* Footer pinned at bottom */}
+          <View style={styles.footerWrapper}>
+            <View
+              style={[
+                styles.footerRow,
+                { gap: isUnder360 ? 4 : 8 },
+              ]}
+            >
+                {/* Left group: view count (with eye icon) + relative time */}
+                <View
+                  style={[
+                    styles.metaContainer,
+                    { gap: isUnder360 ? 3 : 4 },
+                  ]}
+                >
+                  {hasViews && (
+                    <Ionicons
+                      name="eye-outline"
+                      size={isUnder360 ? 13 : 14}
+                      color={colors.textTertiary}
+                      style={styles.infoIcon}
+                    />
+                  )}
                   <Text
-                    style={[styles.sourceText, { color: colors.textSecondary }]}
+                    style={[
+                      styles.sourceText,
+                      {
+                        color: colors.textSecondary,
+                        fontSize: isUnder360 ? 11 : 12,
+                      },
+                    ]}
                     numberOfLines={1}
+                    ellipsizeMode="tail"
+                    maxFontSizeMultiplier={1.2}
                   >
-                    {item.source_name || item.source || 'HyperLocal'}
-                  </Text>
-                  <Text style={[styles.dotSep, { color: colors.textTertiary }]}>
-                    ·
-                  </Text>
-                  <Text
-                    style={[styles.timeText, { color: colors.textTertiary }]}
-                  >
-                    {formatTimeAgo(item.created_at)}
+                    {(() => {
+                      const parts: string[] = [];
+                      if (hasViews) parts.push(`${formattedViews} views`);
+                      if (relativeTime) parts.push(relativeTime);
+                      if (!isUnder360 && readTime) parts.push(readTime);
+                      return parts.join(' · ');
+                    })()}
                   </Text>
                 </View>
 
-                {/* Actions */}
-                <View style={styles.actionsRow}>
-                  {/* Views */}
-                  <View style={styles.actionBtnWrapper}>
-                    <View style={[styles.actionBtn, { backgroundColor: actionBg }, actionBorder]}>
-                      <Ionicons name="eye-outline" size={16} color={actionIconColor} />
-                    </View>
-                    <Text style={[styles.actionCount, { color: colors.textSecondary }]}>
-                      {item.engagement?.total_views ?? item.views ?? 0}
-                    </Text>
-                  </View>
-
+                {/* Right group (actions): comment, like, whatsapp, share, bookmark */}
+                <View
+                  style={[
+                    styles.actionsRow,
+                    { gap: actionGap },
+                  ]}
+                >
                   {/* Comment */}
                   <TouchableOpacity
                     style={styles.actionBtnWrapper}
                     onPress={() => contentUid && onOpenComments?.(contentUid)}
                     activeOpacity={0.7}
+                    hitSlop={hitSlopValue}
+                    accessibilityLabel="Comments"
+                    accessibilityRole="button"
                   >
-                    <View style={[styles.actionBtn, { backgroundColor: actionBg }, actionBorder]}>
-                      <Ionicons name="chatbubble-outline" size={16} color={actionIconColor} />
+                    <View
+                      style={[
+                        styles.actionBtn,
+                        {
+                          width: btnSize,
+                          height: btnSize,
+                          borderRadius: btnSize / 2,
+                          backgroundColor: actionBg,
+                        },
+                        actionBorder,
+                      ]}
+                    >
+                      <Ionicons
+                        name="chatbubble-outline"
+                        size={iconSize}
+                        color={actionIconColor}
+                      />
                     </View>
-                    <Text style={[styles.actionCount, { color: colors.textSecondary }]}>
-                      {item.engagement?.total_comments ?? item.comments ?? 0}
-                    </Text>
+                    {showCommentCount && (
+                      <Text
+                        style={[
+                          styles.actionCount,
+                          {
+                            color: colors.textSecondary,
+                            fontSize: isUnder360 ? 10 : 11,
+                          },
+                        ]}
+                        maxFontSizeMultiplier={1.2}
+                      >
+                        {typeof commentCount === 'number'
+                          ? commentCount.toLocaleString()
+                          : commentCount}
+                      </Text>
+                    )}
                   </TouchableOpacity>
 
                   {/* Like */}
@@ -581,28 +804,58 @@ const NewsCard = React.memo(
                     style={styles.actionBtnWrapper}
                     onPress={handleToggleLike}
                     activeOpacity={0.7}
+                    hitSlop={hitSlopValue}
+                    accessibilityLabel="Like"
+                    accessibilityRole="button"
                   >
-                    <Animated.View style={[{ transform: [{ scale: likeScale }] }]}>
-                      <View style={[styles.actionBtn, { backgroundColor: actionBg }, actionBorder]}>
+                    <Animated.View
+                      style={[{ transform: [{ scale: likeScale }] }]}
+                    >
+                      <View
+                        style={[
+                          styles.actionBtn,
+                          {
+                            width: btnSize,
+                            height: btnSize,
+                            borderRadius: btnSize / 2,
+                            backgroundColor: actionBg,
+                          },
+                          actionBorder,
+                        ]}
+                      >
                         <Ionicons
                           name={liked ? 'heart' : 'heart-outline'}
-                          size={16}
+                          size={iconSize}
                           color={liked ? '#EF4444' : actionIconColor}
                         />
                       </View>
                     </Animated.View>
                   </TouchableOpacity>
 
-                  {/* Share */}
+                  {/* General Share */}
                   <TouchableOpacity
                     style={styles.actionBtnWrapper}
                     onPress={handleShare}
                     activeOpacity={0.7}
+                    hitSlop={hitSlopValue}
+                    accessibilityLabel="Share"
+                    accessibilityRole="button"
                   >
-                    <View style={[styles.actionBtn, { backgroundColor: actionBg }, actionBorder]}>
+                    <View
+                      style={[
+                        styles.actionBtn,
+                        {
+                          width: btnSize,
+                          height: btnSize,
+                          borderRadius: btnSize / 2,
+                          backgroundColor: actionBg,
+                        },
+                        actionBorder,
+                      ]}
+                    >
                       <Ionicons
                         name="share-social-outline"
-                        size={16}
+                        size={iconSize}
                         color={actionIconColor}
                       />
                     </View>
@@ -613,12 +866,28 @@ const NewsCard = React.memo(
                     style={styles.actionBtnWrapper}
                     onPress={handleToggleBookmark}
                     activeOpacity={0.7}
+                    hitSlop={hitSlopValue}
+                    accessibilityLabel="Bookmark"
+                    accessibilityRole="button"
                   >
-                    <Animated.View style={[{ transform: [{ scale: bookmarkScale }] }]}>
-                      <View style={[styles.actionBtn, { backgroundColor: actionBg }, actionBorder]}>
+                    <Animated.View
+                      style={[{ transform: [{ scale: bookmarkScale }] }]}
+                    >
+                      <View
+                        style={[
+                          styles.actionBtn,
+                          {
+                            width: btnSize,
+                            height: btnSize,
+                            borderRadius: btnSize / 2,
+                            backgroundColor: actionBg,
+                          },
+                          actionBorder,
+                        ]}
+                      >
                         <Ionicons
                           name={isBookmarked ? 'bookmark' : 'bookmark-outline'}
-                          size={16}
+                          size={iconSize}
                           color={isBookmarked ? '#FFAC33' : actionIconColor}
                         />
                       </View>
@@ -682,6 +951,16 @@ export const ImmersiveFeedCard = React.memo(
       );
     }
 
+    if (item.type === 'poll') {
+      return (
+        <PollCard
+          item={item.data as any}
+          containerHeight={containerHeight}
+          onToggleUI={onToggleUI}
+        />
+      );
+    }
+
     const newsItem = item.data as NewsArticle;
     const itemUid = newsItem.news_uid || (newsItem as any).post_uid || (newsItem as any).id;
     const isBookmarked =
@@ -705,15 +984,25 @@ export const ImmersiveFeedCard = React.memo(
       />
     );
   },
-  (prev, next) =>
-    prev.containerHeight === next.containerHeight &&
-    prev.isActive === next.isActive &&
-    prev.isBookmarked === next.isBookmarked &&
-    prev.bookmarkedNewsUids === next.bookmarkedNewsUids &&
-    prev.item.position === next.item.position &&
-    prev.onToggleUI === next.onToggleUI &&
-    ((prev.item.data as any)?.news_uid || (prev.item.data as any)?.post_uid || (prev.item.data as any)?.id) ===
-      ((next.item.data as any)?.news_uid || (next.item.data as any)?.post_uid || (next.item.data as any)?.id)
+  (prev, next) => {
+    if (prev.item.type !== next.item.type) return false;
+    if (prev.containerHeight !== next.containerHeight) return false;
+    if (prev.isActive !== next.isActive) return false;
+    if (prev.isBookmarked !== next.isBookmarked) return false;
+    if (prev.bookmarkedNewsUids !== next.bookmarkedNewsUids) return false;
+    if (prev.onToggleUI !== next.onToggleUI) return false;
+    const prevUid =
+      (prev.item.data as any)?.news_uid ||
+      (prev.item.data as any)?.post_uid ||
+      (prev.item.data as any)?.poll_uid ||
+      (prev.item.data as any)?.id;
+    const nextUid =
+      (next.item.data as any)?.news_uid ||
+      (next.item.data as any)?.post_uid ||
+      (next.item.data as any)?.poll_uid ||
+      (next.item.data as any)?.id;
+    return prevUid === nextUid && prev.item.data === next.item.data;
+  }
 );
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -723,10 +1012,12 @@ export const ImmersiveFeedCard = React.memo(
 const styles = StyleSheet.create({
   cardContainer: {
     width: '100%',
+    maxWidth: '100%',
+    overflow: 'hidden',
   },
   imageContainer: {
     width: '100%',
-    height: '46%',
+    maxWidth: '100%',
     position: 'relative',
     backgroundColor: '#0F172A',
     overflow: 'hidden',
@@ -832,6 +1123,21 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 8,
   },
+  fontToggleBtn: {
+    position: 'absolute',
+    bottom: 10,
+    right: 14,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fontToggleText: {
+    fontSize: 12,
+    fontFamily: 'Poppins_700Bold',
+  },
   categoryText: {
     color: '#fff',
     fontSize: 12,
@@ -863,64 +1169,78 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   contentContainer: {
-    height: '54%',
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 20,
+    flex: 1,
+    width: '100%',
+    maxWidth: '100%',
     justifyContent: 'space-between',
   },
   textWrapper: {
     flex: 1,
+    minHeight: 0,
+    width: '100%',
+    overflow: 'hidden',
   },
   headline: {
-    fontSize: 22,
-    fontFamily: 'Poppins_700Bold',
-    marginBottom: 10,
-    lineHeight: 28,
+    fontFamily: TELUGU_FONT_STACK.bold,
+    fontWeight: 'normal',
+    paddingVertical: 2,
+    marginBottom: 8,
+    ...(Platform.OS === 'web'
+      ? {
+          display: '-webkit-box' as any,
+          WebkitBoxOrient: 'vertical' as any,
+          overflow: 'hidden' as any,
+        }
+      : {}),
   },
   summaryText: {
-    fontSize: 15,
-    fontFamily: 'Poppins_400Regular',
-    lineHeight: 24,
+    fontFamily: TELUGU_FONT_STACK.regular,
+    fontWeight: 'normal',
+    paddingVertical: 2,
+    ...(Platform.OS === 'web'
+      ? {
+          display: '-webkit-box' as any,
+          WebkitBoxOrient: 'vertical' as any,
+          overflow: 'hidden' as any,
+        }
+      : {}),
   },
   footerWrapper: {
     marginTop: 'auto',
-  },
-  sourceLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    marginBottom: 10,
-  },
-  sourceLinkText: {
-    flex: 1,
-    fontSize: 12,
-    fontFamily: 'Poppins_500Medium',
-  },
-  divider: {
-    height: 1,
-    marginBottom: 10,
+    width: '100%',
   },
   footerRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingBottom: 4,
+    justifyContent: 'space-between',
+    gap: 8,
+    width: '100%',
+    overflow: 'hidden',
   },
   metaContainer: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 'auto',
+    minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    flex: 1,
+    overflow: 'hidden',
+  },
+  infoIcon: {
+    flexShrink: 0,
   },
   sourceText: {
     fontSize: 12,
     fontFamily: 'Poppins_500Medium',
-    maxWidth: 100,
+    flexShrink: 1,
+    ...(Platform.OS === 'web'
+      ? {
+          whiteSpace: 'nowrap' as any,
+          overflow: 'hidden' as any,
+          textOverflow: 'ellipsis' as any,
+        }
+      : {}),
   },
   dotSep: {
     fontSize: 12,
@@ -930,6 +1250,9 @@ const styles = StyleSheet.create({
     fontFamily: 'Poppins_400Regular',
   },
   actionsRow: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: 'auto',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
@@ -937,17 +1260,18 @@ const styles = StyleSheet.create({
   actionBtnWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 3,
   },
   actionBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     justifyContent: 'center',
     alignItems: 'center',
   },
   actionCount: {
     fontSize: 11,
     fontFamily: 'Poppins_500Medium',
-  }
+    marginLeft: 2,
+  },
 });

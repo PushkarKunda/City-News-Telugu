@@ -18,7 +18,7 @@ class AppSettingsConfig(BaseSettings):
     )
 
     # Core
-    APP_NAME: str = "HyperNews"
+    APP_NAME: str = "City News Telugu"
     ENVIRONMENT: str = Field(default="development", description="development, staging, or production")
     DEBUG: bool = False
     PORT: int = 8000

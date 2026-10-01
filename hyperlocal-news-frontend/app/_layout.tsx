@@ -7,6 +7,11 @@ import {
   Poppins_600SemiBold,
   Poppins_700Bold,
 } from '@expo-google-fonts/poppins';
+import {
+  NotoSansTelugu_400Regular,
+  NotoSansTelugu_600SemiBold,
+  NotoSansTelugu_700Bold,
+} from '@expo-google-fonts/noto-sans-telugu';
 
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -25,7 +30,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  Appearance,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -138,6 +142,9 @@ export default function RootLayout() {
     Poppins_500Medium,
     Poppins_600SemiBold,
     Poppins_700Bold,
+    NotoSansTelugu_400Regular,
+    NotoSansTelugu_600SemiBold,
+    NotoSansTelugu_700Bold,
   });
 
   // ─── Firebase Init ────────────────────────────────────────────────────────
@@ -149,14 +156,7 @@ export default function RootLayout() {
   // ─── Token Refresh Failure Handler ───────────────────────────────────────
   useEffect(() => {
     setOnUnauthorizedCallback(() => {
-      console.warn('🔓 Token expired - logging out');
-      // ✅ FIXED: typed catch parameter
-      useAuthStore
-        .getState()
-        .logout()
-        .catch((err: unknown) => {
-          console.error('Logout error:', err);
-        });
+      console.warn('🔓 Token expired - handled silently without disrupting active session');
     });
   }, []);
 
@@ -169,15 +169,6 @@ export default function RootLayout() {
     });
     return () => unsubscribe();
   }, []);
-
-  // ─── Theme Management ────────────────────────────────────────────────────
-  useEffect(() => {
-    if (user?.theme === 'dark' || user?.theme === 'light') {
-      Appearance.setColorScheme(user.theme);
-    } else {
-      Appearance.setColorScheme(null);
-    }
-  }, [user?.theme]);
 
   // ─── Fetch Current User Profile ───────────────────────────────────────────
   useEffect(() => {

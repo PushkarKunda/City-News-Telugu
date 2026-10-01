@@ -8,6 +8,8 @@ import { useAuthStore } from '@/store/authStore';
 import { Spacing, BorderRadius, Shadows } from '@/constants/Spacing';
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
+import { firebaseAuth } from '@/services/firebase';
+import { authApi } from '@/services/api';
 
 export default function SplashScreen() {
   const colorScheme = useAppColorScheme();
@@ -78,21 +80,44 @@ export default function SplashScreen() {
       ])
     ).start();
 
-    // 4. Authentication state check and routing after snappier delay of 1.0s (was 2.8s)
-    const timer = setTimeout(() => {
-      const { isAuthenticated, isOnboarded, pendingPhone, pendingVerificationId } = useAuthStore.getState();
-      if (isAuthenticated && isOnboarded) {
+    // 4. Authentication state check and routing
+    const checkAuthAndRoute = async () => {
+      const authState = useAuthStore.getState();
+      if (authState.isAuthenticated && authState.isOnboarded) {
         router.replace('/(tabs)');
-      } else if (isAuthenticated) {
+        return;
+      }
+
+      // Check if Firebase currentUser exists and can restore backend session
+      const fbUser = firebaseAuth.currentUser;
+      if (fbUser) {
+        try {
+          const fbToken = await fbUser.getIdToken();
+          if (fbToken) {
+            await authApi.loginWithFirebase(fbToken);
+            const user = await authState.fetchUser();
+            if (user) {
+              router.replace('/(tabs)');
+              return;
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (authState.isAuthenticated) {
         router.replace('/(onboarding)/language');
-      } else if (pendingPhone && pendingVerificationId) {
+      } else if (authState.pendingPhone && authState.pendingVerificationId) {
         router.replace({
           pathname: '/(auth)/verify-otp',
-          params: { phone: pendingPhone },
+          params: { phone: authState.pendingPhone },
         });
       } else {
         router.replace('/(auth)/login');
       }
+    };
+
+    const timer = setTimeout(() => {
+      void checkAuthAndRoute();
     }, 1000);
 
     return () => clearTimeout(timer);
@@ -139,8 +164,8 @@ export default function SplashScreen() {
 
           {/* App Name/Headline */}
           <Animated.View style={[styles.textContainer, { opacity: textRevealAnim }]}>
-            <Text style={styles.appName}>HyperLocal</Text>
-            <Text style={styles.subtitle}>SECURE SOLUTIONS</Text>
+            <Text style={styles.appName}>City News Telugu</Text>
+            <Text style={styles.subtitle}>HYPERLOCAL NEWS & COMMUNITY</Text>
           </Animated.View>
         </Animated.View>
       </View>
@@ -198,24 +223,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logoContainer: {
-    width: 140,
-    height: 140,
+    width: 130,
+    height: 130,
     borderRadius: 28,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: Spacing.lg,
-    shadowColor: '#4648D4',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
+    shadowColor: '#012176',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
     shadowRadius: 16,
-    elevation: 8,
-    padding: 10,
+    elevation: 10,
   },
   logoImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 20,
+    borderRadius: 28,
   },
   textContainer: {
     alignItems: 'center',

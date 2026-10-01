@@ -131,7 +131,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Hyperlocal News API", 
+    title="City News Telugu API", 
     version="2.0.0",
     description="News Platform with Rewards, Referrals, and Gamification",
     lifespan=lifespan
@@ -481,7 +481,7 @@ def root():
         <div class="frame">
             <section class="hero">
                 <div class="hero-top">
-                    <span class="tag">HyperNews API v2.0</span>
+                    <span class="tag">City News Telugu API v2.0</span>
                     <span class="status">Server running</span>
                 </div>
                 <h1>News platform backend with content, engagement, rewards, and security.</h1>

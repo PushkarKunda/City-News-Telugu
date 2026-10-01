@@ -156,7 +156,7 @@ export default function CompleteScreen() {
         </Pressable>
 
         <Text style={[styles.versionText, { color: colors.textTertiary }]}>
-          HyperLocal News v2.4
+          City News Telugu v2.4
         </Text>
       </View>
 

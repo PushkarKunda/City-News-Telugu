@@ -147,7 +147,7 @@ export const Header = ({ onOpenProfile }) => {
           }}>
             <Layers size={18} />
           </div>
-          HyperNews Operations
+          City News Telugu Operations
         </div>
 
         {/* Server Status Pill */}

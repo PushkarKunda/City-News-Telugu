@@ -26,9 +26,8 @@ export function Header() {
         </TouchableOpacity>
 
         <Text style={[styles.title, { color: colors.text }]}>
-          <Text style={{ fontFamily: 'Poppins_700Bold' }}>Hyper</Text>
-          <Text style={{ fontFamily: 'Poppins_700Bold', color: isDark ? '#818CF8' : colors.primary }}>Local</Text>
-          <Text style={{ color: isDark ? '#818CF8' : colors.primary, fontFamily: 'Poppins_700Bold' }}>.</Text>
+          <Text style={{ fontFamily: 'Poppins_700Bold' }}>City News </Text>
+          <Text style={{ fontFamily: 'Poppins_700Bold', color: isDark ? '#818CF8' : colors.primary }}>Telugu</Text>
         </Text>
 
         <View style={styles.rightActions}>

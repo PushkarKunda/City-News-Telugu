@@ -35,8 +35,8 @@ const FAQS: FAQItem[] = [
   {
     id: '1',
     category: 'General',
-    question: 'What is HyperLocal News?',
-    answer: 'HyperLocal is a community-driven news platform that connects you to neighborhood stories, real-time local updates, and events happening around you. We focus on bringing high-impact, verified local reporting to your fingertips.',
+    question: 'What is City News Telugu?',
+    answer: 'City News Telugu is a community-driven news platform that connects you to neighborhood stories, real-time local updates, and events happening around you. We focus on bringing high-impact, verified local reporting to your fingertips.',
   },
   {
     id: '2',
@@ -54,7 +54,7 @@ const FAQS: FAQItem[] = [
     id: '4',
     category: 'Troubleshooting',
     question: 'Why am I not receiving notifications?',
-    answer: 'First, ensure that notifications are enabled in HyperLocal App Settings. Second, check your device system settings to confirm that notifications are allowed for HyperLocal News. Re-install the app if the issue persists.',
+    answer: 'First, ensure that notifications are enabled in City News Telugu App Settings. Second, check your device system settings to confirm that notifications are allowed for City News Telugu. Re-install the app if the issue persists.',
   },
   {
     id: '5',

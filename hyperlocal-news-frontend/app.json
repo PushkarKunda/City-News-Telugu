@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Hyperlocal News",
+    "name": "City News Telugu",
     "slug": "hyperlocal-news",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -23,7 +23,9 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundColor": "#FFFFFF"
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png",
+        "backgroundColor": "#012176"
       },
       "package": "com.hypernews.app",
       "googleServicesFile": "./google-services.json",

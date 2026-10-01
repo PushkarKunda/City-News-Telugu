@@ -32,7 +32,7 @@ export default function SettingsScreen() {
   const handleLogout = () => {
     Alert.alert(
       'Logout',
-      'Are you sure you want to log out of HyperLocal?',
+      'Are you sure you want to log out of City News Telugu?',
       [
         {
           text: 'Cancel',

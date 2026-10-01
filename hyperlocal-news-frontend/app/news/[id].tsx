@@ -152,8 +152,8 @@ export default function NewsDetailScreen() {
     }
     try {
       await Share.share({
-        message: `${article?.title || article?.summary || ''}\n\nShared via HyperLocal`,
-        title: article?.title || 'HyperLocal Story',
+        message: `${article?.title || article?.summary || ''}\n\nShared via City News Telugu`,
+        title: article?.title || 'City News Telugu Story',
       });
     } catch (_) {}
   };

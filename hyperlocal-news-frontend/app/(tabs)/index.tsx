@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useNavigation, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useNewsFeed, useCategories, useCategoryNews } from '@/hooks/useNews';
 import { useBookmarks } from '@/hooks/useEngagement';
 import { FeedItem, NewsArticle } from '@/services/api/news';
@@ -24,6 +25,10 @@ import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useAuthStore } from '@/store/authStore';
 import { useTabBarStore } from '@/store/tabBarStore';
 import { CommentsModal } from '@/components/CommentsModal';
+import { DistrictPickerModal, SelectedDistrictPayload } from '@/components/DistrictPickerModal';
+import { CategoryExplorerModal } from '@/components/CategoryExplorerModal';
+import { useActivePolls } from '@/hooks/usePolls';
+import { usersApi } from '@/services/api/users';
 
 const FOR_YOU_ID = 'for-you' as const;
 type CategoryId = typeof FOR_YOU_ID | number;
@@ -34,8 +39,12 @@ export default function HomeScreen() {
   const isDark = colorScheme === 'dark';
   const router = useRouter();
   const navigation = useNavigation();
-  const { user, cachedPreferences, fetchPreferences } = useAuthStore();
+  const { user, cachedPreferences, fetchPreferences, updateCachedPreferences } =
+    useAuthStore();
   const { height: screenHeight } = useWindowDimensions();
+
+  const [isDistrictModalVisible, setIsDistrictModalVisible] = useState(false);
+  const [isCategoryModalVisible, setIsCategoryModalVisible] = useState(false);
 
   useEffect(() => {
     // Fetch user preferences in the background to ensure header location is up-to-date
@@ -53,6 +62,7 @@ export default function HomeScreen() {
   const [activeCategory, setActiveCategory] = useState<CategoryId>(FOR_YOU_ID);
   const [activeCommentUid, setActiveCommentUid] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const flatListRef = useRef<FlatList>(null);
 
   const params = useLocalSearchParams<{ categoryId?: string }>();
 
@@ -67,6 +77,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     setActiveIndex(0);
+    flatListRef.current?.scrollToOffset?.({ offset: 0, animated: false });
   }, [activeCategory]);
 
   // ─── Data ─────────────────────────────────────────────────────────────
@@ -74,6 +85,9 @@ export default function HomeScreen() {
   // Dynamic categories from backend - excludes "Local" (has its own tab)
   const { data: categoriesData = [], isLoading: isLoadingCategories } =
     useCategories();
+
+  // Active public opinion polls
+  const { data: activePolls = [] } = useActivePolls();
 
   // "For You" = full mixed feed (news + ads + sponsored) as API returns
   const {
@@ -129,6 +143,7 @@ export default function HomeScreen() {
   });
 
   const hideHeader = useCallback(() => {
+    if (!isHeaderVisible.current) return;
     if (isLoadingCategories) return;
     if (hideTimerRef.current) {
       clearTimeout(hideTimerRef.current);
@@ -144,7 +159,11 @@ export default function HomeScreen() {
     }).start();
   }, [isLoadingCategories, setTabBarVisible, headerAnim]);
 
+  const hideHeaderRef = useRef(hideHeader);
+  hideHeaderRef.current = hideHeader;
+
   const showHeader = useCallback(() => {
+    if (isHeaderVisible.current) return;
     if (hideTimerRef.current) {
       clearTimeout(hideTimerRef.current);
       hideTimerRef.current = null;
@@ -173,12 +192,12 @@ export default function HomeScreen() {
       showHeader();
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
       hideTimerRef.current = setTimeout(() => {
-        hideHeader();
+        hideHeaderRef.current?.();
       }, 2500);
     });
 
     hideTimerRef.current = setTimeout(() => {
-      hideHeader();
+      hideHeaderRef.current?.();
     }, 2500);
 
     return () => {
@@ -187,7 +206,7 @@ export default function HomeScreen() {
         clearTimeout(hideTimerRef.current);
       }
     };
-  }, [navigation, showHeader, hideHeader]);
+  }, [navigation, showHeader]);
 
   // ─── Derived ──────────────────────────────────────────────────────────
 
@@ -225,7 +244,7 @@ export default function HomeScreen() {
         rawItems = (forYouFeed as any).news;
       }
 
-      return rawItems.map((item: any, idx: number): FeedItem => {
+      const mapped = rawItems.map((item: any, idx: number): FeedItem => {
         if (item && item.type && item.data) {
           return item as FeedItem;
         }
@@ -235,6 +254,25 @@ export default function HomeScreen() {
           position: idx,
         };
       });
+
+      // Inject active opinion polls into For You feed cleanly
+      if (activePolls && activePolls.length > 0 && mapped.length >= 4) {
+        const pollItem: FeedItem = {
+          type: 'poll',
+          data: activePolls[0] as any,
+          position: 3,
+        };
+        const blended: FeedItem[] = [];
+        for (let i = 0; i < mapped.length; i++) {
+          if (i === 3) {
+            blended.push(pollItem);
+          }
+          blended.push({ ...mapped[i], position: blended.length });
+        }
+        return blended;
+      }
+
+      return mapped;
     }
     // Category tabs: wrap news articles into FeedItem shape
     const categoryArticles = Array.isArray(categoryNewsData)
@@ -252,7 +290,7 @@ export default function HomeScreen() {
         position: i,
       })
     );
-  }, [activeCategory, forYouFeed, categoryNewsData]);
+  }, [activeCategory, forYouFeed, categoryNewsData, activePolls]);
 
   const isLoading =
     isLoadingCategories ||
@@ -269,6 +307,35 @@ export default function HomeScreen() {
 
   // ─── Render helpers ───────────────────────────────────────────────────
 
+  const handleSelectDistrict = useCallback(
+    async (item: SelectedDistrictPayload) => {
+      // 1. Immediately update local state/cache so header reflects new district with 0 delay
+      updateCachedPreferences({
+        state_id: item.stateId,
+        state_name: item.stateName,
+        district_id: item.districtId,
+        district_name: item.districtName,
+      });
+
+      // 2. Persist to backend in background
+      try {
+        await usersApi.updatePreferences({
+          state_id: item.stateId,
+          district_id: item.districtId,
+          city_id: null,
+          language_id: cachedPreferences?.language_id ?? 1,
+          category_ids: cachedPreferences?.category_ids ?? null,
+        });
+      } catch (e) {
+        console.log('Background updatePreferences error:', e);
+      }
+
+      // 3. Refetch the feed to load local news for newly selected district
+      refetchFeed();
+    },
+    [cachedPreferences, updateCachedPreferences, refetchFeed]
+  );
+
   const handleOpenComments = useCallback((uid: string) => {
     setActiveCommentUid(uid);
   }, []);
@@ -277,12 +344,20 @@ export default function HomeScreen() {
     setActiveCommentUid(null);
   }, []);
 
+  const lastActiveIndexRef = useRef(0);
   const onViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: ViewToken[] }) => {
       if (viewableItems.length > 0 && viewableItems[0].index != null) {
-        setActiveIndex(viewableItems[0].index);
+        const nextIndex = viewableItems[0].index;
+        if (nextIndex !== lastActiveIndexRef.current) {
+          lastActiveIndexRef.current = nextIndex;
+          setActiveIndex(nextIndex);
+          if (Platform.OS !== 'web') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }
+        }
         // Auto-hide header and footer when user is browsing news cards
-        hideHeader();
+        hideHeaderRef.current?.();
       }
     }
   ).current;
@@ -316,9 +391,10 @@ export default function HomeScreen() {
     const uid =
       (item.data as any)?.news_uid ||
       (item.data as any)?.post_uid ||
+      (item.data as any)?.poll_uid ||
       (item.data as any)?.id ||
       (item.data as any)?.ad_id;
-    return uid ? `${item.type}-${uid}` : `${item.type}-${item.position ?? index}`;
+    return uid ? `${item.type}-${uid}-${index}` : `${item.type}-${index}`;
   }, []);
 
   const getItemLayout = useCallback(
@@ -363,32 +439,24 @@ export default function HomeScreen() {
             { borderBottomColor: colors.border },
           ]}
         >
-          <View style={{ width: 40 }} />
+          <View style={styles.topLeftBox} />
 
           <View style={styles.headerCenter}>
             <Text style={[styles.appName, { color: colors.text }]}>
-              <Text style={{ fontFamily: 'Poppins_700Bold' }}>Hyper</Text>
+              <Text style={{ fontFamily: 'Poppins_700Bold' }}>City News </Text>
               <Text
                 style={{
                   fontFamily: 'Poppins_700Bold',
                   color: isDark ? '#818CF8' : colors.primary,
                 }}
               >
-                Local
-              </Text>
-              <Text
-                style={{
-                  color: isDark ? '#818CF8' : colors.primary,
-                  fontFamily: 'Poppins_700Bold',
-                }}
-              >
-                .
+                Telugu
               </Text>
             </Text>
             <TouchableOpacity
               style={styles.locationRow}
               activeOpacity={0.7}
-              onPress={() => router.push('/(tabs)/settings-location')}
+              onPress={() => setIsDistrictModalVisible(true)}
             >
               <Ionicons
                 name="location-sharp"
@@ -404,6 +472,12 @@ export default function HomeScreen() {
                   return 'SELECT LOCATION';
                 })()}
               </Text>
+              <Ionicons
+                name="chevron-down"
+                size={11}
+                color={colors.textTertiary}
+                style={{ marginLeft: 2 }}
+              />
             </TouchableOpacity>
           </View>
 
@@ -431,53 +505,74 @@ export default function HomeScreen() {
         <View
           style={[styles.tabsContainer, { borderBottomColor: colors.border }]}
         >
-          <FlatList
-            ref={categoryTabRef}
-            data={categoryTabs}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.tabsContent}
-            keyExtractor={(t) => String(t.id)}
-            onScrollToIndexFailed={() => { }}
-            renderItem={({ item: tab, index }) => {
-              const isActive = activeCategory === tab.id;
-              const activeColor = tab.color || colors.primary;
-              return (
-                <TouchableOpacity
-                  style={styles.tab}
-                  onPress={() => {
-                    setActiveCategory(tab.id);
-                    categoryTabRef.current?.scrollToIndex({
-                      index,
-                      animated: true,
-                      viewPosition: 0.5,
-                    });
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Text
-                    style={[
-                      styles.tabText,
-                      {
-                        color: isActive ? activeColor : colors.textSecondary,
-                        fontWeight: isActive ? '700' : '500',
-                      },
-                    ]}
+          <View style={styles.tabsRowWithGrid}>
+            <FlatList
+              ref={categoryTabRef}
+              style={{ flex: 1 }}
+              data={categoryTabs}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.tabsContent}
+              keyExtractor={(t) => String(t.id)}
+              onScrollToIndexFailed={() => { }}
+              renderItem={({ item: tab, index }) => {
+                const isActive = activeCategory === tab.id;
+                const activeColor = tab.color || colors.primary;
+                return (
+                  <TouchableOpacity
+                    style={styles.tab}
+                    onPress={() => {
+                      setActiveCategory(tab.id);
+                      categoryTabRef.current?.scrollToIndex({
+                        index,
+                        animated: true,
+                        viewPosition: 0.5,
+                      });
+                    }}
+                    activeOpacity={0.8}
                   >
-                    {tab.name}
-                  </Text>
-                  {isActive && (
-                    <View
+                    <Text
                       style={[
-                        styles.tabIndicator,
-                        { backgroundColor: activeColor },
+                        styles.tabText,
+                        {
+                          color: isActive ? activeColor : colors.textSecondary,
+                          fontWeight: isActive ? '700' : '500',
+                        },
                       ]}
-                    />
-                  )}
-                </TouchableOpacity>
-              );
-            }}
-          />
+                    >
+                      {tab.name}
+                    </Text>
+                    {isActive && (
+                      <View
+                        style={[
+                          styles.tabIndicator,
+                          { backgroundColor: activeColor },
+                        ]}
+                      />
+                    )}
+                  </TouchableOpacity>
+                );
+              }}
+            />
+
+            {/* Grid Topic Explorer Button (Way2News style) */}
+            <TouchableOpacity
+              style={[
+                styles.categoryGridBtn,
+                {
+                  backgroundColor: isDark ? '#161622' : '#F1F5F9',
+                  borderColor: colors.border,
+                },
+              ]}
+              onPress={() => {
+                if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setIsCategoryModalVisible(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="grid-outline" size={16} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
         </View>
       </Animated.View>
 
@@ -595,22 +690,20 @@ export default function HomeScreen() {
           </View>
         ) : (
           <FlatList
+            ref={flatListRef}
             data={feedItems}
             keyExtractor={keyExtractor}
             renderItem={renderFeedItem}
-            pagingEnabled
+            pagingEnabled={true}
             showsVerticalScrollIndicator={false}
-            snapToInterval={scrollHeight}
-            snapToAlignment="start"
             decelerationRate="fast"
-            disableIntervalMomentum
             bounces={false}
             getItemLayout={getItemLayout}
             onViewableItemsChanged={onViewableItemsChanged}
             viewabilityConfig={viewabilityConfig}
             initialNumToRender={2}
-            maxToRenderPerBatch={2}
-            windowSize={3}
+            maxToRenderPerBatch={3}
+            windowSize={5}
             updateCellsBatchingPeriod={50}
             removeClippedSubviews={false}
             refreshing={isRefreshing}
@@ -619,11 +712,45 @@ export default function HomeScreen() {
         )}
       </View>
 
-      <CommentsModal
-        visible={!!activeCommentUid}
-        onClose={handleCloseComments}
-        newsUid={activeCommentUid || ''}
-      />
+      {/* Conditional Modals: mounted only when open to prevent Android ViewGroup index mismatch */}
+      {Boolean(activeCommentUid) && (
+        <CommentsModal
+          visible={Boolean(activeCommentUid)}
+          onClose={handleCloseComments}
+          newsUid={activeCommentUid || ''}
+        />
+      )}
+
+      {isDistrictModalVisible && (
+        <DistrictPickerModal
+          visible={isDistrictModalVisible}
+          onClose={() => setIsDistrictModalVisible(false)}
+          currentDistrictName={cachedPreferences?.district_name || user?.district}
+          currentStateId={cachedPreferences?.state_id ?? 1}
+          onSelectDistrict={handleSelectDistrict}
+          onOpenAdvancedSettings={() => router.push('/(tabs)/settings-location')}
+        />
+      )}
+
+      {isCategoryModalVisible && (
+        <CategoryExplorerModal
+          visible={isCategoryModalVisible}
+          onClose={() => setIsCategoryModalVisible(false)}
+          categories={categoryTabs}
+          activeCategoryId={activeCategory}
+          onSelectCategory={(id) => {
+            setActiveCategory(id);
+            const idx = categoryTabs.findIndex((c) => c.id === id);
+            if (idx >= 0) {
+              categoryTabRef.current?.scrollToIndex({
+                index: idx,
+                animated: true,
+                viewPosition: 0.5,
+              });
+            }
+          }}
+        />
+      )}
     </View>
   );
 }
@@ -653,6 +780,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     height: 60,
     borderBottomWidth: 1,
+  },
+  topLeftBox: {
+    width: 40,
+    height: 40,
   },
   headerCenter: { alignItems: 'center' },
   appName: {
@@ -690,6 +821,19 @@ const styles = StyleSheet.create({
     borderColor: '#fff',
   },
   tabsContainer: { borderBottomWidth: 1, paddingVertical: 4 },
+  tabsRowWithGrid: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  categoryGridBtn: {
+    width: 36,
+    height: 32,
+    borderRadius: 8,
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+  },
   tabsContent: {
     paddingHorizontal: 16,
     alignItems: 'center',

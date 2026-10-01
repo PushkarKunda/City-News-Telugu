@@ -155,6 +155,7 @@ interface AuthState {
   fetchPreferences: () => Promise<UserPreferences>;
   updateCachedPreferences: (updates: Partial<UserPreferences>) => void;
   fetchUser: () => Promise<User | null>;
+  loginAsDemo: (customUser?: Partial<User>) => void;
 }
 
 // ─── Error Handler ────────────────────────────────────────────────────────────
@@ -281,8 +282,8 @@ export const useAuthStore = create<AuthState>()(
             set({ cachedPreferences: defaultPrefs });
             return defaultPrefs;
           }
-          console.error('[authStore] fetchPreferences failed:', error);
-          throw error;
+          console.warn('[authStore] fetchPreferences fallback to cached/default preferences');
+          return get().cachedPreferences || ({} as UserPreferences);
         }
       },
 
@@ -317,6 +318,48 @@ export const useAuthStore = create<AuthState>()(
           console.warn('[authStore] fetchUser failed:', err);
           return null;
         }
+      },
+
+      loginAsDemo: (customUser?: Partial<User>) => {
+        void clearTokens();
+        const demoUser: User = sanitizeUser({
+          user_uid: 'demo_user_pushkar',
+          user_name: 'pushkarkunda',
+          name: 'Pushkar Kunda',
+          email: 'pushkar@citynewstelugu.com',
+          phone: '+91 98765 43210',
+          phoneNumber: '+91 98765 43210',
+          role: 1,
+          email_verified: true,
+          mobile_verified: true,
+          is_suspended: false,
+          created_at: new Date().toISOString(),
+          language: 'Telugu',
+          language_name: 'తెలుగు',
+          state: 'Andhra Pradesh',
+          state_name: 'ఆంధ్రప్రదేశ్',
+          district: 'Bapatla',
+          district_name: 'బాపట్ల',
+          state_id: 1,
+          district_id: 1,
+          language_id: 1,
+          ...(customUser || {}),
+        });
+        set({
+          user: demoUser,
+          isAuthenticated: true,
+          isOnboarded: true,
+          isLoading: false,
+          error: null,
+          cachedPreferences: {
+            language_id: 1,
+            state_id: 1,
+            district_id: 1,
+            state_name: 'ఆంధ్రప్రదేశ్',
+            district_name: 'బాపట్ల',
+            language_name: 'తెలుగు',
+          } as any,
+        });
       },
 
       // ─── Send Phone OTP ────────────────────────────────────────────────────

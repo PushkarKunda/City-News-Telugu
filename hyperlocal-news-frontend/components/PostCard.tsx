@@ -92,7 +92,7 @@ const PostCardInner: React.FC<PostCardProps> = ({
       sharePostMutation({ postUid: post.post_uid, platform: 'native' });
 
       await Share.share({
-        message: `${post.content || ''}\n\nShared via HyperLocal Community`,
+        message: `${post.content || ''}\n\nShared via City News Telugu Community`,
       });
     } catch (error) {
       console.log('Share error:', error);

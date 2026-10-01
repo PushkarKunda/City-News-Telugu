@@ -1,3 +1,20 @@
+import { Platform } from 'react-native';
+
+export const TELUGU_FONT_STACK = {
+  regular: Platform.select({
+    web: "'Noto Sans Telugu', NotoSansTelugu_400Regular, 'Noto Sans', system-ui, sans-serif",
+    default: 'NotoSansTelugu_400Regular',
+  }),
+  semiBold: Platform.select({
+    web: "'Noto Sans Telugu', NotoSansTelugu_600SemiBold, 'Noto Sans', system-ui, sans-serif",
+    default: 'NotoSansTelugu_600SemiBold',
+  }),
+  bold: Platform.select({
+    web: "'Noto Sans Telugu', NotoSansTelugu_700Bold, 'Noto Sans', system-ui, sans-serif",
+    default: 'NotoSansTelugu_700Bold',
+  }),
+};
+
 export const Typography = {
   fonts: {
     // Body / Interface (Poppins)
@@ -11,6 +28,11 @@ export const Typography = {
     displayMedium: 'Poppins_500Medium',
     displaySemiBold: 'Poppins_600SemiBold',
     displayBold: 'Poppins_700Bold',
+
+    // Telugu Content (Noto Sans Telugu)
+    teluguRegular: TELUGU_FONT_STACK.regular,
+    teluguSemiBold: TELUGU_FONT_STACK.semiBold,
+    teluguBold: TELUGU_FONT_STACK.bold,
   },
   
   sizes: {
@@ -24,4 +46,4 @@ export const Typography = {
     '4xl': 36,
     '5xl': 48,
   },
-};
+};

@@ -210,7 +210,7 @@ export const Sidebar = ({ activeTab, setActiveTab }) => {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
           <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }} />
-          <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>HyperNews v2.5</span>
+          <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>City News Telugu v2.5</span>
         </div>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', color: '#818cf8', fontWeight: 600 }}>
           <HelpCircle size={12} /> RBAC Live

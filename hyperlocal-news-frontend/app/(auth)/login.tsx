@@ -23,6 +23,9 @@ import { useAuthStore } from '@/store/authStore';
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useGoogleFirebaseAuth } from '@/hooks/useGoogleFirebaseAuth';
+import { firebaseAuth } from '@/services/firebase';
+import { authApi } from '@/services/api';
+import { saveTokens } from '@/services/api/token';
 
 const COUNTRY_CODES = [
   { code: '+91', country: 'IN', flag: '🇮🇳' },
@@ -37,7 +40,7 @@ export default function LoginScreen() {
   const heroCardHeight = Math.min(Math.max(width * 0.46, 160), 220);
 
   // ✅ Only from store - no duplicate useState for isLoading
-  const { sendPhoneOTP, isLoading, fetchUser } = useAuthStore();
+  const { sendPhoneOTP, isLoading, fetchUser, loginAsDemo } = useAuthStore();
   const [isDemoLoading, setIsDemoLoading] = useState(false);
   const {
     signInWithGoogle,
@@ -198,12 +201,9 @@ export default function LoginScreen() {
   const handleDemoLogin = async () => {
     setIsDemoLoading(true);
     try {
-      const user = await fetchUser();
-      if (user) {
-        router.replace('/(tabs)');
-      } else {
-        Alert.alert('Demo Login', 'Could not authenticate demo session. Please try again.');
-      }
+      // 1. Instant 1-tap demo session (Pushkar Kunda / Telugu / Bapatla)
+      loginAsDemo();
+      router.replace('/(tabs)');
     } catch (error: any) {
       Alert.alert('Demo Login', error?.message || 'Failed to authenticate');
     } finally {
@@ -214,7 +214,7 @@ export default function LoginScreen() {
   const handleLinkPress = (type: 'terms' | 'privacy') => {
     Alert.alert(
       type === 'terms' ? 'Terms of Service' : 'Privacy Policy',
-      `Redirecting to HyperLocal's ${type === 'terms' ? 'Terms of Service' : 'Privacy Policy'}...`
+      `Redirecting to City News Telugu's ${type === 'terms' ? 'Terms of Service' : 'Privacy Policy'}...`
     );
   };
 
@@ -226,9 +226,8 @@ export default function LoginScreen() {
 
       <View style={[styles.header, { backgroundColor: colors.background }]}>
         <Text style={[styles.headerTitle, { color: colors.text }]}>
-          <Text style={{ fontFamily: 'Poppins_700Bold' }}>Hyper</Text>
-          <Text style={{ fontFamily: 'Poppins_700Bold', color: isDark ? '#818CF8' : colors.primary }}>Local</Text>
-          <Text style={{ color: isDark ? '#818CF8' : colors.primary, fontFamily: 'Poppins_700Bold' }}>.</Text>
+          <Text style={{ fontFamily: 'Poppins_700Bold' }}>City News </Text>
+          <Text style={{ fontFamily: 'Poppins_700Bold', color: isDark ? '#818CF8' : colors.primary }}>Telugu</Text>
         </Text>
       </View>
 
@@ -289,7 +288,7 @@ export default function LoginScreen() {
                     <View style={[styles.pingRipple, { borderColor: '#38BDF8' }]} />
                   </Animated.View>
 
-                  <Animated.View style={[styles.radarCenter, { backgroundColor: isDark ? '#FFFFFF' : colors.primaryLight, transform: [{ scale: centerPulse }] }]}>
+                  <Animated.View style={[styles.radarCenter, { transform: [{ scale: centerPulse }] }]}>
                     <Image
                       source={require('../../assets/logo.png')}
                       style={styles.radarLogoImage}
@@ -582,17 +581,18 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   radarCenter: {
-    width: 44, height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#6366F1',
+    shadowColor: '#012176',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.6,
+    shadowOpacity: 0.45,
     shadowRadius: 10,
     elevation: 8,
   },
-  radarLogoImage: { width: '80%', height: '80%', borderRadius: 18 },
+  radarLogoImage: { width: '100%', height: '100%', borderRadius: 14 },
   liveLabel: {
     position: 'absolute',
     bottom: 10, left: 0, right: 0,

@@ -69,6 +69,7 @@ export function truncateText(text: string, maxLength: number): string {
   return text.slice(0, maxLength).trim() + '...';
 }
 
+
 /**
  * Calculate read time based on word count
  */
@@ -76,5 +77,16 @@ export function calculateReadTime(content: string): string {
   const wordsPerMinute = 200;
   const wordCount = content.trim().split(/\s+/).length;
   const minutes = Math.ceil(wordCount / wordsPerMinute);
+  return `${minutes} min read`;
+}
+
+/**
+ * Calculate estimated read time for Telugu / multilingual news content
+ * Telugu reading speed is ~150 words per minute with a minimum of 1 min.
+ */
+export function calculateTeluguReadTime(content?: string | null): string {
+  if (!content || !content.trim()) return '1 min read';
+  const words = content.trim().split(/\s+/).filter(Boolean).length;
+  const minutes = Math.max(1, Math.ceil(words / 150));
   return `${minutes} min read`;
 }

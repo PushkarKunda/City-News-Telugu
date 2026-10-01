@@ -8,6 +8,7 @@ import axios, {
 import { API_CONFIG } from './config';
 import { getAuthToken, getRefreshToken, saveTokens, clearTokens } from './token';
 import { API_ROUTES } from './routes';
+import { firebaseAuth } from '../firebase';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -106,45 +107,88 @@ apiClient.interceptors.response.use(
       isRefreshing = true;
 
       try {
+        let newAccessToken: string | null = null;
+        let newRefreshToken: string | null = null;
+
         const refreshToken = await getRefreshToken();
-        if (!refreshToken) throw new Error('No refresh token');
-
-        // Call refresh endpoint
-        const response = await axios.post(
-          `${API_CONFIG.baseUrl}${API_ROUTES.auth.refreshToken}`,
-          null,
-          {
-            params: {
-              refresh_token: refreshToken,
-            },
+        if (refreshToken) {
+          try {
+            const response = await axios.post(
+              `${API_CONFIG.baseUrl}${API_ROUTES.auth.refreshToken}`,
+              null,
+              {
+                params: {
+                  refresh_token: refreshToken,
+                },
+              }
+            );
+            newAccessToken = response.data?.access_token;
+            newRefreshToken = response.data?.refresh_token;
+          } catch (_) {
+            // refresh token call failed, fall back to Firebase re-auth below
           }
-        );
+        }
 
-        const { access_token, refresh_token } = response.data;
-        await saveTokens(access_token, refresh_token);
-        //Just for testing
-        console.log('auth/refresh-token url is used, now access-token is:', access_token);
+        // If backend refresh token failed or was missing, attempt silent Firebase token exchange
+        if (!newAccessToken) {
+          try {
+            const fbUser = firebaseAuth.currentUser;
+            if (fbUser) {
+              const fbToken = await fbUser.getIdToken(true);
+              if (fbToken) {
+                const fbRes = await axios.post(
+                  `${API_CONFIG.baseUrl}${API_ROUTES.auth.firebaseLogin}`,
+                  { firebase_token: fbToken }
+                );
+                newAccessToken = fbRes.data?.access_token;
+                newRefreshToken = fbRes.data?.refresh_token;
+              }
+            }
+          } catch (_) {}
+        }
 
-        processQueue(null, access_token);
+        if (!newAccessToken) {
+          throw new Error('No refresh token available');
+        }
+
+        await saveTokens(newAccessToken, newRefreshToken || '');
+        processQueue(null, newAccessToken);
 
         originalRequest.headers = {
           ...originalRequest.headers,
-          Authorization: `Bearer ${access_token}`,
+          Authorization: `Bearer ${newAccessToken}`,
         };
 
         return apiClient(originalRequest);
       } catch (refreshError) {
         processQueue(refreshError, null);
-        await clearTokens();
-        if (onUnauthorizedCallback) {
-          const cb = onUnauthorizedCallback;
-          onUnauthorizedCallback = null;
-          try {
-            cb();
-          } finally {
-            setTimeout(() => {
-              onUnauthorizedCallback = cb;
-            }, 1000);
+
+        // Check if the failing request is background telemetry/tracking
+        const requestUrl = originalRequest.url || '';
+        const isTelemetryOrNonCritical =
+          requestUrl.includes('/view') ||
+          requestUrl.includes('/share') ||
+          requestUrl.includes('/engagement') ||
+          requestUrl.includes('/analytics') ||
+          requestUrl.includes('/in-app') ||
+          requestUrl.includes('/notifications') ||
+          requestUrl.includes('/preferences') ||
+          requestUrl.includes('/bookmarks') ||
+          requestUrl.includes('/feed');
+
+        // Only log out if it is a critical authenticated route and not background tracking
+        if (!isTelemetryOrNonCritical) {
+          await clearTokens();
+          if (onUnauthorizedCallback) {
+            const cb = onUnauthorizedCallback;
+            onUnauthorizedCallback = null;
+            try {
+              cb();
+            } finally {
+              setTimeout(() => {
+                onUnauthorizedCallback = cb;
+              }, 1000);
+            }
           }
         }
         return Promise.reject(refreshError);
