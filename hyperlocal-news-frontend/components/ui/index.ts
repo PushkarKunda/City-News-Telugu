@@ -8,3 +8,4 @@ export { IconButton } from './IconButton';
 export { Divider } from './Divider';
 export { LoadingSpinner } from './LoadingSpinner';
 export { EmptyState } from './EmptyState';
+export { EdgeFadedScrollView } from './EdgeFadedScrollView';

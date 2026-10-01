@@ -12,11 +12,13 @@ import { usePostByUid, useLikePost, useSharePost } from '@/hooks/usePosts';
 import { useCheckBookmark, useAddBookmark, useRemoveBookmark } from '@/hooks/useEngagement';
 import { useQuery } from '@tanstack/react-query';
 import { contentApi, Advertisement } from '@/services/api/content';
-import { formatDate } from '@/utils/formatters';
+import { formatDate, formatTimeAgo, getArticleTimestamp } from '@/utils/formatters';
 import { StatusBar } from 'expo-status-bar';
 import { BlurView } from 'expo-blur';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
+import { useCommentCountStore } from '@/store/commentCountStore';
+import { CommentsModal } from '@/components/CommentsModal';
 import * as WebBrowser from 'expo-web-browser';
 import { Share } from 'react-native';
 import {
@@ -113,6 +115,22 @@ export default function NewsDetailScreen() {
   const { mutate: recordShare } = useRecordShare();
 
   const [isLiked, setIsLiked] = useState(false);
+  const [isCommentsOpen, setIsCommentsOpen] = useState(false);
+
+  const liveCommentCount = useCommentCountStore((s) => (id ? s.counts[id as string] : undefined));
+  const commentCount =
+    liveCommentCount !== undefined
+      ? liveCommentCount
+      : engagement?.comments || engagement?.total_comments || article?.comments || 0;
+
+  useEffect(() => {
+    if (id) {
+      const initial = engagement?.comments || engagement?.total_comments || article?.comments;
+      if (typeof initial === 'number') {
+        useCommentCountStore.getState().setInitialCount(id as string, initial);
+      }
+    }
+  }, [id, engagement?.comments, engagement?.total_comments, article?.comments]);
 
   // Record view on mount
   useEffect(() => {
@@ -292,7 +310,13 @@ export default function NewsDetailScreen() {
                 {article.source || 'Editorial Team'}
               </Text>
               <Text style={[styles.publishedDate, { color: colors.textSecondary }]}>
-                {formatDate(article.created_at)}
+                {(() => {
+                  const ts = getArticleTimestamp(article);
+                  const rel = formatTimeAgo(ts);
+                  const dt = formatDate(ts);
+                  if (rel && dt) return `${rel} · ${dt}`;
+                  return rel || dt || '';
+                })()}
               </Text>
             </View>
           </View>
@@ -350,12 +374,18 @@ export default function NewsDetailScreen() {
         </View>
 
         {/* Comments */}
-        <View style={styles.engagementItem}>
+        <TouchableOpacity
+          style={styles.engagementItem}
+          onPress={() => setIsCommentsOpen(true)}
+          activeOpacity={0.7}
+          accessibilityLabel="Comments"
+          accessibilityRole="button"
+        >
           <Ionicons name="chatbubble-outline" size={20} color={colors.textSecondary} />
           <Text style={[styles.engagementText, { color: colors.textSecondary }]}>
-            {engagement?.comments || engagement?.total_comments || article?.comments || 0}
+            {commentCount}
           </Text>
-        </View>
+        </TouchableOpacity>
 
         {/* Shares */}
         <View style={styles.engagementItem}>
@@ -369,6 +399,14 @@ export default function NewsDetailScreen() {
           <Ionicons name={bookmarkCheck?.is_bookmarked ? "bookmark" : "bookmark-outline"} size={24} color={bookmarkCheck?.is_bookmarked ? colors.primary : colors.textSecondary} />
         </TouchableOpacity>
       </View>
+
+      {Boolean(isCommentsOpen && id) && (
+        <CommentsModal
+          visible={isCommentsOpen}
+          onClose={() => setIsCommentsOpen(false)}
+          newsUid={id as string}
+        />
+      )}
     </View>
   );
 }

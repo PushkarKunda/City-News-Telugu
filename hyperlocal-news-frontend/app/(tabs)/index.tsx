@@ -24,9 +24,12 @@ import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useAuthStore } from '@/store/authStore';
 import { useTabBarStore } from '@/store/tabBarStore';
+import { useReaderFontStore } from '@/store/readerFontStore';
+import { useCommentCountStore } from '@/store/commentCountStore';
 import { CommentsModal } from '@/components/CommentsModal';
 import { DistrictPickerModal, SelectedDistrictPayload } from '@/components/DistrictPickerModal';
 import { CategoryExplorerModal } from '@/components/CategoryExplorerModal';
+import { FontSizeModal } from '@/components/FontSizeModal';
 import { useActivePolls } from '@/hooks/usePolls';
 import { usersApi } from '@/services/api/users';
 
@@ -52,6 +55,9 @@ export default function HomeScreen() {
   }, [fetchPreferences]);
   const insets = useSafeAreaInsets();
   const setTabBarVisible = useTabBarStore((s) => s.setVisible);
+  const isFontModalOpen = useReaderFontStore((s) => s.isModalOpen);
+  const closeFontModal = useReaderFontStore((s) => s.closeModal);
+  const commentCounts = useCommentCountStore((s) => s.counts);
 
   const topBarHeight = 60;
   const categoriesHeight = 46;
@@ -694,6 +700,7 @@ export default function HomeScreen() {
             data={feedItems}
             keyExtractor={keyExtractor}
             renderItem={renderFeedItem}
+            extraData={commentCounts}
             pagingEnabled={true}
             showsVerticalScrollIndicator={false}
             decelerationRate="fast"
@@ -749,6 +756,13 @@ export default function HomeScreen() {
               });
             }
           }}
+        />
+      )}
+
+      {isFontModalOpen && (
+        <FontSizeModal
+          visible={isFontModalOpen}
+          onClose={closeFontModal}
         />
       )}
     </View>

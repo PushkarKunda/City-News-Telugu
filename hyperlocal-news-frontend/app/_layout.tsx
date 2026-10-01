@@ -170,9 +170,16 @@ export default function RootLayout() {
     return () => unsubscribe();
   }, []);
 
-  // ─── Fetch Current User Profile ───────────────────────────────────────────
+  // ─── Fetch Current User Profile & Sync Provider ──────────────────────────
   useEffect(() => {
-    void useAuthStore.getState().fetchUser();
+    void (async () => {
+      try {
+        await useAuthStore.getState().syncProvider();
+      } catch (e) {
+        console.warn('App startup syncProvider skipped:', e);
+      }
+      await useAuthStore.getState().fetchUser();
+    })();
   }, []);
 
   // ─── User Store Sync ─────────────────────────────────────────────────────

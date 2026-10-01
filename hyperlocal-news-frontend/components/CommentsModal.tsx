@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,11 +11,18 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  AppState,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useNewsComments, useAddComment, useDeleteComment } from '@/hooks/useNews';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
+import { useNewsComments, useAddComment, useDeleteComment, newsKeys } from '@/hooks/useNews';
+import { NewsComment, CommentsPage } from '@/services/api/news';
 import { useAuthStore } from '@/store/authStore';
+import { useCommentCountStore } from '@/store/commentCountStore';
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { formatTimeAgo } from '@/utils/formatters';
@@ -28,78 +35,194 @@ interface CommentsModalProps {
 
 // ─── Comment Row ──────────────────────────────────────────────────────────────
 
-const CommentItem = React.memo(({ item, isOwner, onDelete, colors, currentUser }: any) => {
-  const isSelf =
-    isOwner ||
-    item.user_uid === '__optimistic__' ||
-    (currentUser?.user_uid && item.user_uid === currentUser.user_uid);
+interface CommentItemProps {
+  item: NewsComment;
+  isOwner: boolean;
+  onDelete: (id: number) => void;
+  onRetry: (item: NewsComment) => void;
+  onDismissFailed: (id: number) => void;
+  colors: any;
+  isDark: boolean;
+  currentUser: any;
+}
 
-  const authorName =
-    (isSelf ? (currentUser?.name || currentUser?.user_name || 'You') : null) ||
-    item.user_display_name || 
-    item.user_name || 
-    item.username || 
-    item.author_name || 
-    item.display_name ||
-    item.full_name ||
-    item.user?.display_name ||
-    item.user?.name ||
-    item.user?.username ||
-    (item.user_uid ? `User (${item.user_uid.slice(-4)})` : 'Reader');
+const CommentItem = React.memo(
+  ({
+    item,
+    isOwner,
+    onDelete,
+    onRetry,
+    onDismissFailed,
+    colors,
+    isDark,
+    currentUser,
+  }: CommentItemProps) => {
+    const isSending = item.status === 'sending';
+    const isFailed = item.status === 'failed';
 
-  const avatarUri =
-    (isSelf ? (currentUser?.profile_picture || currentUser?.avatar) : null) ||
-    item.user_avatar ||
-    item.user_profile_picture ||
-    item.avatar ||
-    item.profile_picture ||
-    item.user?.avatar ||
-    item.user?.profile_picture ||
-    item.user?.user_avatar;
+    const isSelf =
+      isOwner ||
+      item.user_uid === '__optimistic__' ||
+      (currentUser?.user_uid && item.user_uid === currentUser.user_uid);
 
-  const cleanName = (authorName || 'User').replace(/[^a-zA-Z0-9 ]/g, ' ').trim();
-  const initials =
-    cleanName
-      .split(/\s+/)
-      .map((w: string) => w[0])
-      .filter(Boolean)
-      .slice(0, 2)
-      .join('')
-      .toUpperCase() || 'U';
+    const authorName =
+      (isSelf ? (currentUser?.name || currentUser?.user_name || 'You') : null) ||
+      item.user_display_name ||
+      item.user_name ||
+      item.username ||
+      item.author_name ||
+      item.display_name ||
+      item.full_name ||
+      item.user?.display_name ||
+      item.user?.name ||
+      item.user?.username ||
+      (item.user_uid && item.user_uid !== '__optimistic__'
+        ? `User (${item.user_uid.slice(-4)})`
+        : 'Reader');
 
-  const timeText = item.time_ago || (item.created_at ? formatTimeAgo(item.created_at) : 'Just now');
-  const contentText = item.comment_text || item.content || item.text || '';
+    const avatarUri =
+      (isSelf ? (currentUser?.profile_picture || currentUser?.avatar) : null) ||
+      item.user_avatar ||
+      item.user_profile_picture ||
+      item.avatar ||
+      item.profile_picture ||
+      item.user?.avatar ||
+      item.user?.profile_picture ||
+      item.user?.user_avatar;
 
-  return (
-    <View style={[styles.commentContainer, { borderBottomColor: colors.border }]}>
-      {avatarUri ? (
-        <Image source={{ uri: avatarUri }} style={styles.avatar} contentFit="cover" />
-      ) : (
-        <View style={[styles.avatarPlaceholder, { backgroundColor: colors.primary + '20' }]}>
-          <Text style={[styles.avatarInitial, { color: colors.primary }]}>{initials}</Text>
+    const cleanName = (authorName || 'User').replace(/[^a-zA-Z0-9 ]/g, ' ').trim();
+    const initials =
+      cleanName
+        .split(/\s+/)
+        .map((w: string) => w[0])
+        .filter(Boolean)
+        .slice(0, 2)
+        .join('')
+        .toUpperCase() || 'U';
+
+    const timeText = isSending
+      ? 'Sending...'
+      : item.time_ago || (item.created_at ? formatTimeAgo(item.created_at) : 'Just now');
+    const contentText = item.comment_text || item.content || item.text || '';
+
+    return (
+      <View
+        style={[
+          styles.commentContainer,
+          { borderBottomColor: colors.border },
+          isSending && styles.sendingContainer,
+          isFailed && (isDark ? styles.failedContainerDark : styles.failedContainerLight),
+        ]}
+      >
+        {avatarUri ? (
+          <Image
+            source={{ uri: avatarUri }}
+            style={[styles.avatar, isSending && styles.avatarDimmed]}
+            contentFit="cover"
+          />
+        ) : (
+          <View
+            style={[
+              styles.avatarPlaceholder,
+              { backgroundColor: colors.primary + '20' },
+              isSending && styles.avatarDimmed,
+            ]}
+          >
+            <Text style={[styles.avatarInitial, { color: colors.primary }]}>{initials}</Text>
+          </View>
+        )}
+
+        <View style={styles.commentContent}>
+          <View style={styles.commentHeader}>
+            <Text
+              style={[styles.userName, { color: colors.text }]}
+              numberOfLines={1}
+              maxFontSizeMultiplier={1.25}
+            >
+              {authorName}
+            </Text>
+
+            {/* Status & Relative Time */}
+            {isSending ? (
+              <View style={styles.statusIndicatorRow}>
+                <ActivityIndicator
+                  size="small"
+                  color={colors.primary}
+                  style={styles.statusSpinner}
+                />
+                <Text style={[styles.sendingText, { color: colors.primary }]}>Sending...</Text>
+              </View>
+            ) : isFailed ? (
+              <View style={styles.failedStatusRow}>
+                <Ionicons name="alert-circle" size={13} color="#DC2626" style={{ marginRight: 3 }} />
+                <Text style={styles.failedBadgeText}>Failed to send</Text>
+              </View>
+            ) : (
+              Boolean(timeText) && (
+                <Text
+                  style={[styles.timeText, { color: colors.textTertiary }]}
+                  maxFontSizeMultiplier={1.2}
+                >
+                  {timeText}
+                </Text>
+              )
+            )}
+          </View>
+
+          <Text
+            style={[
+              styles.commentText,
+              { color: isFailed ? (isDark ? '#FCA5A5' : '#B91C1C') : colors.textSecondary },
+            ]}
+            maxFontSizeMultiplier={1.25}
+          >
+            {contentText}
+          </Text>
         </View>
-      )}
-      <View style={styles.commentContent}>
-        <View style={styles.commentHeader}>
-          <Text style={[styles.userName, { color: colors.text }]}>{authorName}</Text>
-          {Boolean(timeText) && (
-            <Text style={[styles.timeText, { color: colors.textTertiary }]}>{timeText}</Text>
-          )}
-        </View>
-        <Text style={[styles.commentText, { color: colors.textSecondary }]}>{contentText}</Text>
+
+        {/* Action Buttons: Retry/Dismiss for failed, Delete for owner */}
+        {isFailed ? (
+          <View style={styles.failedActionsRow}>
+            <TouchableOpacity
+              onPress={() => onRetry(item)}
+              style={[
+                styles.retryBtn,
+                { backgroundColor: isDark ? 'rgba(239, 68, 68, 0.25)' : '#FEE2E2' },
+              ]}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.7}
+              accessibilityLabel="Retry sending comment"
+              accessibilityRole="button"
+            >
+              <Ionicons name="refresh" size={12} color="#DC2626" style={{ marginRight: 2 }} />
+              <Text style={styles.retryBtnText}>Retry</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => onDismissFailed(item.id)}
+              style={styles.deleteBtn}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel="Discard comment"
+              accessibilityRole="button"
+            >
+              <Ionicons name="close" size={16} color={colors.textTertiary} />
+            </TouchableOpacity>
+          </View>
+        ) : isSelf && !isSending ? (
+          <TouchableOpacity
+            onPress={() => onDelete(item.id)}
+            style={styles.deleteBtn}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Delete comment"
+            accessibilityRole="button"
+          >
+            <Ionicons name="trash-outline" size={16} color={colors.textTertiary} />
+          </TouchableOpacity>
+        ) : null}
       </View>
-      {isSelf && (
-        <TouchableOpacity
-          onPress={() => onDelete(item.id)}
-          style={styles.deleteBtn}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Ionicons name="trash-outline" size={16} color={colors.textTertiary} />
-        </TouchableOpacity>
-      )}
-    </View>
-  );
-});
+    );
+  }
+);
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
 
@@ -107,9 +230,17 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
   const colorScheme = useAppColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const isDark = colorScheme === 'dark';
-  const { user } = useAuthStore();
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const { user, isAuthenticated } = useAuthStore();
 
   const [commentText, setCommentText] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const flatListRef = useRef<FlatList>(null);
+
+  // Shared synchronized comment count store
+  const liveStoreCount = useCommentCountStore((s) => (newsUid ? s.counts[newsUid] : undefined));
 
   const {
     data,
@@ -123,20 +254,100 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
   const { mutate: addComment, isPending: isAdding } = useAddComment();
   const { mutate: deleteComment } = useDeleteComment();
 
-  // Flatten the pages into a single array of comments
+  // Deduplicate and flatten comments from TanStack infinite query pages
   const comments = useMemo(() => {
     if (!data?.pages) return [];
-    return data.pages.flatMap((page) => page.comments);
+    const seenIds = new Set<string | number>();
+    const seenTexts = new Set<string>();
+    const list: NewsComment[] = [];
+
+    for (const page of data.pages) {
+      if (!page?.comments) continue;
+      for (const c of page.comments) {
+        if (!c) continue;
+        if (c.id != null) {
+          if (seenIds.has(c.id)) continue;
+          seenIds.add(c.id);
+        }
+        // Prevent duplicate rendering of identical optimistic and confirmed items
+        const textKey = `${c.comment_text?.trim()}`;
+        if (c.status === 'sending' || c.user_uid === '__optimistic__') {
+          if (seenTexts.has(textKey)) continue;
+        } else {
+          seenTexts.add(textKey);
+        }
+        list.push(c);
+      }
+    }
+    return list;
   }, [data]);
 
-  const totalCommentsCount = data?.pages?.[0]?.total ?? comments.length;
+  // Sync comment count with global store from real fetched comments / server total
+  useEffect(() => {
+    if (!newsUid) return;
+    const serverTotal = data?.pages?.[0]?.total;
+    const confirmedCount = typeof serverTotal === 'number'
+      ? Math.max(serverTotal, comments.length)
+      : comments.length;
 
-  // Refetch every time the modal becomes visible.
+    if (data?.pages && data.pages.length > 0) {
+      useCommentCountStore.getState().setCount(newsUid, confirmedCount);
+    }
+  }, [data, newsUid, comments.length]);
+
+  // Requirement 4: Sheet header Comments (N) derived from list length / shared count
+  const serverTotal = data?.pages?.[0]?.total;
+  const totalCommentsCount = Math.max(
+    liveStoreCount ?? 0,
+    comments.length,
+    typeof serverTotal === 'number' ? serverTotal : 0
+  );
+
+  // Restore saved draft when sheet opens
+  useEffect(() => {
+    if (visible && newsUid) {
+      const draft = useCommentCountStore.getState().drafts[newsUid];
+      if (draft && !commentText) {
+        setCommentText(draft);
+      }
+    }
+  }, [visible, newsUid]);
+
+  // Refetch when modal opens
   useEffect(() => {
     if (visible && newsUid) {
       refetch();
     }
   }, [visible, newsUid, refetch]);
+
+  // AppState: refetch when app returns from background while sheet is open
+  useEffect(() => {
+    if (!visible || !newsUid) return;
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        refetch();
+      }
+    });
+    return () => subscription.remove();
+  }, [visible, newsUid, refetch]);
+
+  // Stay fresh: poll every 30 seconds while sheet is open
+  useEffect(() => {
+    if (!visible || !newsUid) return;
+    const interval = setInterval(() => {
+      refetch();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [visible, newsUid, refetch]);
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [refetch]);
 
   const handleLoadMore = () => {
     if (hasNextPage && !isFetchingNextPage) {
@@ -145,24 +356,83 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
   };
 
   const handlePostComment = () => {
-    if (!commentText.trim() || isAdding) return;
     const textToSend = commentText.trim();
-    setCommentText(''); // Instant feedback for smooth typing UX
-    addComment(
-      {
+    if (!textToSend || isAdding) return;
+
+    // Login Check: preserve draft and prompt user to login if not authenticated
+    if (!isAuthenticated) {
+      useCommentCountStore.getState().setDraft(newsUid, textToSend);
+      Alert.alert(
+        'Sign in required',
+        'Please sign in to post comments. Your comment draft has been saved.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Sign In',
+            onPress: () => {
+              onClose();
+              router.push('/(auth)/login');
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    // Clear input field immediately and clear draft for smooth typing UX
+    setCommentText('');
+    useCommentCountStore.getState().clearDraft(newsUid);
+
+    const tempId = Date.now();
+    addComment({
+      uid: newsUid,
+      comment_text: textToSend,
+      tempId,
+      userName: user?.name || user?.user_name || 'You',
+      userAvatar: user?.profile_picture || user?.avatar || undefined,
+    });
+
+    // Auto-scroll list to the top so user immediately sees their comment
+    requestAnimationFrame(() => {
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+    });
+  };
+
+  const handleRetry = useCallback(
+    (failedItem: NewsComment) => {
+      addComment({
         uid: newsUid,
-        comment_text: textToSend,
+        comment_text: failedItem.comment_text,
+        tempId: failedItem.id,
         userName: user?.name || user?.user_name || 'You',
         userAvatar: user?.profile_picture || user?.avatar || undefined,
-      },
-      {
-        onError: (error: any) => {
-          setCommentText(textToSend); // Restore if actually failed
-          Alert.alert('Error', 'Failed to post comment. ' + (error?.message || 'Please try again.'));
-        },
-      }
-    );
-  };
+      });
+      // Scroll to top
+      requestAnimationFrame(() => {
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      });
+    },
+    [addComment, newsUid, user]
+  );
+
+  const handleDismissFailed = useCallback(
+    (tempId: number) => {
+      queryClient.setQueryData<{ pages: CommentsPage[]; pageParams: any[] }>(
+        newsKeys.comments(newsUid),
+        (old) => {
+          if (!old?.pages) return old;
+          return {
+            ...old,
+            pages: old.pages.map((p) => ({
+              ...p,
+              comments: p.comments.filter((c) => c.id !== tempId),
+            })),
+          };
+        }
+      );
+    },
+    [queryClient, newsUid]
+  );
 
   const handleDeleteComment = useCallback(
     (commentId: number) => {
@@ -181,7 +451,7 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
   );
 
   const renderComment = useCallback(
-    ({ item }: { item: any }) => {
+    ({ item }: { item: NewsComment }) => {
       const isOwner = Boolean(
         user?.user_uid && (user.user_uid === item.user_uid || item.user_uid === '__optimistic__')
       );
@@ -190,12 +460,15 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
           item={item}
           isOwner={isOwner}
           onDelete={handleDeleteComment}
+          onRetry={handleRetry}
+          onDismissFailed={handleDismissFailed}
           colors={colors}
+          isDark={isDark}
           currentUser={user}
         />
       );
     },
-    [user, handleDeleteComment, colors]
+    [user, handleDeleteComment, handleRetry, handleDismissFailed, colors, isDark]
   );
 
   return (
@@ -215,7 +488,7 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
             },
           ]}
         >
-          {/* Subtle drag handle */}
+          {/* Drag handle */}
           <View
             style={[
               styles.sheetHandle,
@@ -223,32 +496,51 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
             ]}
           />
 
-          {/* Header */}
+          {/* Header with real-time count */}
           <View style={[styles.header, { borderBottomColor: colors.divider }]}>
             <View style={styles.headerTitleRow}>
               <Ionicons name="chatbubbles" size={18} color={colors.primary} style={{ marginRight: 8 }} />
-              <Text style={[styles.headerTitle, { color: colors.text }]}>
+              <Text
+                style={[styles.headerTitle, { color: colors.text }]}
+                maxFontSizeMultiplier={1.25}
+              >
                 Comments ({totalCommentsCount})
               </Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <TouchableOpacity
+              onPress={onClose}
+              style={styles.closeBtn}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel="Close comments"
+              accessibilityRole="button"
+            >
               <Ionicons name="close" size={22} color={colors.textSecondary} />
             </TouchableOpacity>
           </View>
 
           {/* Comments List */}
-          {isLoading ? (
+          {isLoading && !data ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color={colors.primary} />
             </View>
           ) : (
             <FlatList
+              ref={flatListRef}
               data={comments}
-              keyExtractor={(item, index) => String(item.id ?? index)}
+              keyExtractor={(item, index) => String(item.id ?? `temp-${index}`)}
               renderItem={renderComment}
               contentContainerStyle={styles.listContainer}
+              keyboardShouldPersistTaps="handled"
               onEndReached={handleLoadMore}
               onEndReachedThreshold={0.5}
+              refreshControl={
+                <RefreshControl
+                  refreshing={isRefreshing}
+                  onRefresh={handleRefresh}
+                  colors={[colors.primary]}
+                  tintColor={colors.primary}
+                />
+              }
               ListFooterComponent={
                 isFetchingNextPage ? (
                   <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: 16 }} />
@@ -257,7 +549,10 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
               ListEmptyComponent={
                 <View style={styles.emptyContainer}>
                   <Ionicons name="chatbubbles-outline" size={48} color={colors.textTertiary} />
-                  <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+                  <Text
+                    style={[styles.emptyText, { color: colors.textSecondary }]}
+                    maxFontSizeMultiplier={1.25}
+                  >
                     No comments yet. Be the first to comment!
                   </Text>
                 </View>
@@ -265,11 +560,15 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
             />
           )}
 
-          {/* Comment Input */}
+          {/* Comment Input Bar with Safe Area */}
           <View
             style={[
               styles.inputContainer,
-              { backgroundColor: colors.sheet, borderTopColor: colors.border },
+              {
+                backgroundColor: colors.sheet,
+                borderTopColor: colors.border,
+                paddingBottom: Math.max(insets.bottom, 10),
+              },
             ]}
           >
             <TextInput
@@ -288,6 +587,7 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
               onChangeText={setCommentText}
               multiline
               maxLength={500}
+              maxFontSizeMultiplier={1.25}
             />
             <TouchableOpacity
               onPress={handlePostComment}
@@ -298,6 +598,8 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
                 (!commentText.trim() || isAdding) && styles.disabledBtn,
               ]}
               activeOpacity={0.8}
+              accessibilityLabel="Send comment"
+              accessibilityRole="button"
             >
               {isAdding ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
@@ -321,7 +623,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   modalContainer: {
-    height: '72%',
+    height: '75%',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     overflow: 'hidden',
@@ -373,18 +675,41 @@ const styles = StyleSheet.create({
   listContainer: {
     paddingHorizontal: 16,
     paddingVertical: 10,
+    paddingBottom: 24,
   },
   commentContainer: {
     flexDirection: 'row',
     paddingVertical: 12,
+    paddingHorizontal: 4,
     borderBottomWidth: 1,
     alignItems: 'flex-start',
+    borderRadius: 8,
+  },
+  sendingContainer: {
+    opacity: 0.65,
+  },
+  failedContainerLight: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    marginVertical: 4,
+  },
+  failedContainerDark: {
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    marginVertical: 4,
   },
   avatar: {
     width: 36,
     height: 36,
     borderRadius: 18,
     marginRight: 12,
+  },
+  avatarDimmed: {
+    opacity: 0.7,
   },
   avatarPlaceholder: {
     width: 36,
@@ -410,13 +735,54 @@ const styles = StyleSheet.create({
   userName: {
     fontSize: 13,
     fontWeight: '600',
+    flex: 1,
+    marginRight: 8,
   },
   timeText: {
     fontSize: 11,
   },
+  statusIndicatorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  statusSpinner: {
+    transform: [{ scale: 0.7 }],
+    marginRight: 4,
+  },
+  sendingText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  failedStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  failedBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#DC2626',
+  },
+  failedActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginRight: 4,
+  },
+  retryBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#DC2626',
+  },
   commentText: {
     fontSize: 14,
-    lineHeight: 19,
+    lineHeight: 20,
   },
   deleteBtn: {
     padding: 4,
@@ -426,7 +792,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingTop: 10,
     borderTopWidth: 1,
   },
   input: {
@@ -454,5 +820,6 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
 });
+
 
 

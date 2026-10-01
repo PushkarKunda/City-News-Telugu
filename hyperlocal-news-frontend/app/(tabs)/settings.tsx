@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
-import { useAuthStore } from '@/store/authStore';
+import { useAuthStore, isEmailVerified } from '@/store/authStore';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 
@@ -28,6 +28,8 @@ export default function SettingsScreen() {
   const { user, logout, updateTheme } = useAuthStore();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const darkModeEnabled = colorScheme === 'dark';
+
+  const emailVerified = isEmailVerified(user);
 
   const handleLogout = () => {
     Alert.alert(
@@ -113,7 +115,26 @@ export default function SettingsScreen() {
                 <Text style={[styles.profileName, { color: colors.text }]}>{displayName}</Text>
                 <Text style={[styles.profilePhone, { color: colors.textSecondary }]}>{displayPhone}</Text>
                 {user?.email ? (
-                  <Text style={[styles.profilePhone, { color: colors.textSecondary, fontSize: 12, marginTop: 2 }]}>{user.email}</Text>
+                  <View style={styles.emailRow}>
+                    <Text style={[styles.profilePhone, { color: colors.textSecondary, fontSize: 12 }]}>
+                      {user.email}
+                    </Text>
+                    {emailVerified ? (
+                      <View style={styles.emailVerifiedBadge}>
+                        <Ionicons name="checkmark-circle" size={11} color="#10B981" style={{ marginRight: 3 }} />
+                        <Text style={styles.emailVerifiedBadgeText}>Verified</Text>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.verifyEmailPromptBtn}
+                        onPress={() => router.push('/(onboarding)/edit-profile')}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="alert-circle" size={11} color="#F59E0B" style={{ marginRight: 3 }} />
+                        <Text style={styles.verifyEmailPromptText}>Verify email</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 ) : null}
 
                 <View style={styles.premiumBadgeContainer}>
@@ -579,5 +600,42 @@ const styles = StyleSheet.create({
     fontFamily: 'Poppins_700Bold',
     letterSpacing: 0.5,
     textTransform: 'uppercase',
+  },
+  emailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3,
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  emailVerifiedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+  },
+  emailVerifiedBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#10B981',
+  },
+  verifyEmailPromptBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+  },
+  verifyEmailPromptText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#F59E0B',
   },
 });

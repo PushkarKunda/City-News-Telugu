@@ -159,12 +159,32 @@ export interface UpdateNewsPayload {
 export interface NewsComment {
   id: number;
   user_uid: string;
-  user_name: string;
+  user_name?: string;
   user_avatar?: string;
   comment_text: string;
   created_at: string;
   likes_count: number;
   is_liked?: boolean;
+  status?: 'sending' | 'sent' | 'failed';
+  user_display_name?: string;
+  username?: string;
+  author_name?: string;
+  display_name?: string;
+  full_name?: string;
+  user?: {
+    display_name?: string;
+    name?: string;
+    username?: string;
+    avatar?: string;
+    profile_picture?: string;
+    user_avatar?: string;
+  };
+  user_profile_picture?: string;
+  avatar?: string;
+  profile_picture?: string;
+  time_ago?: string;
+  content?: string;
+  text?: string;
 }
 
 export interface CommentsPage {
@@ -177,6 +197,8 @@ export interface CommentsPage {
 
 export interface CreateCommentPayload {
   comment_text: string;
+  idempotency_key?: string;
+  request_id?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -517,6 +539,8 @@ export const newsApi = {
    * POST /news/v1/user/news/:uid/comment
    * Body: { comment_text: string }
    * Returns: string (success message)
+  /**
+   * POST /news/v1/user/news/:uid/comment
    */
   addComment: async (
     uid: string,
@@ -529,28 +553,25 @@ export const newsApi = {
         data: payload,
       });
     } catch (err: any) {
-      // Backend resiliency:
-      // The backend successfully writes the news comment to Postgres,
-      // but returns HTTP 500 when points calculation/notification fails.
-      const is500 = err?.response?.status === 500 || err?.status === 500;
-      if (is500) {
-        console.warn('[newsApi] Comment POST returned 500, verifying database persistence...');
-        try {
-          await new Promise((resolve) => setTimeout(resolve, 250));
-          let page = await newsApi.getComments(uid, 1, 10);
-          let found = page.comments.some((c) => c.comment_text === payload.comment_text);
-          if (!found) {
-            await new Promise((resolve) => setTimeout(resolve, 350));
-            page = await newsApi.getComments(uid, 1, 10);
-            found = page.comments.some((c) => c.comment_text === payload.comment_text);
-          }
-          if (found) {
-            console.log('[newsApi] Comment verified in DB despite backend 500 error.');
-            return { success: true, message: 'Comment posted successfully' };
-          }
-        } catch (checkErr) {
-          console.warn('[newsApi] Comment persistence check error:', checkErr);
+      console.warn('Comment POST failed, verifying database persistence...', err?.message);
+      // Check if comment was persisted despite 500 error
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const commentsRes = await newsApi.getComments(uid, 1, 15);
+        const textToMatch = (payload.comment_text || (payload as any).text || '').trim();
+        const matchingComment = commentsRes?.comments?.find(
+          (c: any) => c.comment_text?.trim() === textToMatch
+        );
+        if (matchingComment) {
+          console.log('Comment verified in DB despite backend error:', matchingComment);
+          return {
+            ...matchingComment,
+            verifiedInDb: true,
+            comments_count: commentsRes?.total ?? undefined,
+          };
         }
+      } catch (verifyErr) {
+        console.warn('Failed to verify comment in DB:', verifyErr);
       }
       throw err;
     }
@@ -559,8 +580,8 @@ export const newsApi = {
   /**
    * DELETE /news/v1/user/news/:uid/comment/:id
    */
-  deleteComment: async (uid: string, commentId: number): Promise<void> => {
-    await request({
+  deleteComment: async (uid: string, commentId: number): Promise<any> => {
+    return await request<any>({
       url: API_ROUTES.news.deleteComment(uid, commentId),
       method: 'DELETE',
     });

@@ -12,37 +12,134 @@ export function formatNumber(num: number): string {
 }
 
 /**
- * Format date to relative time (2 hours ago, 3 days ago)
+ * Safely parse date inputs (ISO 8601, Unix timestamps in seconds/ms, strings without timezone)
+ * If no timezone is provided, treats as UTC so it converts cleanly to local time (IST).
+ * Returns null for missing or invalid dates.
  */
-export function formatTimeAgo(dateString: string): string {
-  const date = new Date(dateString);
-  const now = new Date();
-  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-
-  const intervals: { [key: string]: number } = {
-    year: 31536000,
-    month: 2592000,
-    week: 604800,
-    day: 86400,
-    hour: 3600,
-    minute: 60,
-  };
-
-  for (const [unit, secondsInUnit] of Object.entries(intervals)) {
-    const interval = Math.floor(seconds / secondsInUnit);
-    if (interval >= 1) {
-      return `${interval}${unit.charAt(0)} ago`;
+export function parseSafeDate(raw: any): Date | null {
+  if (raw === null || raw === undefined || raw === '' || raw === 0 || raw === '0') {
+    return null;
+  }
+  if (raw instanceof Date) {
+    return isNaN(raw.getTime()) ? null : raw;
+  }
+  if (typeof raw === 'number') {
+    if (isNaN(raw) || raw <= 0) return null;
+    // Seconds vs Milliseconds (epoch timestamp in seconds is < 1e11)
+    return new Date(raw < 1e11 ? raw * 1000 : raw);
+  }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed === 'null' || trimmed === 'undefined' || trimmed === 'Invalid Date') {
+      return null;
     }
+    // Numeric timestamp string
+    if (/^\d+$/.test(trimmed)) {
+      const num = parseInt(trimmed, 10);
+      return parseSafeDate(num);
+    }
+    // Check if timezone indicator is already present (Z or +HH:MM or -HH:MM)
+    const hasTz = /[zZ]$|[+-]\d{2}(?::?\d{2})?$/.test(trimmed);
+    const normalized = trimmed.includes(' ') && !trimmed.includes('T') ? trimmed.replace(' ', 'T') : trimmed;
+    // If no timezone is present, treat as UTC by appending 'Z'
+    const finalStr = hasTz ? normalized : `${normalized}Z`;
+    const parsed = new Date(finalStr);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+}
+
+/**
+ * Safely extract published or creation timestamp from an article / post object
+ * Priority: published_at, publishedAt, pubDate, pub_date, created_at, createdAt, approved_at, timestamp, date
+ */
+export function getArticleTimestamp(item: any): string | number | null | undefined {
+  if (!item) return null;
+  return (
+    item.published_at ??
+    item.publishedAt ??
+    item.pubDate ??
+    item.pub_date ??
+    item.created_at ??
+    item.createdAt ??
+    item.approved_at ??
+    item.timestamp ??
+    item.published_date ??
+    item.date ??
+    null
+  );
+}
+
+const MONTHS_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTHS_TE = ['జన', 'ఫిబ్ర', 'మార్చి', 'ఏప్రి', 'మే', 'జూన్', 'జూలై', 'ఆగ', 'సెప్టెం', 'అక్టో', 'నవం', 'డిసెం'];
+
+export interface TimeAgoOptions {
+  language?: 'en' | 'te';
+}
+
+/**
+ * Format timestamp to relative time based on article's published time
+ * Thresholds:
+ * - under 1 minute: Just now (ఇప్పుడే)
+ * - under 60 minutes: 5m ago (5 నిమిషాల క్రితం)
+ * - under 24 hours: 3h ago (3 గంటల క్రితం)
+ * - under 7 days: 2d ago (2 రోజుల క్రితం)
+ * - older than 7 days: 24 Sep (24 Sep 2025 if different year)
+ * Returns empty string if timestamp is missing or invalid.
+ */
+export function formatTimeAgo(
+  rawDate: string | number | Date | null | undefined,
+  options?: TimeAgoOptions
+): string {
+  const date = parseSafeDate(rawDate);
+  if (!date) return '';
+
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  // Handle slight future drift due to clock skew
+  const diffSec = Math.max(0, Math.floor(diffMs / 1000));
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHour = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHour / 24);
+
+  const isTelugu = options?.language === 'te';
+
+  // under 1 minute
+  if (diffSec < 60) {
+    return isTelugu ? 'ఇప్పుడే' : 'Just now';
+  }
+  // under 60 minutes
+  if (diffMin < 60) {
+    return isTelugu ? `${diffMin} నిమిషాల క్రితం` : `${diffMin}m ago`;
+  }
+  // under 24 hours
+  if (diffHour < 24) {
+    return isTelugu ? `${diffHour} గంటల క్రితం` : `${diffHour}h ago`;
+  }
+  // under 7 days
+  if (diffDay < 7) {
+    return isTelugu ? `${diffDay} రోజుల క్రితం` : `${diffDay}d ago`;
   }
 
-  return 'Just now';
+  // older than 7 days: short date (e.g. 24 Sep, or 24 Sep 2025)
+  const day = date.getDate();
+  const sameYear = date.getFullYear() === now.getFullYear();
+
+  if (isTelugu) {
+    const month = MONTHS_TE[date.getMonth()];
+    return sameYear ? `${day} ${month}` : `${day} ${month} ${date.getFullYear()}`;
+  }
+
+  const month = MONTHS_EN[date.getMonth()];
+  return sameYear ? `${day} ${month}` : `${day} ${month} ${date.getFullYear()}`;
 }
 
 /**
  * Format date to readable format (Mar 15, 2024)
  */
-export function formatDate(dateString: string): string {
-  const date = new Date(dateString);
+export function formatDate(rawDate: any): string {
+  const date = parseSafeDate(rawDate);
+  if (!date) return '';
   return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -68,7 +165,6 @@ export function truncateText(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   return text.slice(0, maxLength).trim() + '...';
 }
-
 
 /**
  * Calculate read time based on word count

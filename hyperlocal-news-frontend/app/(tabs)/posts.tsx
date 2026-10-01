@@ -26,6 +26,7 @@ import { useBookmarks } from '@/hooks/useEngagement';
 import { PostCard } from '@/components/PostCard';
 import { PostCommentsModal } from '@/components/PostCommentsModal';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { EdgeFadedScrollView } from '@/components/ui';
 import { useAuthStore } from '@/store/authStore';
 import { useTabBarStore } from '@/store/tabBarStore';
 import { isInvalidOrMockImageUrl } from '@/utils/imageResolver';
@@ -411,11 +412,13 @@ export default function PostsScreen() {
         )}
 
         {/* Category Tabs Scroll */}
-        <ScrollView
+        <EdgeFadedScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
+          fadeColor={colors.surface}
+          fadeWidth={32}
           contentContainerStyle={styles.filterTabsContent}
-          style={styles.filterTabsScroll}
+          containerStyle={styles.filterTabsScroll}
         >
           {FILTER_TABS.map((tab) => {
             const isSelected = activeTab === tab.key;
@@ -449,7 +452,7 @@ export default function PostsScreen() {
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </EdgeFadedScrollView>
 
         {/* Trending Hashtags Scroll Bar */}
         {rawTrendingList.length > 0 && (
@@ -458,9 +461,12 @@ export default function PostsScreen() {
               <Ionicons name="flame" size={14} color="#EF4444" />
               <Text style={[styles.trendingLabelText, { color: colors.textTertiary }]}>Trending:</Text>
             </View>
-            <ScrollView
+            <EdgeFadedScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
+              fadeColor={colors.surface}
+              fadeWidth={32}
+              containerStyle={styles.trendingFadedContainer}
               contentContainerStyle={styles.trendingTagsContent}
             >
               {rawTrendingList.map((tag) => {
@@ -486,7 +492,7 @@ export default function PostsScreen() {
                   </TouchableOpacity>
                 );
               })}
-            </ScrollView>
+            </EdgeFadedScrollView>
           </View>
         )}
       </View>
@@ -871,6 +877,9 @@ const styles = StyleSheet.create({
   trendingLabelText: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  trendingFadedContainer: {
+    flex: 1,
   },
   trendingTagsContent: {
     gap: 6,

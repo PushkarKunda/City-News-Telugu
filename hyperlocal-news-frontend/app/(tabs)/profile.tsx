@@ -20,7 +20,7 @@ import { Colors } from '@/constants/Colors';
 import { MaterialIcons, Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
-import { useAuthStore } from '@/store/authStore';
+import { useAuthStore, isEmailVerified, isUserGoogleLinked } from '@/store/authStore';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
@@ -42,7 +42,7 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const { user, logout, updateProfile, updateProfileLocal, switchToPublisher } = useAuthStore();
+  const { user, logout, updateProfile, updateProfileLocal, switchToPublisher, fetchUser } = useAuthStore();
 
   // ─── Dashboard Data ──────────────────────────────────────────────────────
   const [dashboardData, setDashboardData] = useState<DashboardResponse | null>(null);
@@ -227,9 +227,18 @@ export default function ProfileScreen() {
   // ─── Publisher / CTA ──────────────────────────────────────────────────────
 
   const isPublisher = dashboardData?.user.is_publisher ?? user?.isPublisher ?? false;
-  const canApplyForPublisher = dashboardData?.publisher_cta?.can_apply ?? false;
+  const verifiedEmail = isEmailVerified(user);
+  const isGoogleLinked = isUserGoogleLinked(user);
+  const rawMissingRequirements = dashboardData?.publisher_cta?.missing_requirements ?? [];
+  const missingRequirements = rawMissingRequirements.filter(
+    (req) => req !== 'email_verified' || !verifiedEmail
+  );
+  const canApplyForPublisher = (dashboardData?.publisher_cta?.can_apply ?? false) || (
+    missingRequirements.length === 0 && Boolean(dashboardData?.publisher_cta?.show_cta)
+  );
+  const isOnlyEmailMissing = missingRequirements.length === 1 && missingRequirements[0] === 'email_verified';
+  const hasProfileFieldsMissing = missingRequirements.some((req) => req !== 'email_verified');
   const publisherMessage = dashboardData?.publisher_cta?.message ?? 'Get verified as a Publisher to write and publish news for your city.';
-  const missingRequirements = dashboardData?.publisher_cta?.missing_requirements ?? [];
 
   // ─── Stats ────────────────────────────────────────────────────────────────
 
@@ -252,50 +261,71 @@ export default function ProfileScreen() {
 
   // ─── Load Dashboard ───────────────────────────────────────────────────────
 
+  const loadDashboard = async () => {
+    setIsLoadingProfile(true);
+    try {
+      const dashboardResponse = await usersApi.dashboard({
+        detailed: true,
+        page: 1,
+        limit: 20,
+        recent_limit: 5,
+      });
+
+      setDashboardData(dashboardResponse);
+
+      const isVerified = isEmailVerified(user);
+      const isLinked = isUserGoogleLinked(user);
+      const rawMissing = dashboardResponse?.publisher_cta?.missing_requirements ?? [];
+      const filteredMissing = rawMissing.filter(
+        (req: string) => req !== 'email_verified' || !isVerified
+      );
+      const canApply = Boolean(dashboardResponse?.publisher_cta?.can_apply) || (
+        filteredMissing.length === 0 && Boolean(dashboardResponse?.publisher_cta?.show_cta)
+      );
+
+      console.log('[profile:PublisherTab] Load Dashboard & Eligibility Check:', {
+        user_google_id: user?.google_id,
+        user_auth_provider: user?.auth_provider,
+        user_email_verified: isVerified,
+        is_google_linked: isLinked,
+        can_apply: canApply,
+        filtered_missing: filteredMissing,
+        raw_missing: rawMissing,
+      });
+
+      // ✅ Sync auth store with latest profile from dashboard
+      updateProfileLocal({
+        name: dashboardResponse.user.name,
+        user_name: dashboardResponse.user.user_name,
+        avatar: dashboardResponse.user.profile_picture,
+        profile_picture: dashboardResponse.user.profile_picture,
+        isPublisher: dashboardResponse.user.is_publisher,
+        role: dashboardResponse.user.role,
+      });
+
+    } catch (error: any) {
+      console.error('[profile] Failed to load dashboard:', error);
+      // ✅ Silently fail — fallback to store data
+    } finally {
+      setIsLoadingProfile(false);
+    }
+  };
+
   useEffect(() => {
-    let isMounted = true;
-
-    const loadDashboard = async () => {
-      setIsLoadingProfile(true);
-      try {
-        const dashboardResponse = await usersApi.dashboard({
-          detailed: true,
-          page: 1,
-          limit: 20,
-          recent_limit: 5,
-        });
-
-        if (!isMounted) return;
-
-        setDashboardData(dashboardResponse);
-
-        // ✅ Sync auth store with latest profile from dashboard
-        updateProfileLocal({
-          name: dashboardResponse.user.name,
-          user_name: dashboardResponse.user.user_name,
-          avatar: dashboardResponse.user.profile_picture,
-          profile_picture: dashboardResponse.user.profile_picture,
-          isPublisher: dashboardResponse.user.is_publisher,
-          role: dashboardResponse.user.role,
-        });
-
-      } catch (error: any) {
-        console.error('[profile] Failed to load dashboard:', error);
-        // ✅ Silently fail — fallback to store data
-      } finally {
-        if (isMounted) {
-          setIsLoadingProfile(false);
-        }
-      }
-    };
-
     loadDashboard();
     loadUserPosts();
+  }, [user?.user_uid, user?.email_verified, user?.is_google_linked, user?.google_id, user?.auth_provider]);
 
-    return () => {
-      isMounted = false;
-    };
-  }, [user?.user_uid]);
+  // ✅ Refresh user & publisher status whenever Publisher tab opens
+  useEffect(() => {
+    if (activeTab === 'publisher') {
+      console.log('[profile:PublisherTab] Active tab is publisher -> refetching user and publisher status...');
+      void (async () => {
+        await fetchUser();
+        await loadDashboard();
+      })();
+    }
+  }, [activeTab]);
 
   // ─── Avatar Upload ────────────────────────────────────────────────────────
 
@@ -447,8 +477,7 @@ export default function ProfileScreen() {
       await switchToPublisher();
 
       // Reload dashboard to get updated publisher status
-      const freshDashboard = await usersApi.dashboard({ detailed: true });
-      setDashboardData(freshDashboard);
+      await loadDashboard();
 
       Alert.alert('Congratulations!', 'You are now a Verified Publisher!');
       setActiveTab('posts');
@@ -702,6 +731,31 @@ export default function ProfileScreen() {
                   )}
                 </View>
 
+                {/* Email with Verified Badge / Prompt */}
+                {user?.email ? (
+                  <View style={styles.emailRow}>
+                    <Ionicons name="mail-outline" size={13} color={colors.textSecondary} style={{ marginRight: 4 }} />
+                    <Text style={[styles.emailText, { color: colors.textSecondary }]} numberOfLines={1}>
+                      {user.email}
+                    </Text>
+                    {verifiedEmail ? (
+                      <View style={styles.emailVerifiedBadge}>
+                        <Ionicons name="checkmark-circle" size={12} color="#10B981" style={{ marginRight: 3 }} />
+                        <Text style={styles.emailVerifiedBadgeText}>Verified</Text>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.verifyEmailPromptBtn}
+                        onPress={() => router.push('/(onboarding)/edit-profile')}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="alert-circle" size={12} color="#F59E0B" style={{ marginRight: 3 }} />
+                        <Text style={styles.verifyEmailPromptText}>Verify email</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ) : null}
+
                 {/* Location & Join Date */}
                 <View style={styles.metaRow}>
                   <View style={styles.metaItem}>
@@ -806,7 +860,7 @@ export default function ProfileScreen() {
         </View>
 
         {/* Publisher CTA Banner */}
-        {!isPublisher && dashboardData?.publisher_cta?.show_cta && (
+        {!isPublisher && dashboardData?.publisher_cta?.show_cta && (!isOnlyEmailMissing || (!verifiedEmail && !isGoogleLinked)) && (
           <View style={styles.verifyBannerWrapper}>
             <View
               style={[
@@ -819,14 +873,24 @@ export default function ProfileScreen() {
             >
               <View style={styles.verifyBannerIconContainer}>
                 <Ionicons
-                  name={canApplyForPublisher ? 'shield-checkmark-outline' : 'person-circle-outline'}
+                  name={
+                    canApplyForPublisher
+                      ? 'shield-checkmark-outline'
+                      : isOnlyEmailMissing
+                      ? 'mail-outline'
+                      : 'person-circle-outline'
+                  }
                   size={24}
                   color={colors.primary}
                 />
               </View>
               <View style={styles.verifyBannerContent}>
                 <Text style={[styles.verifyBannerTitle, { color: colors.text }]}>
-                  {canApplyForPublisher ? 'Become a Publisher!' : 'Complete Your Profile'}
+                  {canApplyForPublisher
+                    ? 'Become a Publisher!'
+                    : isOnlyEmailMissing
+                    ? 'Verify Your Email'
+                    : 'Complete Your Profile'}
                 </Text>
                 <Text style={[styles.verifyBannerSubtitle, { color: colors.textSecondary }]}>
                   {publisherMessage}
@@ -845,7 +909,11 @@ export default function ProfileScreen() {
                 }
               >
                 <Text style={styles.verifyBannerButtonText}>
-                  {canApplyForPublisher ? 'Apply Now' : 'Complete'}
+                  {canApplyForPublisher
+                    ? 'Apply Now'
+                    : isOnlyEmailMissing
+                    ? 'Verify Email'
+                    : 'Complete'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1229,8 +1297,66 @@ export default function ProfileScreen() {
                   <Text style={styles.applyButtonText}>Go to Publisher Dashboard</Text>
                 </TouchableOpacity>
               </View>
+            ) : missingRequirements.length === 0 ? (
+              /* All Requirements Met - Replace card with "Apply to become a Publisher" button */
+              <View
+                style={[
+                  styles.publisherCard,
+                  { backgroundColor: colors.surface, borderColor: colors.border, alignItems: 'center', padding: 24 },
+                ]}
+              >
+                <View style={styles.checkmarkContainer}>
+                  <Ionicons name="checkmark-circle" size={56} color="#10B981" />
+                </View>
+                <Text style={[styles.publisherTitle, { color: colors.text, fontSize: 18, fontWeight: '700', textAlign: 'center', marginTop: 12, marginBottom: 8 }]}>
+                  All Requirements Completed!
+                </Text>
+                <Text style={{ color: colors.textSecondary, textAlign: 'center', marginBottom: 24, lineHeight: 20, fontSize: 14 }}>
+                  You are eligible to become a verified publisher and start publishing news articles for your community.
+                </Text>
+
+                <TouchableOpacity
+                  style={[styles.applyButton, { backgroundColor: colors.primary, width: '100%', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', height: 48, borderRadius: 24 }]}
+                  onPress={handleApplyForPublisher}
+                  disabled={isApplyingPublisher}
+                  activeOpacity={0.8}
+                >
+                  {isApplyingPublisher ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <>
+                      <Ionicons
+                        name="shield-checkmark"
+                        size={18}
+                        color="#FFFFFF"
+                        style={{ marginRight: 8 }}
+                      />
+                      <Text style={styles.applyButtonText}>Apply to become a Publisher</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                {/* Info Box */}
+                <View
+                  style={[
+                    styles.infoBox,
+                    {
+                      backgroundColor: isDark ? 'rgba(70, 72, 212, 0.1)' : 'rgba(70, 72, 212, 0.05)',
+                      borderColor: colors.primary,
+                      marginTop: 20,
+                      width: '100%',
+                    },
+                  ]}
+                >
+                  <Ionicons name="information-circle-outline" size={20} color={colors.primary} />
+                  <Text style={[styles.infoText, { color: colors.textSecondary }]}>
+                    Publishers can write and publish news articles, earn badges, and gain followers in
+                    their local community.
+                  </Text>
+                </View>
+              </View>
             ) : (
-              /* Eligibility Status Card */
+              /* Missing Requirements Card */
               <View
                 style={[
                   styles.publisherCard,
@@ -1241,85 +1367,65 @@ export default function ProfileScreen() {
                   <Ionicons
                     name="shield-checkmark-outline"
                     size={32}
-                    color={canApplyForPublisher ? colors.primary : colors.textSecondary}
+                    color={colors.textSecondary}
                     style={{ marginBottom: 8 }}
                   />
                   <Text style={[styles.publisherTitle, { color: colors.text }]}>
-                    {canApplyForPublisher
-                      ? 'You are Ready to Apply!'
-                      : 'Complete Requirements to Apply'}
+                    Complete Requirements to Apply
                   </Text>
                   <Text style={[styles.publisherSubtitle, { color: colors.textSecondary }]}>
                     {publisherMessage}
                   </Text>
                 </View>
 
-                {/* Requirements List */}
-                {missingRequirements.length > 0 && (
-                  <View style={styles.requirementsList}>
-                    <Text style={[styles.requirementsTitle, { color: colors.text }]}>
-                      Missing Requirements:
-                    </Text>
-                    {missingRequirements.map((req) => (
-                      <View key={req} style={styles.requirementItem}>
-                        <Ionicons name="close-circle" size={18} color="#EF4444" />
-                        <Text style={[styles.requirementText, { color: colors.textSecondary }]}>
-                          {req
-                            .replace(/_/g, ' ')
-                            .split(' ')
-                            .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-                            .join(' ')}
-                        </Text>
-                      </View>
-                    ))}
-
-                    <TouchableOpacity
-                      style={[styles.completeButton, { backgroundColor: colors.primary }]}
-                      onPress={() => router.push('/(onboarding)/edit-profile')}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="pencil" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-                      <Text style={styles.completeButtonText}>Complete Profile</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-
-                {/* All Requirements Met */}
-                {missingRequirements.length === 0 && canApplyForPublisher && (
-                  <View style={styles.readySection}>
-                    <View style={styles.checkmarkContainer}>
-                      <Ionicons name="checkmark-circle" size={48} color="#10B981" />
+                {/* Requirements List - Show ONLY actually missing requirements */}
+                <View style={styles.requirementsList}>
+                  <Text style={[styles.requirementsTitle, { color: colors.text }]}>
+                    Missing Requirements:
+                  </Text>
+                  {missingRequirements.map((req) => (
+                    <View key={req} style={styles.requirementItem}>
+                      <Ionicons name="close-circle" size={18} color="#EF4444" />
+                      <Text style={[styles.requirementText, { color: colors.textSecondary }]}>
+                        {req === 'email_verified'
+                          ? 'Email Verified'
+                          : req === 'mobile_verified'
+                          ? 'Phone Verified'
+                          : req === 'name'
+                          ? 'Full Name'
+                          : req === 'date_of_birth'
+                          ? 'Date of Birth'
+                          : req === 'gender'
+                          ? 'Gender'
+                          : req
+                              .replace(/_/g, ' ')
+                              .split(' ')
+                              .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                              .join(' ')}
+                      </Text>
                     </View>
-                    <Text style={[styles.readyText, { color: colors.text }]}>
-                      All requirements completed!
-                    </Text>
-                    <Text style={[styles.readySubtext, { color: colors.textSecondary }]}>
-                      You're now eligible to become a verified publisher and start publishing news
-                      articles for your community.
-                    </Text>
+                  ))}
 
-                    <TouchableOpacity
-                      style={[styles.applyButton, { backgroundColor: colors.primary }]}
-                      onPress={handleApplyForPublisher}
-                      disabled={isApplyingPublisher}
-                      activeOpacity={0.8}
-                    >
-                      {isApplyingPublisher ? (
-                        <ActivityIndicator color="#FFFFFF" size="small" />
-                      ) : (
-                        <>
-                          <Ionicons
-                            name="shield-checkmark"
-                            size={18}
-                            color="#FFFFFF"
-                            style={{ marginRight: 8 }}
-                          />
-                          <Text style={styles.applyButtonText}>Apply as Publisher</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                )}
+                  <TouchableOpacity
+                    style={[styles.completeButton, { backgroundColor: colors.primary }]}
+                    onPress={() => router.push('/(onboarding)/edit-profile')}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name={isOnlyEmailMissing ? 'mail-outline' : 'pencil'}
+                      size={16}
+                      color="#FFFFFF"
+                      style={{ marginRight: 6 }}
+                    />
+                    <Text style={styles.completeButtonText}>
+                      {isOnlyEmailMissing
+                        ? 'Verify Email'
+                        : hasProfileFieldsMissing && missingRequirements.includes('email_verified')
+                        ? 'Complete Profile & Verify Email'
+                        : 'Complete Profile'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
 
                 {/* Info Box */}
                 <View
@@ -1836,6 +1942,46 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#FFFFFF',
     textTransform: 'uppercase',
+  },
+  emailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 5,
+    flexWrap: 'wrap',
+  },
+  emailText: {
+    fontSize: 12,
+    marginRight: 6,
+  },
+  emailVerifiedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+  },
+  emailVerifiedBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#10B981',
+  },
+  verifyEmailPromptBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+  },
+  verifyEmailPromptText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#F59E0B',
   },
   metaRow: {
     flexDirection: 'row',

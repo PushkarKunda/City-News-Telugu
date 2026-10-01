@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "849371654758-4814gu2s6687iljh2bm3e4ih1qcmd16p.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.hypernews.app",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
           "client_id": "849371654758-tk9um9rv6a81l11nl65qq2qsekq83372.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

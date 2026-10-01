@@ -1,454 +1,322 @@
-import React, { useState, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   FlatList,
   ViewToken,
   useWindowDimensions,
-  Linking,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { WebView } from 'react-native-webview';
-import { MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { Image } from 'expo-image';
 import { Typography } from '@/constants/Typography';
-import { Spacing, BorderRadius } from '@/constants/Spacing';
+import { Spacing } from '@/constants/Spacing';
 import { useNewsShorts } from '@/hooks/useNews';
 import { useQuery } from '@tanstack/react-query';
 import { contentApi, Advertisement } from '@/services/api/content';
 import { injectAdsIntoFeed, isAdvertisement } from '@/hooks/feedInjection';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { useTabBarStore } from '@/store/tabBarStore';
 
 type ShortFeedItem = any;
 
-const ShortAdCard = React.memo(({ item, itemHeight }: { item: { type: 'ad'; data: Advertisement }; itemHeight: number }) => {
-  return (
-    <View style={[styles.itemContainer, { height: itemHeight, backgroundColor: '#000' }]}>
-      <Image source={{ uri: item.data.image_url }} style={StyleSheet.absoluteFillObject} contentFit="cover" />
-      <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={[styles.bottomGradient, { paddingBottom: 40 }]}>
-        <View style={styles.infoContainer}>
-          <Text style={styles.title} numberOfLines={2}>{item.data.title}</Text>
-          {item.data.redirect_url && (
-            <TouchableOpacity style={styles.adCtaButton}>
-              <Text style={styles.adCtaText}>Learn More</Text>
-            </TouchableOpacity>
-          )}
-          <Text style={styles.adDisclaimer}>Sponsored</Text>
-        </View>
-      </LinearGradient>
-    </View>
-  );
-});
+// ─── Silent analytics ─────────────────────────────────────────────────────────
+const API_BASE = process.env.EXPO_PUBLIC_API_BASE_URL ?? '';
+function trackView(videoId: string) {
+  try {
+    fetch(`${API_BASE}/news/${encodeURIComponent(videoId)}/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }).catch(() => {});
+  } catch (_) {}
+}
 
-const ShortsProgressBar = React.memo(({ progress }: { progress: number }) => (
-  <View style={styles.progressBarContainer}>
-    <View style={styles.progressBarBackground}>
-      <View style={[styles.progressBarFill, { width: `${progress.toFixed(1)}%` as any }]} />
-    </View>
+// ─── Ad Card ──────────────────────────────────────────────────────────────────
+const ShortAdCard = React.memo(({ item, itemHeight }: {
+  item: { type: 'ad'; data: Advertisement }; itemHeight: number;
+}) => (
+  <View style={[styles.itemContainer, { height: itemHeight, backgroundColor: '#000' }]}>
+    <Image source={{ uri: item.data.image_url }} style={StyleSheet.absoluteFillObject} contentFit="cover" />
+    <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={[styles.bottomGradient, { paddingBottom: 40 }]}>
+      <View style={styles.adInfoContainer}>
+        <Text style={styles.adTitle} numberOfLines={2}>{item.data.title}</Text>
+        {item.data.redirect_url && (
+          <TouchableOpacity style={styles.adCtaButton}>
+            <Text style={styles.adCtaText}>Learn More</Text>
+          </TouchableOpacity>
+        )}
+        <Text style={styles.adDisclaimer}>Sponsored</Text>
+      </View>
+    </LinearGradient>
   </View>
 ));
 
-// ─── YouTube Short Card ─────────────────────────────────────────────────────
-// Loads the actual YouTube Shorts page (not /embed/) inside a WebView.
-// The /shorts/ page plays natively in WebView without embedding restrictions.
-const YouTubeShortCard = React.memo(({ item, isActive, shouldLoad, itemHeight, onToggleFooter }: { item: any; isActive: boolean; shouldLoad: boolean; itemHeight: number; onToggleFooter?: () => void }) => {
-  const insets = useSafeAreaInsets();
-  const [progress, setProgress] = useState(0);
+// ─── YouTube Short Card ───────────────────────────────────────────────────────
+// Full-screen WebView. No app overlay on top — YouTube's own UI is the only
+// interaction surface (like / share / save / comments / subscribe).
+const YouTubeShortCard = React.memo(({ item, isActive, isFocused, shouldLoad, itemHeight }: {
+  item: any; isActive: boolean; isFocused: boolean; shouldLoad: boolean; itemHeight: number;
+}) => {
+  const trackFiredRef = useRef(false);
+  const webViewRef = useRef<any>(null);
 
-  const channelTitle = item.channel_title || item.source_name || item.source || 'Telugu Shorts';
-  const avatarLetter = channelTitle.charAt(0).toUpperCase();
+  // Silent view tracking: fire after 3 s of active playback
+  useEffect(() => {
+    if (!isActive || !isFocused) { trackFiredRef.current = false; return; }
+    const timer = setTimeout(() => {
+      if (!trackFiredRef.current && item.video_id) {
+        trackFiredRef.current = true;
+        trackView(item.video_id);
+      }
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [isActive, isFocused, item.video_id]);
+
+  // Pause / mute when screen loses focus (tab switch, back press, etc.)
+  useEffect(() => {
+    if (!webViewRef.current) return;
+    const js = isFocused && isActive
+      ? `(function(){ var v=document.querySelector('video'); if(v){ v.play(); v.muted=false; } })(); true;`
+      : `(function(){ var v=document.querySelector('video'); if(v){ v.pause(); v.muted=true; } })(); true;`;
+    try { webViewRef.current.injectJavaScript(js); } catch (_) {}
+  }, [isActive, isFocused]);
 
   const shortsUrl = `https://www.youtube.com/shorts/${item.video_id}`;
 
-  const lastProgressRef = useRef(0);
-  const handleMessage = useCallback((event: any) => {
-    try {
-      const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'progress' && typeof data.progress === 'number') {
-        const p = Math.min(100, Math.max(0, data.progress));
-        if (Math.abs(p - lastProgressRef.current) >= 1) {
-          lastProgressRef.current = p;
-          setProgress(p);
-        }
-      }
-    } catch (e) {}
-  }, []);
+  // We only strip YouTube's global navigation chrome.
+  // The Shorts interaction panel (like/share/save/comments) is left untouched.
+  const injectedCSS = `
+    ytm-mobile-topbar-renderer,
+    .mobile-topbar-header,
+    ytm-pivot-bar-renderer,
+    header.mobile-topbar-header,
+    #guide-button,
+    .navigation-container,
+    .ytm-autonav-bar { display: none !important; }
+    html, body {
+      background: #000 !important;
+      overflow: hidden !important;
+      margin: 0 !important;
+      padding: 0 !important;
+    }
+  `;
+
+  const injectedJS = `
+    (function() {
+      // Auto-unmute — tries for ~2 s then stops
+      var checks = 0;
+      var iv = setInterval(function() {
+        checks++;
+        try {
+          var v = document.querySelector('video');
+          if (v) { v.muted = false; v.volume = 1.0; }
+          document.querySelectorAll('[aria-label*="unmute" i],[aria-label*="Unmute" i],.ytp-mute-button')
+            .forEach(function(b){ try{ b.click(); }catch(e){} });
+        } catch(e) {}
+        if (checks >= 8) clearInterval(iv);
+      }, 250);
+
+      var s = document.createElement('style');
+      s.textContent = ${JSON.stringify(injectedCSS)};
+      document.head.appendChild(s);
+
+      true;
+    })();
+  `;
 
   return (
     <View style={[styles.itemContainer, { height: itemHeight }]}>
       {isActive && shouldLoad ? (
         <WebView
+          ref={webViewRef}
           source={{ uri: shortsUrl }}
-          style={styles.backgroundImage}
+          style={StyleSheet.absoluteFillObject}
           originWhitelist={['*']}
-          javaScriptEnabled={true}
-          domStorageEnabled={true}
+          javaScriptEnabled
+          domStorageEnabled
           mediaPlaybackRequiresUserAction={false}
-          allowsInlineMediaPlayback={true}
-          scrollEnabled={false}
+          allowsInlineMediaPlayback
+          scrollEnabled
           setSupportMultipleWindows={false}
-          onMessage={handleMessage}
           userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
-          injectedJavaScript={`
-            // Auto-unmute YouTube video (runs for first 2 seconds then self-terminates)
-            let unmuteChecks = 0;
-            const unmuteInterval = setInterval(() => {
-              unmuteChecks++;
-              try {
-                const v = document.querySelector('video');
-                if (v) {
-                  v.muted = false;
-                  v.volume = 1.0;
-                }
-                const unmuteBtns = document.querySelectorAll(
-                  '.ytp-unmute, .player-controls-middle, [aria-label*="unmute" i], [aria-label*="Unmute" i], .reel-player-overlay-mute-button, .sound-icon, .ytp-mute-button'
-                );
-                unmuteBtns.forEach(btn => {
-                  try { btn.click(); } catch(e) {}
-                });
-              } catch(e) {}
-              if (unmuteChecks >= 8) clearInterval(unmuteInterval);
-            }, 250);
-
-            // Hide YouTube UI elements & unmute overlay button completely
-            const style = document.createElement('style');
-            style.textContent = \`
-              ytm-mobile-topbar-renderer,
-              .mobile-topbar-header,
-              ytm-pivot-bar-renderer,
-              .page-container > :not(ytm-shorts),
-              header, .header,
-              .ytm-autonav-bar,
-              #guide-button,
-              ytm-comments-entry-point-header-renderer,
-              .reel-player-overlay-actions,
-              .player-controls-top,
-              .player-controls-middle,
-              .player-controls-bottom,
-              ytm-shorts-player-controls,
-              .ytp-unmute,
-              .ytp-mute-button,
-              .reel-player-overlay-mute-button,
-              .sound-icon,
-              .volume-icon,
-              [aria-label*="unmute" i],
-              [aria-label*="Unmute" i],
-              .navigation-container,
-              .slim-owner,
-              .bottom-bar { display: none !important; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }
-              body { background: #000 !important; overflow: hidden !important; }
-            \`;
-            document.head.appendChild(style);
-
-            // Report video progress every 500ms back to React Native
-            setInterval(() => {
-              try {
-                const v = document.querySelector('video');
-                if (v && v.duration > 0) {
-                  const pct = (v.currentTime / v.duration) * 100;
-                  window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'progress', progress: pct }));
-                }
-              } catch(e) {}
-            }, 500);
-
-            true;
-          `}
-          onShouldStartLoadWithRequest={(request) => {
-            // Prevent navigation away from the shorts page
-            if (request.url.includes('/shorts/') || request.url.includes('youtube.com')) {
-              return true;
-            }
-            return false;
-          }}
+          injectedJavaScript={injectedJS}
+          onShouldStartLoadWithRequest={(req) =>
+            req.url.includes('youtube.com') || req.url.includes('youtu.be')
+          }
         />
       ) : (
-        <Image
-          source={{ uri: item.thumbnail_url || `https://img.youtube.com/vi/${item.video_id}/maxresdefault.jpg` }}
-          style={styles.backgroundImage}
-          contentFit="cover"
-          transition={150}
-          cachePolicy="disk"
-        />
-      )}
-
-      {/* Background Tap Handler to toggle footer (only when tapping background) */}
-      {onToggleFooter && (
-        <TouchableWithoutFeedback onPress={onToggleFooter}>
-          <View style={StyleSheet.absoluteFillObject} />
-        </TouchableWithoutFeedback>
-      )}
-
-      {/* Right Interaction Stack */}
-      <View style={styles.rightStack} pointerEvents="box-none">
-        <View style={styles.actionItem}>
-          <View style={styles.avatarContainer}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{avatarLetter}</Text>
-            </View>
-            <View style={styles.plusIconContainer}>
-              <MaterialIcons name="add" size={12} color="white" />
-            </View>
-          </View>
+        <View style={[StyleSheet.absoluteFillObject, styles.thumbnailContainer]}>
+          <Image
+            source={{ uri: item.thumbnail_url || `https://img.youtube.com/vi/${item.video_id}/maxresdefault.jpg` }}
+            style={StyleSheet.absoluteFillObject}
+            contentFit="cover"
+            transition={150}
+            cachePolicy="disk"
+          />
+          <View style={styles.thumbnailDimmer} />
         </View>
-
-        <TouchableOpacity style={styles.actionItem}>
-          <Ionicons name="heart" size={32} color="white" style={styles.iconShadow} />
-          <Text style={styles.actionText}>{item.likes || 0}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.actionItem}>
-          <Ionicons name="eye-outline" size={28} color="white" style={styles.iconShadow} />
-          <Text style={styles.actionText}>{item.views || 0}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.actionItem}>
-          <MaterialIcons name="reply" size={32} color="white" style={[styles.iconShadow, { transform: [{ scaleX: -1 }] }]} />
-          <Text style={styles.actionText}>Share</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.actionItem}>
-          <Ionicons name="bookmark-outline" size={28} color="white" style={styles.iconShadow} />
-          <Text style={styles.actionText}>Save</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Bottom Info Gradient Overlay */}
-      <LinearGradient
-        colors={['transparent', 'rgba(0,0,0,0.88)']}
-        style={[styles.bottomGradient, { paddingBottom: insets.bottom + Spacing.xl }]}
-        pointerEvents="box-none"
-      >
-        <View style={styles.infoContainer}>
-          <Text style={styles.channelTitle} numberOfLines={1}>
-            {channelTitle}
-          </Text>
-          <Text style={styles.title} numberOfLines={3}>
-            {item.title}
-          </Text>
-        </View>
-
-        {/* Dynamic Progress Bar */}
-        <ShortsProgressBar progress={progress} />
-      </LinearGradient>
+      )}
     </View>
   );
-}, (prevProps, nextProps) => {
-  return (
-    prevProps.isActive === nextProps.isActive &&
-    prevProps.shouldLoad === nextProps.shouldLoad &&
-    prevProps.itemHeight === nextProps.itemHeight &&
-    (prevProps.item.video_id || prevProps.item.news_uid) === (nextProps.item.video_id || nextProps.item.news_uid)
-  );
-});
+}, (prev, next) => (
+  prev.isActive === next.isActive &&
+  prev.isFocused === next.isFocused &&
+  prev.shouldLoad === next.shouldLoad &&
+  prev.itemHeight === next.itemHeight &&
+  (prev.item.video_id || prev.item.news_uid) === (next.item.video_id || next.item.news_uid)
+));
 
-// ─── Native Video Short Card (for non-YouTube content) ──────────────────────
-const NativeVideoItem = React.memo(({ item, isActive, shouldLoad, itemHeight, onToggleFooter }: { item: any; isActive: boolean; shouldLoad: boolean; itemHeight: number; onToggleFooter?: () => void }) => {
-  const insets = useSafeAreaInsets();
+// ─── Native Video Short Card ──────────────────────────────────────────────────
+const NativeVideoItem = React.memo(({ item, isActive, isFocused, shouldLoad, itemHeight }: {
+  item: any; isActive: boolean; isFocused: boolean; shouldLoad: boolean; itemHeight: number;
+}) => {
   const [progress, setProgress] = useState(0);
+  const trackFiredRef = useRef(false);
+  const playing = isActive && isFocused;
 
-  const player = useVideoPlayer(isActive && (item.video_url || item.image_url) ? { uri: item.video_url || item.image_url } : null, player => {
-    player.loop = true;
-    player.muted = false;
-  });
+  const player = useVideoPlayer(
+    playing && (item.video_url || item.image_url) ? { uri: item.video_url || item.image_url } : null,
+    (p) => { p.loop = true; p.muted = false; }
+  );
 
-  React.useEffect(() => {
-    if (player) {
+  useEffect(() => {
+    if (!player) return;
+    if (playing) {
       player.muted = false;
-      if (isActive) {
-        player.play();
-      } else {
-        player.pause();
-      }
+      player.play();
+    } else {
+      player.muted = true;
+      player.pause();
     }
-  }, [isActive, player]);
+  }, [playing, player]);
 
-  React.useEffect(() => {
-    if (!isActive || !player) {
-      setProgress(0);
-      return;
-    }
+  useEffect(() => {
+    if (!playing || !player) { setProgress(0); return; }
     const interval = setInterval(() => {
       try {
         if (player.duration > 0) {
-          const pct = (player.currentTime / player.duration) * 100;
-          setProgress(Math.min(100, Math.max(0, pct)));
+          setProgress(Math.min(100, Math.max(0, (player.currentTime / player.duration) * 100)));
         }
       } catch (e) {}
     }, 500);
     return () => clearInterval(interval);
-  }, [isActive, player]);
+  }, [playing, player]);
 
-  const channelTitle = item.channel_title || item.source_name || item.source || 'Telugu Shorts';
-  const avatarLetter = channelTitle.charAt(0).toUpperCase();
+  useEffect(() => {
+    if (!playing) { trackFiredRef.current = false; return; }
+    const timer = setTimeout(() => {
+      if (!trackFiredRef.current && (item.video_id || item.news_uid)) {
+        trackFiredRef.current = true;
+        trackView(item.video_id || item.news_uid);
+      }
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [playing, item.video_id, item.news_uid]);
 
   return (
     <View style={[styles.itemContainer, { height: itemHeight }]}>
-      <VideoView
-        player={player}
-        style={styles.backgroundImage}
-        contentFit="cover"
-        nativeControls={false}
-      />
-
-      {/* Background Touch Layer to toggle footer */}
-      {onToggleFooter && (
-        <TouchableWithoutFeedback onPress={onToggleFooter}>
-          <View style={StyleSheet.absoluteFillObject} />
-        </TouchableWithoutFeedback>
+      {playing && shouldLoad ? (
+        <VideoView
+          player={player}
+          style={StyleSheet.absoluteFillObject}
+          contentFit="cover"
+          nativeControls
+        />
+      ) : (
+        <View style={[StyleSheet.absoluteFillObject, styles.thumbnailContainer]}>
+          <Image
+            source={{ uri: item.thumbnail_url || `https://img.youtube.com/vi/${item.video_id}/maxresdefault.jpg` }}
+            style={StyleSheet.absoluteFillObject}
+            contentFit="cover"
+            cachePolicy="disk"
+          />
+          <View style={styles.thumbnailDimmer} />
+        </View>
       )}
-
-      {/* Right Interaction Stack */}
-      <View style={styles.rightStack} pointerEvents="box-none">
-        <View style={styles.actionItem}>
-          <View style={styles.avatarContainer}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{avatarLetter}</Text>
-            </View>
-            <View style={styles.plusIconContainer}>
-              <MaterialIcons name="add" size={12} color="white" />
-            </View>
+      {playing && (
+        <View style={styles.progressBarContainer} pointerEvents="none">
+          <View style={styles.progressBarBackground}>
+            <View style={[styles.progressBarFill, { width: `${progress.toFixed(1)}%` as any }]} />
           </View>
         </View>
-
-        <TouchableOpacity style={styles.actionItem}>
-          <Ionicons name="heart" size={32} color="white" style={styles.iconShadow} />
-          <Text style={styles.actionText}>{item.likes || 0}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.actionItem}>
-          <Ionicons name="eye-outline" size={28} color="white" style={styles.iconShadow} />
-          <Text style={styles.actionText}>{item.views || 0}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.actionItem}>
-          <MaterialIcons name="reply" size={32} color="white" style={[styles.iconShadow, { transform: [{ scaleX: -1 }] }]} />
-          <Text style={styles.actionText}>Share</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.actionItem}>
-          <Ionicons name="bookmark-outline" size={28} color="white" style={styles.iconShadow} />
-          <Text style={styles.actionText}>Save</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Bottom Info Gradient Overlay */}
-      <LinearGradient
-        colors={['transparent', 'rgba(0,0,0,0.88)']}
-        style={[styles.bottomGradient, { paddingBottom: insets.bottom + Spacing.xl }]}
-        pointerEvents="box-none"
-      >
-        <View style={styles.infoContainer}>
-          <Text style={styles.channelTitle} numberOfLines={1}>
-            {channelTitle}
-          </Text>
-          <Text style={styles.title} numberOfLines={3}>
-            {item.title}
-          </Text>
-        </View>
-
-        {/* Dynamic Progress Bar */}
-        <ShortsProgressBar progress={progress} />
-      </LinearGradient>
+      )}
     </View>
   );
-}, (prevProps, nextProps) => {
-  return (
-    prevProps.isActive === nextProps.isActive &&
-    prevProps.shouldLoad === nextProps.shouldLoad &&
-    prevProps.itemHeight === nextProps.itemHeight &&
-    (prevProps.item.video_id || prevProps.item.news_uid) === (nextProps.item.video_id || nextProps.item.news_uid)
-  );
-});
+}, (prev, next) => (
+  prev.isActive === next.isActive &&
+  prev.isFocused === next.isFocused &&
+  prev.shouldLoad === next.shouldLoad &&
+  prev.itemHeight === next.itemHeight &&
+  (prev.item.video_id || prev.item.news_uid) === (next.item.video_id || next.item.news_uid)
+));
 
+// ─── Screen ───────────────────────────────────────────────────────────────────
 export default function ShortsScreen() {
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation();
   const isFocused = useIsFocused();
-  const { height } = useWindowDimensions();
+  const { height: windowHeight } = useWindowDimensions();
   const [activeTab, setActiveTab] = useState<'Following' | 'For You'>('Following');
   const [activeIndex, setActiveIndex] = useState(0);
-  const [listHeight, setListHeight] = useState(height);
-  const setTabBarVisible = useTabBarStore((s) => s.setVisible);
 
-  // ─── Animation & Touch ──────────────────────────────────────────────────
-  const touchStartRef = useRef({ x: 0, y: 0, time: 0 });
+  // ── Single source of truth for page height ───────────────────────────────
+  // The tab bar is position:absolute so the screen content View always spans
+  // the full window height — onLayout gives windowHeight, not windowHeight-tabBar.
+  // We initialise to windowHeight so the FlatList is visible immediately on
+  // first render (no black-screen / reel-not-playing on mount). onLayout then
+  // confirms or adjusts the value for devices with unusual insets.
+  const [listHeight, setListHeight] = useState(windowHeight);
 
-  const toggleFooter = useCallback(() => {
-    const isVisible = useTabBarStore.getState().visible;
-    setTabBarVisible(!isVisible);
-  }, [setTabBarVisible]);
-
-  // ─── Data ──────────────────────────────────────────────────────────────
   const { data: rawShorts = [], isLoading: isLoadingShorts } = useNewsShorts('te');
   const { data: ads = [], isLoading: isLoadingAds } = useQuery({
     queryKey: ['active-ads', 'shorts'],
     queryFn: () => contentApi.getActiveAdvertisements(),
   });
 
-  const shortsFeed = useMemo(() => {
-    return injectAdsIntoFeed(rawShorts, ads, 5);
-  }, [rawShorts, ads]);
-
+  const shortsFeed = useMemo(() => injectAdsIntoFeed(rawShorts, ads, 5), [rawShorts, ads]);
   const isLoading = isLoadingShorts || isLoadingAds;
 
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
-    if (viewableItems.length > 0) {
-      setActiveIndex(viewableItems[0].index || 0);
-    }
+    if (viewableItems.length > 0) setActiveIndex(viewableItems[0].index || 0);
   }, []);
 
-  const viewabilityConfig = {
-    itemVisiblePercentThreshold: 50,
-  };
+  const viewabilityConfig = { itemVisiblePercentThreshold: 50 };
 
   const renderVideoItem = useCallback(({ item, index }: { item: ShortFeedItem; index: number }) => {
-    const isCardActive = isFocused && index === activeIndex;
-    const shouldLoad = isFocused && Math.abs(index - activeIndex) <= 1;
+    const isCardActive = index === activeIndex;
+    // Pre-load one ahead/behind but only play the active one when focused
+    const shouldLoad = Math.abs(index - activeIndex) <= 1;
 
-    if (isAdvertisement(item)) {
-      return <ShortAdCard item={item} itemHeight={listHeight} />;
-    }
+    if (isAdvertisement(item)) return <ShortAdCard item={item} itemHeight={listHeight} />;
 
-    // YouTube content → plays in-app via WebView
     const isYouTube = Boolean(item.video_id || item.source === 'youtube');
     if (isYouTube) {
       return (
         <YouTubeShortCard
           item={item}
           isActive={isCardActive}
+          isFocused={isFocused}
           shouldLoad={shouldLoad}
           itemHeight={listHeight}
-          onToggleFooter={toggleFooter}
         />
       );
     }
-
-    // Native video content
     return (
       <NativeVideoItem
         item={item}
         isActive={isCardActive}
+        isFocused={isFocused}
         shouldLoad={shouldLoad}
         itemHeight={listHeight}
-        onToggleFooter={toggleFooter}
       />
     );
-  }, [activeIndex, isFocused, listHeight, toggleFooter]);
+  }, [activeIndex, isFocused, listHeight]);
 
   const getItemLayout = useCallback(
-    (_: any, index: number) => ({
-      length: listHeight,
-      offset: listHeight * index,
-      index,
-    }),
+    (_: any, index: number) => ({ length: listHeight, offset: listHeight * index, index }),
     [listHeight]
   );
 
@@ -466,53 +334,54 @@ export default function ShortsScreen() {
   }
 
   return (
+    // flex:1 — Expo Router already constrains this to the space above the tab bar.
+    // overflow:hidden clips any video content that would otherwise bleed under the bar.
     <View
       style={styles.container}
-      onLayout={(e) => setListHeight(e.nativeEvent.layout.height)}
+      onLayout={(e) => {
+        const h = e.nativeEvent.layout.height;
+        // Accept any positive measurement. This is the authoritative page height.
+        if (h > 0) setListHeight(h);
+      }}
     >
       <FlatList
-        data={shortsFeed}
-        keyExtractor={keyExtractor}
-        renderItem={renderVideoItem}
-        pagingEnabled
-        showsVerticalScrollIndicator={false}
-        snapToInterval={listHeight}
-        snapToAlignment="start"
-        decelerationRate="fast"
-        disableIntervalMomentum={true}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-        getItemLayout={getItemLayout}
-        bounces={false}
-        initialNumToRender={1}
-        maxToRenderPerBatch={1}
-        windowSize={3}
-        removeClippedSubviews={false}
-      />
+          data={shortsFeed}
+          keyExtractor={keyExtractor}
+          renderItem={renderVideoItem}
+          pagingEnabled
+          showsVerticalScrollIndicator={false}
+          snapToInterval={listHeight}
+          snapToAlignment="start"
+          decelerationRate="fast"
+          disableIntervalMomentum
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
+          getItemLayout={getItemLayout}
+          bounces={false}
+          initialNumToRender={1}
+          maxToRenderPerBatch={1}
+          windowSize={3}
+          removeClippedSubviews={false}
+          contentContainerStyle={styles.flatListContent}
+        />
 
-      {/* Top Bar Static Overlay */}
+      {/* Following / For You tabs — rendered above the video with a dark scrim */}
       <View
-        style={[
-          styles.topGradient,
-          {
-            paddingTop: insets.top + Spacing.sm,
-          },
-        ]}
+        style={[styles.topOverlay, { paddingTop: insets.top + 4 }]}
         pointerEvents="box-none"
       >
         <LinearGradient
-          colors={['rgba(0,0,0,0.75)', 'transparent']}
+          colors={['rgba(0,0,0,0.6)', 'transparent']}
           style={StyleSheet.absoluteFillObject}
           pointerEvents="none"
         />
-        <View style={styles.topBar}>
-          <View style={styles.tabsContainer}>
-            <TouchableOpacity onPress={() => setActiveTab('Following')} style={styles.tabItem}>
+        <View style={styles.topBar} pointerEvents="box-none">
+          <View style={styles.tabsContainer} pointerEvents="box-none">
+            <TouchableOpacity onPress={() => setActiveTab('Following')} style={styles.tabItem} activeOpacity={0.8}>
               <Text style={[styles.tabText, activeTab === 'Following' && styles.activeTabText]}>Following</Text>
               {activeTab === 'Following' && <View style={styles.activeTabIndicator} />}
             </TouchableOpacity>
-
-            <TouchableOpacity onPress={() => setActiveTab('For You')} style={styles.tabItem}>
+            <TouchableOpacity onPress={() => setActiveTab('For You')} style={styles.tabItem} activeOpacity={0.8}>
               <Text style={[styles.tabText, activeTab === 'For You' && styles.activeTabText]}>For You</Text>
               {activeTab === 'For You' && <View style={styles.activeTabIndicator} />}
             </TouchableOpacity>
@@ -524,54 +393,44 @@ export default function ShortsScreen() {
 }
 
 const styles = StyleSheet.create({
+  // flex:1 — Expo Router constrains this to the space above the tab bar.
+  // overflow:hidden prevents any video content from bleeding under the nav bar.
+  // No paddingBottom / marginBottom here — the tab bar is a separate sibling.
   container: {
     flex: 1,
     backgroundColor: '#000',
-  },
-  itemContainer: {
-    width: '100%',
     overflow: 'hidden',
   },
-  backgroundImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: '100%',
-    height: '100%',
+
+  // Zero padding on the FlatList's scroll content
+  flatListContent: {
+    padding: 0,
+    margin: 0,
   },
-  playButtonContainer: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 8,
-  },
-  playButton: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: 'rgba(255, 0, 0, 0.85)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  topGradient: {
+
+  // Each paged item: explicit height is set inline (= listHeight).
+  // overflow:hidden clips the WebView so it never paints outside its box.
+  // Solid black background prevents the next item from showing through.
+  itemContainer: { width: '100%', overflow: 'hidden', backgroundColor: '#000' },
+
+  thumbnailContainer: { backgroundColor: '#111' },
+  thumbnailDimmer: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.35)' },
+
+  // "Following / For You" top overlay
+  topOverlay: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     height: 120,
-    paddingHorizontal: Spacing.lg,
     zIndex: 10,
   },
   topBar: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    position: 'relative',
     paddingTop: Spacing.sm,
-    height: 48,
+    height: 52,
   },
   tabsContainer: {
     flexDirection: 'row',
@@ -580,146 +439,71 @@ const styles = StyleSheet.create({
   },
   tabItem: {
     alignItems: 'center',
+    paddingHorizontal: Spacing.xs,
   },
   tabText: {
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: 'rgba(255,255,255,0.65)',
     fontSize: Typography.sizes.lg,
     fontFamily: Typography.fonts.bold,
     marginBottom: 4,
-  },
-  activeTabText: {
-    color: '#FFF',
-  },
-  activeTabIndicator: {
-    height: 2,
-    backgroundColor: '#FFF',
-    width: '100%',
-    borderRadius: 1,
-  },
-  rightStack: {
-    position: 'absolute',
-    right: Spacing.md,
-    bottom: 40,
-    alignItems: 'center',
-    gap: Spacing.xl,
-    zIndex: 10,
-  },
-  actionItem: {
-    alignItems: 'center',
-  },
-  iconShadow: {
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 2 },
+    textShadowColor: 'rgba(0,0,0,0.7)',
+    textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
   },
-  actionText: {
-    color: '#FFF',
-    fontSize: Typography.sizes.xs,
-    fontFamily: Typography.fonts.semiBold,
-    marginTop: Spacing.xs,
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  avatarContainer: {
-    marginBottom: Spacing.sm,
-  },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#4648D4',
-    borderWidth: 2,
-    borderColor: '#FFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarText: {
-    color: '#FFF',
-    fontSize: Typography.sizes.lg,
-    fontFamily: Typography.fonts.bold,
-  },
-  plusIconContainer: {
-    position: 'absolute',
-    bottom: -4,
-    alignSelf: 'center',
-    backgroundColor: '#EF4444',
-    borderRadius: 10,
-    width: 16,
-    height: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+  activeTabText: { color: '#FFF' },
+  activeTabIndicator: { height: 2, backgroundColor: '#FFF', width: '100%', borderRadius: 1 },
+
+  // Ad card gradient
   bottomGradient: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing['2xl'] * 2,
+    paddingTop: Spacing['2xl'],
     justifyContent: 'flex-end',
     zIndex: 5,
   },
-  infoContainer: {
-    marginBottom: Spacing.md,
-    maxWidth: '80%',
-  },
-  channelTitle: {
-    color: '#38BDF8',
-    fontSize: Typography.sizes.sm,
-    fontFamily: Typography.fonts.bold,
-    marginBottom: 4,
-    letterSpacing: 0.5,
-  },
-  title: {
+  adInfoContainer: { marginBottom: Spacing.md, maxWidth: '80%' },
+  adTitle: {
     color: '#FFF',
     fontSize: Typography.sizes.lg,
     fontFamily: Typography.fonts.bold,
     lineHeight: 24,
     marginBottom: Spacing.xs,
   },
-  progressBarContainer: {
-    position: 'absolute',
-    bottom: 6,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 4,
-    zIndex: 100,
-    elevation: 10,
-  },
-  progressBarBackground: {
-    height: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: '#4648D4',
-  },
-  darkLoaderContainer: {
-    flex: 1,
-    backgroundColor: '#000000',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   adCtaButton: {
     marginTop: 12,
     backgroundColor: '#4648D4',
     paddingVertical: 8,
     paddingHorizontal: 16,
-    borderRadius: BorderRadius.lg,
+    borderRadius: 10,
     alignSelf: 'flex-start',
   },
-  adCtaText: {
-    color: '#FFF',
-    fontFamily: Typography.fonts.bold,
-    fontSize: Typography.sizes.sm,
-  },
+  adCtaText: { color: '#FFF', fontFamily: Typography.fonts.bold, fontSize: Typography.sizes.sm },
   adDisclaimer: {
     color: 'rgba(255,255,255,0.6)',
     fontSize: Typography.sizes.xs,
     marginTop: 8,
     fontFamily: Typography.fonts.medium,
   },
+
+  // Native video thin progress bar
+  progressBarContainer: {
+    position: 'absolute',
+    bottom: 4,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 4,
+    zIndex: 100,
+  },
+  progressBarBackground: {
+    height: 3,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressBarFill: { height: '100%', backgroundColor: '#4648D4', borderRadius: 2 },
+
+  darkLoaderContainer: { flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
 });

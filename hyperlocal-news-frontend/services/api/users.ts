@@ -32,6 +32,10 @@ export interface UserMeResponse {
   is_suspended: boolean;
   created_at: string; // ISO string
   updated_at: string; // ISO string
+  google_id?: string | null;
+  auth_provider?: string | null;
+  providers?: string[] | null;
+  is_google_linked?: boolean;
 }
 
 /**

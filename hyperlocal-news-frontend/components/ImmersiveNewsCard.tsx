@@ -34,9 +34,11 @@ import {
 } from '@/hooks/useEngagement';
 import { useLikePost, useSharePost } from '@/hooks/usePosts';
 import { useAuthStore } from '@/store/authStore';
-import { formatTimeAgo, calculateTeluguReadTime } from '@/utils/formatters';
+import { formatTimeAgo, calculateTeluguReadTime, getArticleTimestamp } from '@/utils/formatters';
 import { useRecordView } from '@/hooks/useNews';
 import { useReaderFontStore } from '@/store/readerFontStore';
+import { useCommentCountStore } from '@/store/commentCountStore';
+import { useRelativeTime } from '@/hooks/useRelativeTime';
 import { PollCard } from './PollCard';
 import { SwipeHint } from './SwipeHint';
 import { TELUGU_FONT_STACK } from '@/constants/Typography';
@@ -265,6 +267,7 @@ const NewsCard = React.memo(
     isActive = false,
     colors,
     isDark,
+    commentCount: propCommentCount,
     onOpenComments,
     onToggleUI,
   }: {
@@ -275,6 +278,7 @@ const NewsCard = React.memo(
     isActive?: boolean;
     colors: any;
     isDark: boolean;
+    commentCount?: number;
     onOpenComments?: (uid: string) => void;
     onToggleUI?: () => void;
   }) => {
@@ -482,27 +486,41 @@ const NewsCard = React.memo(
     const readTimeContent = (item as any).full_content || (item as any).content || `${displayTitle} ${displaySummary}`;
     const readTime = useMemo(() => calculateTeluguReadTime(readTimeContent), [readTimeContent]);
 
-    // Footer info line: compact views (e.g. 63K) under 360px
+    // View count formatting: compact numbers (63K, 1.2M) under 360px or > 5 digits. Add "views" only if there is room.
     const rawViews = item.engagement?.total_views ?? item.views ?? 0;
     const numViews = typeof rawViews === 'number' ? rawViews : parseInt(String(rawViews).replace(/,/g, ''), 10) || 0;
     const hasViews = numViews > 0;
-    const formatViewsCount = (num: number, compactAll: boolean): string => {
-      if (num >= 1000000) {
-        return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
-      }
-      if (compactAll) {
-        if (num >= 1000) {
-          return (num / 1000).toFixed(num >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'K';
+    const formatViewsCount = (count: number, isSmall: boolean): string => {
+      let countStr: string;
+      if (count >= 1000000) {
+        countStr = (count / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+      } else if (isSmall || count >= 100000) {
+        if (count >= 1000) {
+          countStr = (count / 1000).toFixed(count >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'K';
+        } else {
+          countStr = count.toString();
         }
-        return num.toString();
+      } else {
+        countStr = count.toLocaleString();
       }
-      if (num >= 100000) {
-        return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
-      }
-      return num.toLocaleString();
+
+      // Add the "views" word only if there is room (screen >= 360px)
+      return isSmall ? countStr : `${countStr} views`;
     };
     const formattedViews = formatViewsCount(numViews, isUnder360);
-    const relativeTime = item.created_at ? formatTimeAgo(item.created_at) : '';
+
+    // Relative time label placed directly above the bookmark button
+    // Calculated strictly from the article's published timestamp (published_at, pubDate, created_at, etc.)
+    const articleTimestamp = getArticleTimestamp(item);
+    const relativeTime = useRelativeTime(articleTimestamp, { isActive });
+    const timeLabelContent = useMemo(() => {
+      // If timestamp is missing or invalid, hide the time label completely (no gap, no NaN)
+      if (!relativeTime) return '';
+      // On screens under 360px, show only relativeTime (e.g. 2m ago) directly above bookmark button
+      if (isUnder360 || !readTime) return relativeTime;
+      // On screens >= 360px where it fits on one line:
+      return `${relativeTime} · ${readTime}`;
+    }, [relativeTime, readTime, isUnder360]);
 
     // Action buttons sizing & touch targets (comfortable default size for 4 buttons)
     const btnSize = isUnder360 ? 40 : (isNarrow ? 42 : 44);
@@ -510,8 +528,28 @@ const NewsCard = React.memo(
     const actionGap = 8;
     const hitSlopValue = { top: 6, bottom: 6, left: 4, right: 4 };
 
-    const commentCount = item.engagement?.total_comments ?? item.comments ?? 0;
-    const showCommentCount = !isUnder360 && (!isNarrow || (typeof commentCount === 'number' ? commentCount > 0 : Boolean(commentCount && commentCount !== '0')));
+    const liveCommentCount = useCommentCountStore((s) => (contentUid ? s.counts[contentUid] : undefined));
+    const effectiveCommentCount = propCommentCount !== undefined
+      ? propCommentCount
+      : (liveCommentCount !== undefined
+          ? liveCommentCount
+          : (item.engagement?.total_comments ?? item.comments ?? 0));
+
+    useEffect(() => {
+      if (contentUid) {
+        const initial = item.engagement?.total_comments ?? item.comments;
+        if (typeof initial === 'number') {
+          useCommentCountStore.getState().setInitialCount(contentUid, initial);
+        }
+      }
+    }, [contentUid, item.engagement?.total_comments, item.comments]);
+
+    const showCommentCount =
+      !isUnder360 &&
+      (!isNarrow ||
+        (typeof effectiveCommentCount === 'number'
+          ? effectiveCommentCount > 0
+          : Boolean(effectiveCommentCount && effectiveCommentCount !== '0')));
 
     const actionIconColor = isDark ? '#A5B4FC' : '#464554';
     const actionBg = isDark ? 'rgba(24, 23, 54, 0.88)' : '#E5EEFF';
@@ -649,7 +687,7 @@ const NewsCard = React.memo(
               backgroundColor: colors.background,
               paddingHorizontal: sidePadding,
               paddingTop: isShortScreen ? 12 : 16,
-              paddingBottom: Math.max(insets.bottom, 10) + (isShortScreen ? 4 : 8),
+              paddingBottom: (insets.bottom || 0) + (isShortScreen ? 10 : 12),
             },
           ]}
         >
@@ -699,35 +737,62 @@ const NewsCard = React.memo(
 
           {/* First Launch Animated Swipe Hint - positioned cleanly above footer text and buttons */}
           {isActive && itemType === 'news' && (
-            <SwipeHint bottomOffset={isShortScreen ? 56 : 64} />
+            <SwipeHint bottomOffset={isShortScreen ? 70 : 80} />
           )}
 
           {/* Footer pinned at bottom */}
           <View style={styles.footerWrapper}>
+            {/* Time label row: small 2m ago text placed directly above the bookmark button, right-aligned */}
+            {Boolean(timeLabelContent) && (
+              <View style={styles.timeLabelRow}>
+                <Text
+                  style={[
+                    styles.timeLabelText,
+                    {
+                      color: colors.textTertiary,
+                      fontSize: isUnder360 ? 11 : 12,
+                    },
+                  ]}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                  maxFontSizeMultiplier={1.2}
+                >
+                  {timeLabelContent}
+                </Text>
+              </View>
+            )}
+
+            {/* Single thin divider line between date label and action row */}
             <View
               style={[
-                styles.footerRow,
-                { gap: isUnder360 ? 4 : 8 },
+                styles.footerDivider,
+                {
+                  backgroundColor: colors.divider,
+                  marginTop: Boolean(timeLabelContent) ? 8 : 0,
+                  marginBottom: 12,
+                },
+              ]}
+            />
+
+            {/* Action row (bottom footer): display flex, space-between, 100% width */}
+            <View
+              style={[
+                styles.actionRow,
+                !hasViews && { justifyContent: 'flex-end' },
               ]}
             >
-                {/* Left group: view count (with eye icon) + relative time */}
-                <View
-                  style={[
-                    styles.metaContainer,
-                    { gap: isUnder360 ? 3 : 4 },
-                  ]}
-                >
-                  {hasViews && (
-                    <Ionicons
-                      name="eye-outline"
-                      size={isUnder360 ? 13 : 14}
-                      color={colors.textTertiary}
-                      style={styles.infoIcon}
-                    />
-                  )}
+              {/* Left: small eye icon (16px, muted) + view count plain text */}
+              {hasViews && (
+                <View style={styles.viewsContainer}>
+                  <Ionicons
+                    name="eye-outline"
+                    size={16}
+                    color={colors.textTertiary}
+                    style={styles.eyeIcon}
+                  />
                   <Text
                     style={[
-                      styles.sourceText,
+                      styles.viewsText,
                       {
                         color: colors.textSecondary,
                         fontSize: isUnder360 ? 11 : 12,
@@ -737,23 +802,18 @@ const NewsCard = React.memo(
                     ellipsizeMode="tail"
                     maxFontSizeMultiplier={1.2}
                   >
-                    {(() => {
-                      const parts: string[] = [];
-                      if (hasViews) parts.push(`${formattedViews} views`);
-                      if (relativeTime) parts.push(relativeTime);
-                      if (!isUnder360 && readTime) parts.push(readTime);
-                      return parts.join(' · ');
-                    })()}
+                    {formattedViews}
                   </Text>
                 </View>
+              )}
 
-                {/* Right group (actions): comment, like, whatsapp, share, bookmark */}
-                <View
-                  style={[
-                    styles.actionsRow,
-                    { gap: actionGap },
-                  ]}
-                >
+              {/* Right: comment, like, share, bookmark buttons in that order, 8px gap */}
+              <View
+                style={[
+                  styles.actionsRow,
+                  { gap: actionGap },
+                ]}
+              >
                   {/* Comment */}
                   <TouchableOpacity
                     style={styles.actionBtnWrapper}
@@ -792,9 +852,9 @@ const NewsCard = React.memo(
                         ]}
                         maxFontSizeMultiplier={1.2}
                       >
-                        {typeof commentCount === 'number'
-                          ? commentCount.toLocaleString()
-                          : commentCount}
+                        {typeof effectiveCommentCount === 'number'
+                          ? effectiveCommentCount.toLocaleString()
+                          : effectiveCommentCount}
                       </Text>
                     )}
                   </TouchableOpacity>
@@ -906,6 +966,7 @@ const NewsCard = React.memo(
     prev.isActive === next.isActive &&
     prev.isDark === next.isDark &&
     prev.onToggleUI === next.onToggleUI &&
+    prev.commentCount === next.commentCount &&
     (prev.item.news_uid || (prev.item as any).post_uid || (prev.item as any).id) ===
       (next.item.news_uid || (next.item as any).post_uid || (next.item as any).id)
 );
@@ -962,7 +1023,8 @@ export const ImmersiveFeedCard = React.memo(
     }
 
     const newsItem = item.data as NewsArticle;
-    const itemUid = newsItem.news_uid || (newsItem as any).post_uid || (newsItem as any).id;
+    const itemUid = newsItem?.news_uid || (newsItem as any)?.post_uid || (newsItem as any)?.id;
+    const cardCommentCount = useCommentCountStore((s) => (itemUid ? s.counts[itemUid] : undefined));
     const isBookmarked =
       explicitIsBookmarked !== undefined
         ? explicitIsBookmarked
@@ -979,6 +1041,7 @@ export const ImmersiveFeedCard = React.memo(
         isActive={isActive}
         colors={colors}
         isDark={isDark}
+        commentCount={cardCommentCount}
         onOpenComments={onOpenComments}
         onToggleUI={onToggleUI}
       />
@@ -1001,7 +1064,17 @@ export const ImmersiveFeedCard = React.memo(
       (next.item.data as any)?.post_uid ||
       (next.item.data as any)?.poll_uid ||
       (next.item.data as any)?.id;
-    return prevUid === nextUid && prev.item.data === next.item.data;
+    if (prevUid !== nextUid) return false;
+    if (prevUid) {
+      const counts = useCommentCountStore.getState().counts;
+      if (counts[prevUid] !== undefined) {
+        const itemComments = (prev.item.data as any)?.engagement?.total_comments ?? (prev.item.data as any)?.comments;
+        if (counts[prevUid] !== itemComments) {
+          return false;
+        }
+      }
+    }
+    return prev.item.data === next.item.data;
   }
 );
 
@@ -1209,28 +1282,45 @@ const styles = StyleSheet.create({
     marginTop: 'auto',
     width: '100%',
   },
-  footerRow: {
+  footerDivider: {
+    width: '100%',
+    height: StyleSheet.hairlineWidth,
+  },
+  timeLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    width: '100%',
+  },
+  timeLabelText: {
+    fontSize: 12,
+    fontFamily: 'Poppins_400Regular',
+    textAlign: 'right',
+    ...(Platform.OS === 'web'
+      ? {
+          whiteSpace: 'nowrap' as any,
+        }
+      : {}),
+  },
+  actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
     width: '100%',
-    overflow: 'hidden',
+    gap: 8,
   },
-  metaContainer: {
-    flexGrow: 1,
-    flexShrink: 1,
-    flexBasis: 'auto',
+  viewsContainer: {
+    flex: 1,
     minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 5,
     overflow: 'hidden',
   },
-  infoIcon: {
+  eyeIcon: {
     flexShrink: 0,
   },
-  sourceText: {
+  viewsText: {
     fontSize: 12,
     fontFamily: 'Poppins_500Medium',
     flexShrink: 1,
@@ -1242,17 +1332,8 @@ const styles = StyleSheet.create({
         }
       : {}),
   },
-  dotSep: {
-    fontSize: 12,
-  },
-  timeText: {
-    fontSize: 12,
-    fontFamily: 'Poppins_400Regular',
-  },
   actionsRow: {
-    flexGrow: 0,
     flexShrink: 0,
-    flexBasis: 'auto',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,

@@ -112,17 +112,22 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
     const bottomInset = Math.max(insets.bottom, Platform.OS === 'ios' ? 24 : 12);
     const tabHeight = 58 + bottomInset;
 
-    const { visible } = useTabBarStore();
+    const { visible, setHeight } = useTabBarStore();
     const translateY = useRef(new Animated.Value(0)).current;
+
+    // Publish our height so Shorts can size its pages correctly
+    useEffect(() => {
+        setHeight(tabHeight);
+    }, [tabHeight]);
 
     // Inspect route descriptors to check if tabBarStyle has display: 'none' (e.g. for secondary screens)
     const activeRoute = state.routes[state.index];
     const activeDescriptor = descriptors[activeRoute.key];
     const activeOptions = activeDescriptor?.options;
 
-    // Tab bar pop-up / hide is controlled dynamically on index (home) and shorts feeds
+    // Auto-hide only on the Home (index) fullscreen feed — Shorts always keeps the bar visible
     const routeName = activeRoute?.name;
-    const isFullscreenFeed = ['index', 'shorts'].includes(routeName);
+    const isFullscreenFeed = routeName === 'index';
     const isTabBarVisible = isFullscreenFeed ? visible : true;
 
     useEffect(() => {

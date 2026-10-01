@@ -44,7 +44,7 @@ export const Colors: ColorsType = {
     
     border: '#E2E8F0',
     borderGlass: 'rgba(226, 232, 240, 0.8)',
-    divider: '#F1F5F9',
+    divider: 'rgba(0, 0, 0, 0.08)',
     indicator: '#E2E8F0',
     sheet: '#FFFFFF',
     modalOverlay: 'rgba(15, 23, 42, 0.45)',
@@ -69,7 +69,7 @@ export const Colors: ColorsType = {
     
     border: 'rgba(99, 102, 241, 0.22)', // Subtle indigo glass edge
     borderGlass: 'rgba(129, 140, 248, 0.28)',
-    divider: 'rgba(99, 102, 241, 0.12)',
+    divider: 'rgba(255, 255, 255, 0.10)',
     indicator: '#6366F1',
     sheet: '#121128',
     modalOverlay: 'rgba(11, 11, 20, 0.82)',

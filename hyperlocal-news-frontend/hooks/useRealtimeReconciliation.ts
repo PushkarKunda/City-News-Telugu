@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/services/supabase';
 import { newsKeys } from './useNews';
 import { NewsArticle, FeedItem } from '@/services/api/news';
+import { useCommentCountStore } from '@/store/commentCountStore';
 
 export function useRealtimeReconciliation() {
   const queryClient = useQueryClient();
@@ -21,6 +22,10 @@ export function useRealtimeReconciliation() {
           const updatedNews = payload.new as any;
           const uid = updatedNews.uid || updatedNews.news_uid;
           if (!uid) return;
+
+          if (typeof updatedNews.comments_count === 'number') {
+            useCommentCountStore.getState().setCount(uid, updatedNews.comments_count);
+          }
 
           // 1. Invalidate single article
           queryClient.invalidateQueries({ queryKey: newsKeys.single(uid) });

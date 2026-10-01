@@ -81,7 +81,7 @@ export const verifyPhoneOTP = async (
     }
 
     if (!userCredential?.user) throw new Error('Verification failed');
-    const firebaseToken = await userCredential.user.getIdToken();
+    const firebaseToken = await userCredential.user.getIdToken(true);
     return firebaseToken;
   } catch (error: any) {
     console.error('❌ OTP Verify Failed:', error.message, error.code);
@@ -96,7 +96,7 @@ export const signInWithGoogle = async (idToken: string): Promise<string> => {
     console.log('🔐 Signing in with Google...');
     const googleCredential = auth.GoogleAuthProvider.credential(idToken);
     const userCredential = await firebaseAuth.signInWithCredential(googleCredential);
-    const firebaseToken = await userCredential.user.getIdToken();
+    const firebaseToken = await userCredential.user.getIdToken(true);
     console.log('✅ Google Sign-In Success');
     return firebaseToken;
   } catch (error: any) {
@@ -116,8 +116,23 @@ export const linkGoogleAccount = async (idToken: string): Promise<string> => {
 
     console.log('🔗 Linking Google account...');
     const googleCredential = auth.GoogleAuthProvider.credential(idToken);
-    const userCredential = await currentUser.linkWithCredential(googleCredential);
-    const firebaseToken = await userCredential.user.getIdToken(true);
+    let firebaseToken: string;
+    try {
+      const userCredential = await currentUser.linkWithCredential(googleCredential);
+      firebaseToken = await userCredential.user.getIdToken(true);
+    } catch (linkError: any) {
+      const isAlreadyLinked =
+        linkError.code === 'auth/credential-already-in-use' ||
+        linkError.code === 'auth/provider-already-linked' ||
+        (linkError.code === 'auth/unknown' && linkError.message?.includes('already been linked')) ||
+        linkError.message?.includes('already linked');
+
+      if (isAlreadyLinked) {
+        console.log('ℹ️ Google already linked in Firebase, getting fresh ID token...');
+        return await currentUser.getIdToken(true);
+      }
+      throw linkError;
+    }
     console.log('✅ Google Account Linked');
     return firebaseToken;
   } catch (error: any) {

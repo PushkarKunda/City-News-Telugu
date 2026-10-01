@@ -92,14 +92,11 @@ export default function SplashScreen() {
       const fbUser = firebaseAuth.currentUser;
       if (fbUser) {
         try {
-          const fbToken = await fbUser.getIdToken();
-          if (fbToken) {
-            await authApi.loginWithFirebase(fbToken);
-            const user = await authState.fetchUser();
-            if (user) {
-              router.replace('/(tabs)');
-              return;
-            }
+          await authState.syncProvider();
+          const user = await authState.fetchUser();
+          if (user) {
+            router.replace('/(tabs)');
+            return;
           }
         } catch (_) {}
       }
