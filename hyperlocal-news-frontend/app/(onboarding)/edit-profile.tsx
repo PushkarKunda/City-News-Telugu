@@ -22,13 +22,14 @@ import { StatusBar } from 'expo-status-bar';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuthStore } from '@/store/authStore';
+import { useAuthStore, isEmailVerified, isUserGoogleLinked } from '@/store/authStore';
 import { Colors } from '@/constants/Colors';
 import * as ImagePicker from 'expo-image-picker';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useGoogleFirebaseAuth } from '@/hooks/useGoogleFirebaseAuth';
+import auth from '@react-native-firebase/auth';
 import { statusCodes } from '@react-native-google-signin/google-signin';
-import { usersApi, type UserMeResponse, type UpdateMePayload } from '@/services/api';
+import { usersApi, authApi, type UserMeResponse, type UpdateMePayload } from '@/services/api';
 import { compressImage } from '@/services/image';
 import { uploadImageToSupabaseProfile } from '@/services/supabase';
 
@@ -64,6 +65,7 @@ export default function ProfileCompletionScreen() {
     linkPhone,
     isLoading,
     updateProfileLocal,
+    fetchUser,
   } = useAuthStore();
 
   // ─── Form State ─────────────────────────────────────────────────────────
@@ -181,6 +183,10 @@ export default function ProfileCompletionScreen() {
           date_of_birth: freshUser.date_of_birth,
           email_verified: freshUser.email_verified,
           mobile_verified: freshUser.mobile_verified,
+          google_id: freshUser.google_id,
+          auth_provider: freshUser.auth_provider,
+          providers: freshUser.providers,
+          is_google_linked: freshUser.is_google_linked,
         });
       } catch (error) {
         console.error('[edit-profile] Failed to load profile:', error);
@@ -204,11 +210,23 @@ export default function ProfileCompletionScreen() {
   const { signInWithGoogle, isGoogleLoading, isGoogleReady } =
     useGoogleFirebaseAuth({
       onSuccess: async (response) => {
-        // ✅ CRITICAL FIX: Fetch fresh user data from API after linking
+        // Fetch fresh user data from API after linking
         try {
+          const currentUser = auth().currentUser;
+          if (currentUser) {
+            const freshToken = await currentUser.getIdToken(true);
+            if (freshToken) {
+              try {
+                await authApi.syncProvider(freshToken);
+              } catch (syncErr) {
+                console.warn('[edit-profile] Optional syncProvider skipped:', syncErr);
+              }
+            }
+          }
+
           const freshUser: UserMeResponse = await usersApi.me();
 
-          // ✅ Update store with fresh API data
+          // Update store with fresh API data
           updateProfileLocal({
             email: freshUser.email,
             email_verified: freshUser.email_verified,
@@ -220,20 +238,28 @@ export default function ProfileCompletionScreen() {
             gender: freshUser.gender,
             date_of_birth: freshUser.date_of_birth,
             mobile_verified: freshUser.mobile_verified,
+            google_id: freshUser.google_id,
+            auth_provider: freshUser.auth_provider,
+            providers: freshUser.providers,
+            is_google_linked: freshUser.is_google_linked,
           });
 
-          // ✅ Update local state
+          await fetchUser();
           setEmail(freshUser.email ?? '');
 
           showDialog('Success', 'Google account linked successfully!', 'success');
         } catch (error) {
           console.error('[edit-profile] Failed to fetch user after Google link:', error);
 
-          // ✅ Fallback to response data
+          // Fallback to response data
           const updatedUser = response.user;
           updateProfile({
             email: updatedUser.email ?? null,
             email_verified: updatedUser.email_verified,
+            google_id: updatedUser.google_id,
+            auth_provider: updatedUser.auth_provider,
+            providers: updatedUser.providers,
+            is_google_linked: updatedUser.is_google_linked,
           });
           setEmail(updatedUser.email ?? '');
 
@@ -472,7 +498,24 @@ export default function ProfileCompletionScreen() {
     !isNameValid || isSaving || isLoading || isLoadingProfile;
 
   const phoneVerified = user?.mobile_verified === true;
-  const emailVerified = user?.email_verified === true;
+  const emailVerified = isEmailVerified(user);
+
+  // Derive Google linked state directly from backend user state
+  const isGoogleLinked = isUserGoogleLinked(user);
+
+  const connectedGoogleEmail =
+    (isGoogleLinked ? (user?.email || email) : '') || '';
+
+  // Log Google linked decision value after fresh login and profile checks
+  console.log('[edit-profile] Google linked state decision:', {
+    isGoogleLinked,
+    user_google_id: user?.google_id,
+    user_auth_provider: user?.auth_provider,
+    user_providers: user?.providers,
+    user_is_google_linked: user?.is_google_linked,
+    user_email_verified: emailVerified,
+    connectedGoogleEmail,
+  });
 
   const borderInterpolation = inputBorderAnim.interpolate({
     inputRange: [0, 1],
@@ -934,38 +977,63 @@ export default function ProfileCompletionScreen() {
                 )}
               </View>
 
-              {/* ── EMAIL VERIFICATION ── */}
+              {/* ── GOOGLE ACCOUNT / EMAIL VERIFICATION ── */}
               <View style={styles.inputContainer}>
-                <Text
-                  style={[styles.inputLabel, { color: colors.textSecondary }]}
-                >
-                  EMAIL VERIFICATION
-                </Text>
-                {emailVerified ? (
+                <View style={styles.providerLabelRow}>
+                  <Text
+                    style={[styles.inputLabel, { color: colors.textSecondary, marginBottom: 0 }]}
+                  >
+                    GOOGLE ACCOUNT
+                  </Text>
+                  {isGoogleLinked && (
+                    <View style={styles.linkedBadge}>
+                      <Ionicons name="checkmark-circle" size={13} color="#10B981" />
+                      <Text style={styles.linkedBadgeText}>Linked</Text>
+                    </View>
+                  )}
+                </View>
+                {isGoogleLinked ? (
                   <View
                     style={[
-                      styles.inputWrapper,
+                      styles.linkedAccountCard,
                       {
                         backgroundColor: isDark ? '#1C1C2E' : '#F1F3F9',
-                        borderColor: colors.border,
+                        borderColor: isDark ? 'rgba(16, 185, 129, 0.3)' : 'rgba(16, 185, 129, 0.4)',
                       },
                     ]}
                   >
-                    <TextInput
-                      style={[
-                        styles.textInput,
-                        {
-                          color: isDark
-                            ? 'rgba(255,255,255,0.4)'
-                            : 'rgba(0,0,0,0.4)',
-                        },
-                      ]}
-                      value={email || user?.email || ''}
-                      editable={false}
-                    />
+                    <View style={styles.linkedAccountLeft}>
+                      <View
+                        style={[
+                          styles.googleIconBadge,
+                          { backgroundColor: isDark ? '#2A2A3E' : '#FFFFFF' },
+                        ]}
+                      >
+                        <Ionicons name="logo-google" size={18} color="#EA4335" />
+                      </View>
+                      <View style={styles.linkedAccountInfo}>
+                        <Text
+                          style={[
+                            styles.linkedStatusText,
+                            { color: colors.text },
+                          ]}
+                        >
+                          Google account linked
+                        </Text>
+                        <Text
+                          style={[
+                            styles.linkedEmailText,
+                            { color: colors.textSecondary },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {connectedGoogleEmail || user?.email || 'Connected'}
+                        </Text>
+                      </View>
+                    </View>
                     <Ionicons
                       name="checkmark-circle"
-                      size={20}
+                      size={22}
                       color="#10B981"
                       style={styles.inputIcon}
                     />
@@ -1554,6 +1622,71 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     fontFamily: 'Poppins_700Bold',
+  },
+  providerLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  linkedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  linkedBadgeText: {
+    color: '#10B981',
+    fontSize: 11,
+    fontWeight: '700',
+    fontFamily: 'Poppins_700Bold',
+  },
+  linkedAccountCard: {
+    minHeight: 56,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  linkedAccountLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  googleIconBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  linkedAccountInfo: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  linkedStatusText: {
+    fontSize: 13,
+    fontWeight: '600',
+    fontFamily: 'Poppins_600SemiBold',
+    lineHeight: 18,
+  },
+  linkedEmailText: {
+    fontSize: 12,
+    fontFamily: 'Poppins_400Regular',
+    lineHeight: 16,
+    marginTop: 2,
   },
   googleBtn: {
     height: 48,
