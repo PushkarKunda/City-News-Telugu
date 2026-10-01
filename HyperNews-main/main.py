@@ -187,13 +187,14 @@ app.include_router(base_location_routes.router, tags=["Base Location"])
 app.include_router(user_routes.router, tags=["User"])
 
 
+@app.post("/auth/google", tags=["Auth"])
 @app.post("/auth/sync-provider", tags=["Auth"])
 async def sync_provider_alias(
     request: Request,
     request_data: Optional[Any] = Body(None),
     db: Session = Depends(get_db)
 ):
-    """Alias for /user/auth/sync-provider to support requests without /user prefix"""
+    """Alias for /user/auth/google and /user/auth/sync-provider to support requests without /user prefix"""
     from routes.user_routes import sync_provider
     return await sync_provider(request=request, request_data=request_data, db=db)
 

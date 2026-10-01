@@ -89,22 +89,22 @@ export const authApi = {
   },
 
   /**
-   * Sync external provider (e.g. Google) with backend user record
-   * Sends Firebase ID token in Authorization header
+   * Single unified backend call for Google Sign-In
+   * POST /user/auth/google with Firebase ID token in Authorization header
    */
-  syncProvider: async (
+  loginWithGoogleAuth: async (
     firebaseToken: string
   ): Promise<BackendLoginResponse> => {
-    const fullUrl = `${API_CONFIG.baseUrl}${API_ROUTES.auth.syncProvider}`;
+    const fullUrl = `${API_CONFIG.baseUrl}${API_ROUTES.auth.google}`;
     const method = 'POST';
     const hasAuthHeader = Boolean(firebaseToken);
 
-    // Requirement 1: Before call, log full URL, HTTP method, and whether Authorization header is set (never log token)
-    console.log(`[authApi.syncProvider] Calling: ${method} ${fullUrl} | Authorization header set: ${hasAuthHeader}`);
+    // Requirement: Log full URL, HTTP method, and whether Authorization header is set (never log token)
+    console.log(`[authApi.loginWithGoogleAuth] Calling: ${method} ${fullUrl} | Authorization header set: ${hasAuthHeader}`);
 
     try {
       const response = await request<BackendLoginResponse>({
-        url: API_ROUTES.auth.syncProvider,
+        url: API_ROUTES.auth.google,
         method: 'POST',
         headers: {
           Authorization: `Bearer ${firebaseToken}`,
@@ -124,11 +124,10 @@ export const authApi = {
       const status = err?.response?.status ?? err?.status ?? 'UNKNOWN';
       const body = err?.response?.data ?? err?.message;
 
-      // Requirement 1: Log response status and body on failure
-      console.error(`[authApi.syncProvider] Failed: ${method} ${fullUrl} - Status: ${status}, Body:`, body);
+      // Requirement: Log response status and body on failure
+      console.error(`[authApi.loginWithGoogleAuth] Failed: ${method} ${fullUrl} - Status: ${status}, Body:`, body);
 
-      // Enrich error with endpoint and status for descriptive logging
-      err.endpoint = `${method} ${API_ROUTES.auth.syncProvider}`;
+      err.endpoint = `${method} ${API_ROUTES.auth.google}`;
       err.status = status;
 
       const is404 =
@@ -140,14 +139,23 @@ export const authApi = {
 
       if (is404) {
         try {
-          console.warn('⚠️ /user/auth/sync-provider returned 404, attempting fallback to /user/auth/firebase/login...');
+          console.warn('⚠️ /user/auth/google returned 404, attempting fallback to /user/auth/firebase/login...');
           return await authApi.loginWithFirebase(firebaseToken);
         } catch (fallbackErr: any) {
-          console.warn('[authApi.syncProvider] Fallback to /user/auth/firebase/login also failed:', fallbackErr?.message);
+          console.warn('[authApi.loginWithGoogleAuth] Fallback to /user/auth/firebase/login also failed:', fallbackErr?.message);
         }
       }
       throw err;
     }
+  },
+
+  /**
+   * Sync external provider (Google) with backend user record
+   */
+  syncProvider: async (
+    firebaseToken: string
+  ): Promise<BackendLoginResponse> => {
+    return authApi.loginWithGoogleAuth(firebaseToken);
   },
 
   /**

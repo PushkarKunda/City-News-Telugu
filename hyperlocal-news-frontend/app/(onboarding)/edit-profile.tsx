@@ -210,59 +210,19 @@ export default function ProfileCompletionScreen() {
   const { signInWithGoogle, isGoogleLoading, isGoogleReady } =
     useGoogleFirebaseAuth({
       onSuccess: async (response) => {
-        // Fetch fresh user data from API after linking
         try {
-          const currentUser = auth().currentUser;
-          if (currentUser) {
-            const freshToken = await currentUser.getIdToken(true);
-            if (freshToken) {
-              try {
-                await authApi.syncProvider(freshToken);
-              } catch (syncErr) {
-                console.warn('[edit-profile] Optional syncProvider skipped:', syncErr);
-              }
-            }
-          }
-
-          const freshUser: UserMeResponse = await usersApi.me();
-
-          // Update store with fresh API data
-          updateProfileLocal({
-            email: freshUser.email,
-            email_verified: freshUser.email_verified,
-            name: freshUser.name,
-            phone: freshUser.phone,
-            phoneNumber: freshUser.phone,
-            profile_picture: freshUser.profile_picture,
-            avatar: freshUser.profile_picture,
-            gender: freshUser.gender,
-            date_of_birth: freshUser.date_of_birth,
-            mobile_verified: freshUser.mobile_verified,
-            google_id: freshUser.google_id,
-            auth_provider: freshUser.auth_provider,
-            providers: freshUser.providers,
-            is_google_linked: freshUser.is_google_linked,
-          });
-
           await fetchUser();
-          setEmail(freshUser.email ?? '');
-
+          const latestUser = useAuthStore.getState().user;
+          if (latestUser?.email) {
+            setEmail(latestUser.email);
+          }
           showDialog('Success', 'Google account linked successfully!', 'success');
         } catch (error) {
-          console.error('[edit-profile] Failed to fetch user after Google link:', error);
-
-          // Fallback to response data
-          const updatedUser = response.user;
-          updateProfile({
-            email: updatedUser.email ?? null,
-            email_verified: updatedUser.email_verified,
-            google_id: updatedUser.google_id,
-            auth_provider: updatedUser.auth_provider,
-            providers: updatedUser.providers,
-            is_google_linked: updatedUser.is_google_linked,
-          });
-          setEmail(updatedUser.email ?? '');
-
+          console.error('[edit-profile] Error finalizing Google link:', error);
+          const updatedUser = response?.user;
+          if (updatedUser?.email) {
+            setEmail(updatedUser.email);
+          }
           showDialog('Success', 'Google account linked successfully!', 'success');
         }
       },

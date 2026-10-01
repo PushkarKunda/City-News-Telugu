@@ -382,5 +382,11 @@ def test_sync_provider_existing_user_and_publisher_eligibility(client, db, monke
     assert pub_data["filtered_missing"] == []
     assert pub_data["completed_requirements"]["email_verified"] is True
 
+    # Test POST /user/auth/google and POST /auth/google
+    res_google = client.post("/user/auth/google", headers={"Authorization": "Bearer token_sujana_123"})
+    assert res_google.status_code == 200, res_google.text
+    assert res_google.json()["user"]["google_id"] == "google_sujana_id_777"
 
-
+    res_alias = client.post("/auth/google", headers={"Authorization": "Bearer token_sujana_123"})
+    assert res_alias.status_code == 200, res_alias.text
+    assert res_alias.json()["user"]["google_id"] == "google_sujana_id_777"

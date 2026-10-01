@@ -243,14 +243,14 @@ const queueBackgroundSync = (firebaseToken?: string, attempt = 1) => {
   if (syncRetryTimeout) clearTimeout(syncRetryTimeout);
   syncRetryTimeout = setTimeout(async () => {
     try {
-      console.log(`[authStore] Background syncProvider retry attempt #${attempt}...`);
+      console.log(`[authStore] Background sync retry attempt #${attempt}...`);
       const fbUser = auth().currentUser;
       const freshToken = fbUser ? await fbUser.getIdToken(true) : firebaseToken;
       if (!freshToken) return;
 
-      const response = await authApi.syncProvider(freshToken);
+      const response = await authApi.loginWithGoogleAuth(freshToken);
       if (response?.user) {
-        console.log('[authStore] Background syncProvider succeeded on retry!');
+        console.log('[authStore] Background sync succeeded on retry!');
         let fullUserData: RawUser = response.user;
         try {
           const meProfile = await usersApi.me();
@@ -268,7 +268,7 @@ const queueBackgroundSync = (firebaseToken?: string, attempt = 1) => {
         useAuthStore.setState({ user: updated });
       }
     } catch (e: any) {
-      console.warn(`[authStore] Background syncProvider retry #${attempt} failed:`, e?.message);
+      console.warn(`[authStore] Background sync retry #${attempt} failed:`, e?.message);
       queueBackgroundSync(firebaseToken, attempt + 1);
     }
   }, delayMs);
@@ -587,23 +587,23 @@ export const useAuthStore = create<AuthState>()(
           
           let response: BackendLoginResponse;
           try {
-            // Call sync-provider with the fresh Firebase ID token
-            response = await authApi.syncProvider(firebaseToken);
+            // One backend call: POST /auth/google with Firebase ID token in Authorization header
+            response = await authApi.loginWithGoogleAuth(firebaseToken);
           } catch (syncErr: any) {
             const status = syncErr?.response?.status ?? syncErr?.status;
             const isFatalAuthError = status === 401 || status === 403;
 
             if (isFatalAuthError) {
               console.error(
-                `[authStore] Real auth failure during syncProvider [${syncErr?.endpoint || 'POST ' + API_ROUTES.auth.syncProvider} ${status}]:`,
+                `[authStore] Real auth failure during Google sign-in [${syncErr?.endpoint || 'POST ' + API_ROUTES.auth.google} ${status}]:`,
                 syncErr?.message
               );
               throw syncErr;
             }
 
-            // Don't block login on sync failure (404, 5xx, or offline)
+            // Step 3: Failure handling (404, 5xx, or offline)
             console.warn(
-              `[authStore] Non-blocking sync failure [${syncErr?.endpoint || 'POST ' + API_ROUTES.auth.syncProvider} ${status || 'OFFLINE'}]. Keeping user signed in via Firebase and queueing background retry.`
+              `[authStore] Non-blocking backend sync failure [${syncErr?.endpoint || 'POST ' + API_ROUTES.auth.google} ${status || 'OFFLINE'}]. Keeping user signed in via Firebase and queueing background retry.`
             );
 
             const fbUser = auth().currentUser;
@@ -674,7 +674,7 @@ export const useAuthStore = create<AuthState>()(
 
           return response;
         } catch (error: any) {
-          const authError = handleAuthError(error, `POST ${API_ROUTES.auth.syncProvider}`);
+          const authError = handleAuthError(error, `POST ${API_ROUTES.auth.google}`);
           set({ isLoading: false, error: authError.message });
           throw authError;
         }
@@ -690,21 +690,21 @@ export const useAuthStore = create<AuthState>()(
           
           let response: BackendLoginResponse;
           try {
-            response = await authApi.syncProvider(firebaseToken);
+            response = await authApi.loginWithGoogleAuth(firebaseToken);
           } catch (syncErr: any) {
             const status = syncErr?.response?.status ?? syncErr?.status;
             const isFatalAuthError = status === 401 || status === 403;
 
             if (isFatalAuthError) {
               console.error(
-                `[authStore] Real auth failure during linkGoogle [${syncErr?.endpoint || 'POST ' + API_ROUTES.auth.syncProvider} ${status}]:`,
+                `[authStore] Real auth failure during linkGoogle [${syncErr?.endpoint || 'POST ' + API_ROUTES.auth.google} ${status}]:`,
                 syncErr?.message
               );
               throw syncErr;
             }
 
             console.warn(
-              `[authStore] Non-blocking sync failure on linkGoogle [${syncErr?.endpoint || 'POST ' + API_ROUTES.auth.syncProvider} ${status || 'OFFLINE'}]. User kept linked in local state.`
+              `[authStore] Non-blocking sync failure on linkGoogle [${syncErr?.endpoint || 'POST ' + API_ROUTES.auth.google} ${status || 'OFFLINE'}]. User kept linked in local state.`
             );
 
             const current = get().user;
@@ -765,7 +765,7 @@ export const useAuthStore = create<AuthState>()(
 
           return response;
         } catch (error: any) {
-          const authError = handleAuthError(error, `POST ${API_ROUTES.auth.syncProvider}`);
+          const authError = handleAuthError(error, `POST ${API_ROUTES.auth.google}`);
           set({ isLoading: false, error: authError.message });
           throw authError;
         }
@@ -780,7 +780,7 @@ export const useAuthStore = create<AuthState>()(
           const freshIdToken = await currentUser.getIdToken(true);
           if (!freshIdToken) return null;
           console.log('[authStore] Calling syncProvider with fresh Firebase ID token...');
-          const response = await authApi.syncProvider(freshIdToken);
+          const response = await authApi.loginWithGoogleAuth(freshIdToken);
 
           let fullUserData: RawUser = response.user;
           try {

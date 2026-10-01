@@ -56,6 +56,11 @@ export function useGoogleFirebaseAuth(options: UseGoogleFirebaseAuthOptions = {}
       }
     }
 
+    if (isGoogleLoading) {
+      console.log('⏳ Google Sign-In already in progress, ignoring double-tap');
+      return;
+    }
+
     setIsGoogleLoading(true);
     console.log('🚀 Starting Google Sign-In...');
 
@@ -93,8 +98,8 @@ export function useGoogleFirebaseAuth(options: UseGoogleFirebaseAuthOptions = {}
         error?.code && error.code !== 'SERVER_ERROR'
           ? error.code
           : error?.status
-          ? `[POST /user/auth/sync-provider ${error.status}]`
-          : '[POST /user/auth/sync-provider ERROR]';
+          ? `[POST /user/auth/google ${error.status}]`
+          : '[POST /user/auth/google ERROR]';
 
       console.error(`❌ Google Sign-In failed: ${endpointCode}`, error?.message || error);
 

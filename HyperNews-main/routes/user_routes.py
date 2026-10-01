@@ -856,6 +856,7 @@ class SyncProviderRequest(BaseModel):
     firebase_token: Optional[str] = None
 
 
+@router.post("/auth/google", tags=["Auth"])
 @router.post("/auth/sync-provider", tags=["Auth"])
 async def sync_provider(
     request: Request,

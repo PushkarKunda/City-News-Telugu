@@ -2,7 +2,9 @@
 export const API_ROUTES = {
   // ─── Auth ───────────────────────────────────────────────────────────────────
   auth: {
+    google: '/user/auth/google',                          // POST - Google Auth pipeline
     firebaseLogin: '/user/auth/firebase/login',           // POST - Firebase Login
+    syncProvider: '/user/auth/google',                    // POST - Sync external provider (uses Google pipeline)
     refreshToken: '/user/auth/refresh',                   // POST - Refresh token (query param)
     logout: '/user/auth/logout',                          // POST - Logout
     switchToPublisher: '/user/auth/switch-to-publisher',  // POST - Switch to publisher
