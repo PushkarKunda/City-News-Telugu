@@ -21,7 +21,7 @@ import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useLikePost, useSharePost } from '@/hooks/usePosts';
 import { useAddBookmark, useRemoveBookmark } from '@/hooks/useEngagement';
-import { formatTimeAgo } from '@/utils/formatters';
+import { useRelativeTime } from '@/hooks/useRelativeTime';
 import { isInvalidOrMockImageUrl } from '@/utils/imageResolver';
 
 export interface PostCardProps {
@@ -37,6 +37,38 @@ export interface PostCardProps {
   currentUserId?: string | null;
   commentCountOverride?: number;
   bottomOffset?: number;
+}
+
+/**
+ * Strips trailing hashtags from caption text for display.
+ * Hashtags in the middle of sentences are kept intact.
+ * Trailing hashtags with Telugu / unicode characters and punctuation are removed.
+ */
+export function stripTrailingHashtags(text?: string | null): string {
+  if (!text) return '';
+  let str = text.trim();
+  // Match trailing hashtags at the end of the text
+  // Supports alphanumeric, underscores, and Telugu unicode range \u0C00-\u0C7F
+  const trailingHashtagRegex = /[\s,.]*#[a-zA-Z0-9_\u0C00-\u0C7F]+[\s,.]*$/;
+  while (trailingHashtagRegex.test(str)) {
+    str = str.replace(trailingHashtagRegex, '').trim();
+  }
+  return str;
+}
+
+/**
+ * Format compact count for action rail labels (e.g. 1.2K).
+ * Hides count when 0 or undefined.
+ */
+export function formatCompactCount(num?: number | null): string {
+  if (!num || num <= 0) return '';
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  }
+  if (num >= 1000) {
+    return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+  }
+  return String(num);
 }
 
 // ─── Text-Only Post Gradient Palette ──────────────────────────────────────────
@@ -323,12 +355,12 @@ const PostCardInner: React.FC<PostCardProps> = ({
   // ─── Post Metadata Parsing ─────────────────────────────────────────────────
   const userDisplayName = post.user_display_name || post.user_name || 'Community Member';
   const userHandle = post.user_name ? `@${post.user_name}` : '';
-  const formattedTime = post.created_at ? formatTimeAgo(post.created_at) : (post.time_ago || '');
+  const formattedTime = useRelativeTime(post.created_at, { isActive, language: 'en' });
   const initialLetter = userDisplayName.charAt(0).toUpperCase() || 'U';
   const avatarHasValidUrl = post.user_profile_picture && !isInvalidOrMockImageUrl(post.user_profile_picture);
   const canFollow = Boolean(post.user_uid && currentUserId && post.user_uid !== currentUserId);
 
-  // Extract hashtags
+  // Extract hashtags (including Telugu unicode block \u0C00-\u0C7F)
   const displayHashtags = useMemo(() => {
     const tagsSet = new Set<string>();
     const rawHashtags: any = post.hashtags || (post as any).tags || (post as any).hashtag_list;
@@ -345,7 +377,7 @@ const PostCardInner: React.FC<PostCardProps> = ({
     }
 
     if (post.content) {
-      const matched = post.content.match(/#[a-zA-Z0-9_]+/g);
+      const matched = post.content.match(/#[a-zA-Z0-9_\u0C00-\u0C7F]+/g);
       if (matched) {
         matched.forEach((t) => tagsSet.add(t.replace(/^#/, '').trim()));
       }
@@ -353,14 +385,33 @@ const PostCardInner: React.FC<PostCardProps> = ({
     return Array.from(tagsSet).filter(Boolean);
   }, [post.hashtags, post.content]);
 
+  // Strip trailing hashtags for display when tags are shown as chips; keep sentence-internal hashtags
+  const displayCaption = useMemo(() => {
+    if (displayHashtags.length > 0) {
+      return stripTrailingHashtags(post.content);
+    }
+    return post.content || '';
+  }, [post.content, displayHashtags.length]);
+
+  const [showAllTags, setShowAllTags] = useState(false);
+  useEffect(() => {
+    setShowAllTags(false);
+  }, [post.post_uid]);
+
   const activeCommentCount = commentCountOverride ?? (post.comment_count || 0);
+  const compactLikeCount = formatCompactCount(likeCount);
+  const compactCommentCount = formatCompactCount(activeCommentCount);
+  const compactShareCount = formatCompactCount(shareCount);
+
   const gradientPalette = useMemo(
     () => getGradientForPost(post.post_uid || post.id),
     [post.post_uid, post.id]
   );
+  const gradientEndColor = gradientPalette[gradientPalette.length - 1] || '#0B1120';
+  const cardBackgroundColor = isMediaPost ? '#0B1120' : gradientEndColor;
 
   return (
-    <View style={[styles.pageWrapper, { height: itemHeight }]}>
+    <View style={[styles.pageWrapper, { height: itemHeight, backgroundColor: cardBackgroundColor }]}>
       {/* ─── Background Layer: Full-Bleed Media or Deterministic Gradient ── */}
       <Pressable style={StyleSheet.absoluteFillObject} onPress={handleCardPress}>
         {hasVideo ? (
@@ -384,7 +435,7 @@ const PostCardInner: React.FC<PostCardProps> = ({
               />
             )}
             <LinearGradient
-              colors={['transparent', 'rgba(0,0,0,0.3)', 'rgba(0,0,0,0.7)', 'rgba(0,0,0,0.92)']}
+              colors={['transparent', 'rgba(11, 17, 32, 0.35)', 'rgba(11, 17, 32, 0.75)', '#0B1120']}
               style={styles.bottomGradient}
               pointerEvents="none"
             />
@@ -406,7 +457,7 @@ const PostCardInner: React.FC<PostCardProps> = ({
               }}
             />
             <LinearGradient
-              colors={['transparent', 'rgba(0,0,0,0.3)', 'rgba(0,0,0,0.7)', 'rgba(0,0,0,0.92)']}
+              colors={['transparent', 'rgba(11, 17, 32, 0.35)', 'rgba(11, 17, 32, 0.75)', '#0B1120']}
               style={styles.bottomGradient}
               pointerEvents="none"
             />
@@ -422,7 +473,7 @@ const PostCardInner: React.FC<PostCardProps> = ({
             />
             {/* Subtle dark bottom vignette */}
             <LinearGradient
-              colors={['transparent', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.78)']}
+              colors={['transparent', 'rgba(11, 17, 32, 0.25)', gradientEndColor]}
               style={styles.bottomGradient}
               pointerEvents="none"
             />
@@ -434,9 +485,9 @@ const PostCardInner: React.FC<PostCardProps> = ({
                 numberOfLines={isTextExpanded ? undefined : 6}
                 ellipsizeMode="tail"
               >
-                {post.content || ''}
+                {displayCaption || post.content || ''}
               </Text>
-              {(post.content || '').length > 150 && (
+              {(displayCaption || post.content || '').length > 150 && (
                 <TouchableOpacity
                   style={styles.textExpanderPill}
                   onPress={() => setIsTextExpanded((prev) => !prev)}
@@ -507,6 +558,8 @@ const PostCardInner: React.FC<PostCardProps> = ({
                 onPress={handleFollowToggle}
                 activeOpacity={0.8}
                 hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                accessibilityRole="button"
+                accessibilityLabel={isFollowing ? 'Following' : 'Follow author'}
               >
                 <Ionicons
                   name={isFollowing ? 'checkmark' : 'add'}
@@ -534,8 +587,8 @@ const PostCardInner: React.FC<PostCardProps> = ({
           </View>
         </View>
 
-        {/* Media Post Caption (max 3 lines with expander) */}
-        {isMediaPost && Boolean(post.content) && (
+        {/* Media Post Caption (max 3 lines with expander, trailing hashtags stripped) */}
+        {isMediaPost && Boolean(displayCaption) && (
           <TouchableOpacity
             activeOpacity={0.9}
             onPress={() => setIsCaptionExpanded((prev) => !prev)}
@@ -545,9 +598,9 @@ const PostCardInner: React.FC<PostCardProps> = ({
               style={styles.captionText}
               numberOfLines={isCaptionExpanded ? undefined : 3}
             >
-              {post.content}
+              {displayCaption}
             </Text>
-            {Boolean(post.content && post.content.length > 90) && (
+            {Boolean(displayCaption && displayCaption.length > 90) && (
               <Text style={styles.captionMoreTag}>
                 {isCaptionExpanded ? ' Show less' : ' ...more'}
               </Text>
@@ -555,19 +608,32 @@ const PostCardInner: React.FC<PostCardProps> = ({
           </TouchableOpacity>
         )}
 
-        {/* Hashtags / Tag Chips */}
+        {/* Hashtags / Tag Chips: at most 3, plus +N chip for the rest, tappable to filter */}
         {displayHashtags.length > 0 && (
           <View style={styles.hashtagChipsContainer}>
-            {displayHashtags.slice(0, 4).map((tag, idx) => (
+            {(showAllTags ? displayHashtags : displayHashtags.slice(0, 3)).map((tag, idx) => (
               <TouchableOpacity
                 key={`${tag}-${idx}`}
                 style={styles.hashtagPill}
                 onPress={() => onSelectHashtag?.(tag)}
                 activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`Filter by #${tag}`}
               >
                 <Text style={styles.hashtagPillText}>#{tag}</Text>
               </TouchableOpacity>
             ))}
+            {!showAllTags && displayHashtags.length > 3 && (
+              <TouchableOpacity
+                style={[styles.hashtagPill, styles.hashtagMorePill]}
+                onPress={() => setShowAllTags(true)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`${displayHashtags.length - 3} more tags`}
+              >
+                <Text style={styles.hashtagPillText}>+{displayHashtags.length - 3}</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </View>
@@ -579,6 +645,8 @@ const PostCardInner: React.FC<PostCardProps> = ({
           style={styles.actionButtonContainer}
           onPress={() => handleLike()}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={liked ? `Liked, ${likeCount} likes` : `Like, ${likeCount} likes`}
         >
           <View style={[styles.actionIconCircle, liked && styles.actionIconCircleActive]}>
             <Animated.View style={{ transform: [{ scale: likeScale }] }}>
@@ -589,9 +657,11 @@ const PostCardInner: React.FC<PostCardProps> = ({
               />
             </Animated.View>
           </View>
-          <Text style={[styles.actionCountLabel, liked && { color: '#EF4444' }]}>
-            {likeCount}
-          </Text>
+          {Boolean(compactLikeCount) && (
+            <Text style={[styles.actionCountLabel, liked && { color: '#EF4444' }]}>
+              {compactLikeCount}
+            </Text>
+          )}
         </TouchableOpacity>
 
         {/* 2. Comment */}
@@ -599,11 +669,15 @@ const PostCardInner: React.FC<PostCardProps> = ({
           style={styles.actionButtonContainer}
           onPress={() => onOpenComments(post.post_uid || String(post.id))}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={`Comments, ${activeCommentCount} comments`}
         >
           <View style={styles.actionIconCircle}>
             <Ionicons name="chatbubble-ellipses-outline" size={22} color="#FFFFFF" />
           </View>
-          <Text style={styles.actionCountLabel}>{activeCommentCount}</Text>
+          {Boolean(compactCommentCount) && (
+            <Text style={styles.actionCountLabel}>{compactCommentCount}</Text>
+          )}
         </TouchableOpacity>
 
         {/* 3. Share */}
@@ -611,22 +685,26 @@ const PostCardInner: React.FC<PostCardProps> = ({
           style={styles.actionButtonContainer}
           onPress={handleShare}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={`Share, ${shareCount} shares`}
         >
           <View style={styles.actionIconCircle}>
             <Animated.View style={{ transform: [{ scale: shareScale }] }}>
               <Ionicons name="share-social-outline" size={22} color="#FFFFFF" />
             </Animated.View>
           </View>
-          <Text style={styles.actionCountLabel}>
-            {shareCount > 0 ? shareCount : 'Share'}
-          </Text>
+          {Boolean(compactShareCount) && (
+            <Text style={styles.actionCountLabel}>{compactShareCount}</Text>
+          )}
         </TouchableOpacity>
 
-        {/* 4. Bookmark */}
+        {/* 4. Bookmark (No text label, filled icon when saved) */}
         <TouchableOpacity
           style={styles.actionButtonContainer}
           onPress={handleBookmarkToggle}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={bookmarked ? 'Saved to bookmarks' : 'Save to bookmarks'}
         >
           <View style={[styles.actionIconCircle, bookmarked && styles.actionIconCircleBookmarked]}>
             <Animated.View style={{ transform: [{ scale: bookmarkScale }] }}>
@@ -637,9 +715,6 @@ const PostCardInner: React.FC<PostCardProps> = ({
               />
             </Animated.View>
           </View>
-          <Text style={[styles.actionCountLabel, bookmarked && { color: '#F59E0B' }]}>
-            {bookmarked ? 'Saved' : 'Save'}
-          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -666,7 +741,7 @@ const styles = StyleSheet.create({
   pageWrapper: {
     width: '100%',
     overflow: 'hidden',
-    backgroundColor: '#000000',
+    backgroundColor: '#0B1120',
     position: 'relative',
   },
   bottomGradient: {
@@ -706,14 +781,15 @@ const styles = StyleSheet.create({
   },
   textOnlyHeadline: {
     color: '#FFFFFF',
-    fontSize: 24,
-    lineHeight: 40,
+    fontSize: 22,
+    lineHeight: 38,
     fontWeight: '700',
     textAlign: 'center',
     letterSpacing: -0.2,
     textShadowColor: 'rgba(0,0,0,0.45)',
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 6,
+    paddingVertical: 4,
   },
   textExpanderPill: {
     flexDirection: 'row',
@@ -791,20 +867,25 @@ const styles = StyleSheet.create({
   authorNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
   },
   authorDisplayName: {
     color: '#FFFFFF',
     fontSize: 15,
+    lineHeight: 22,
     fontWeight: '700',
     textShadowColor: 'rgba(0,0,0,0.6)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
+    flexShrink: 1,
   },
   postTimeText: {
     color: 'rgba(255,255,255,0.7)',
     fontSize: 12,
+    lineHeight: 18,
     fontWeight: '500',
+    flexShrink: 0,
+    marginLeft: 4,
   },
   authorUserHandle: {
     color: 'rgba(255,255,255,0.82)',
@@ -813,15 +894,17 @@ const styles = StyleSheet.create({
   },
   captionContainer: {
     marginBottom: 8,
+    paddingVertical: 2,
   },
   captionText: {
     color: '#FFFFFF',
     fontSize: 14,
-    lineHeight: 22,
+    lineHeight: 24,
     fontWeight: '400',
     textShadowColor: 'rgba(0,0,0,0.6)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
+    paddingVertical: 1,
   },
   captionMoreTag: {
     color: 'rgba(255,255,255,0.85)',
@@ -837,11 +920,15 @@ const styles = StyleSheet.create({
   },
   hashtagPill: {
     backgroundColor: 'rgba(255,255,255,0.18)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderRadius: 12,
     borderWidth: 0.5,
     borderColor: 'rgba(255,255,255,0.25)',
+  },
+  hashtagMorePill: {
+    backgroundColor: 'rgba(99, 102, 241, 0.35)',
+    borderColor: 'rgba(129, 140, 248, 0.45)',
   },
   hashtagPillText: {
     color: '#FFFFFF',

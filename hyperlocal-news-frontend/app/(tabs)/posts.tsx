@@ -19,6 +19,8 @@ import {
   AppStateStatus,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import * as NavigationBar from 'expo-navigation-bar';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
@@ -46,6 +48,8 @@ import { type Post } from '@/services/api/posts';
 
 type FilterCategory = 'all' | 'trending' | 'issues' | 'discussions' | 'events';
 
+const POSTS_HINT_SHOWN_KEY = '@city_news_posts_chrome_hint_shown';
+
 const FILTER_TABS: { key: FilterCategory; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'all', label: 'All', icon: 'apps-outline' },
   { key: 'trending', label: 'Trending', icon: 'flame-outline' },
@@ -60,6 +64,23 @@ export default function PostsScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const isFocused = useIsFocused();
+
+  // ─── Edge-to-Edge Android Navigation Bar ───────────────────────────────────
+  useEffect(() => {
+    const setEdgeToEdgeNav = () => {
+      if (Platform.OS === 'android') {
+        NavigationBar.setPositionAsync('absolute').catch(() => {});
+        NavigationBar.setBackgroundColorAsync('transparent').catch(() => {});
+        NavigationBar.setButtonStyleAsync('light').catch(() => {});
+      }
+    };
+
+    setEdgeToEdgeNav();
+    const unsubFocus = navigation.addListener('focus', setEdgeToEdgeNav);
+    return () => {
+      unsubFocus();
+    };
+  }, [navigation]);
 
   // ─── Zustand v5 fine-grained selectors (prevent re-render loops) ───────────
   const currentUserId = useAuthStore((s) => s.user?.user_uid);
@@ -79,7 +100,7 @@ export default function PostsScreen() {
   // onLayout height, with NO tab bar height subtracted, the same way Home does.
   // This also removes the empty black band at the bottom.
   const measuredTabBarHeight = useTabBarStore((s) => s.height);
-  const bottomInset = Math.max(insets.bottom, Platform.OS === 'ios' ? 24 : 12);
+  const bottomInset = Math.max(insets.bottom, Platform.OS === 'ios' ? 24 : (Platform.OS === 'android' ? 16 : 0));
   const fallbackTabBarHeight = 58 + bottomInset;
   const effectiveTabBarHeight = measuredTabBarHeight > 0 ? measuredTabBarHeight : fallbackTabBarHeight;
   const contentBottomOffset = effectiveTabBarHeight + 16;
@@ -268,6 +289,64 @@ export default function PostsScreen() {
   const showChromeRef = useRef(showChrome);
   showChromeRef.current = showChrome;
 
+  // ─── One-Time Hint for Hidden Menu ─────────────────────────────────────────
+  const [showMenuHint, setShowMenuHint] = useState(false);
+  const hintOpacity = useRef(new Animated.Value(0)).current;
+  const hintDismissedRef = useRef(false);
+  const hintTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const dismissMenuHint = useCallback(() => {
+    if (hintDismissedRef.current) return;
+    hintDismissedRef.current = true;
+    if (hintTimerRef.current) {
+      clearTimeout(hintTimerRef.current);
+      hintTimerRef.current = null;
+    }
+    Animated.timing(hintOpacity, {
+      toValue: 0,
+      duration: 250,
+      useNativeDriver: true,
+    }).start(() => {
+      setShowMenuHint(false);
+    });
+    AsyncStorage.setItem(POSTS_HINT_SHOWN_KEY, 'true').catch(() => {});
+  }, [hintOpacity]);
+
+  const dismissMenuHintRef = useRef(dismissMenuHint);
+  dismissMenuHintRef.current = dismissMenuHint;
+
+  useEffect(() => {
+    let isMounted = true;
+    AsyncStorage.getItem(POSTS_HINT_SHOWN_KEY)
+      .then((val) => {
+        if (!val && isMounted) {
+          setShowMenuHint(true);
+          Animated.timing(hintOpacity, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
+          }).start();
+
+          hintTimerRef.current = setTimeout(() => {
+            dismissMenuHintRef.current();
+          }, 3000);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isMounted = false;
+      if (hintTimerRef.current) {
+        clearTimeout(hintTimerRef.current);
+      }
+    };
+  }, [hintOpacity]);
+
+  const handleToggleUI = useCallback(() => {
+    dismissMenuHintRef.current();
+    toggleChrome();
+  }, [toggleChrome]);
+
   // ─── Paging & Viewability ──────────────────────────────────────────────────
   // Stable viewable items changed handler: when user swipes to a new post, hide header overlay and tab bar
   const onViewableItemsChanged = useRef(
@@ -280,6 +359,8 @@ export default function PostsScreen() {
           if (Platform.OS !== 'web') {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           }
+          // Dismiss one-time menu hint on first swipe
+          dismissMenuHintRef.current();
           // Auto-hide header overlay and tab bar when user swipes between posts
           hideChromeRef.current?.();
         }
@@ -400,7 +481,7 @@ export default function PostsScreen() {
           isBookmarked={isBookmarked}
           onOpenComments={handleOpenComments}
           onSelectHashtag={handleSelectHashtag}
-          onToggleUI={toggleChrome}
+          onToggleUI={handleToggleUI}
           currentUserId={currentUserId}
           commentCountOverride={countOverride}
           bottomOffset={contentBottomOffset}
@@ -416,7 +497,7 @@ export default function PostsScreen() {
       commentCountDeltas,
       handleOpenComments,
       handleSelectHashtag,
-      toggleChrome,
+      handleToggleUI,
       currentUserId,
       contentBottomOffset,
     ]
@@ -646,6 +727,33 @@ export default function PostsScreen() {
             />
           }
         />
+      )}
+
+      {/* ─── One-Time Hint for Hidden Menu (Above Action Area) ── */}
+      {showMenuHint && (
+        <Animated.View
+          style={[
+            styles.menuHintContainer,
+            {
+              bottom: contentBottomOffset + 140,
+              opacity: hintOpacity,
+            },
+          ]}
+          pointerEvents="box-none"
+        >
+          <TouchableOpacity
+            style={styles.menuHintPill}
+            onPress={dismissMenuHint}
+            activeOpacity={0.8}
+            accessible={true}
+            accessibilityRole="alert"
+            accessibilityLabel="Tap to show menu"
+            accessibilityHint="Tap anywhere to reveal navigation bar and header"
+          >
+            <Ionicons name="sparkles" size={13} color="#818CF8" />
+            <Text style={styles.menuHintText}>Tap to show menu</Text>
+          </TouchableOpacity>
+        </Animated.View>
       )}
 
       {/* ─── Floating Composer Button (Above Tab Bar, Out of Action Rail) ── */}
@@ -916,7 +1024,7 @@ export default function PostsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#0B1120',
     overflow: 'hidden',
   },
 
@@ -1058,7 +1166,7 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#000000',
+    backgroundColor: '#0B1120',
   },
   skeletonText: {
     color: 'rgba(255,255,255,0.7)',
@@ -1070,7 +1178,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 32,
-    backgroundColor: '#000000',
+    backgroundColor: '#0B1120',
   },
   errorTitle: {
     color: '#FFFFFF',
@@ -1102,7 +1210,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 32,
-    backgroundColor: '#000000',
+    backgroundColor: '#0B1120',
   },
   emptyTitle: {
     color: '#FFFFFF',
@@ -1320,5 +1428,36 @@ const styles = StyleSheet.create({
   },
   disabledSubmit: {
     opacity: 0.6,
+  },
+
+  // ─── One-Time Menu Hint Pill ───────────────────────────────────────────────
+  menuHintContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 95,
+  },
+  menuHintPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: 'rgba(15, 23, 42, 0.88)',
+    borderWidth: 1,
+    borderColor: 'rgba(129, 140, 248, 0.35)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  menuHintText: {
+    color: '#E0E7FF',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
 });
