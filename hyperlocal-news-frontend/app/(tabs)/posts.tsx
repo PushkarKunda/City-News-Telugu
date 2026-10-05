@@ -14,12 +14,11 @@ import {
   Platform,
   ScrollView,
   Animated,
-  NativeSyntheticEvent,
-  NativeScrollEvent,
   ViewToken,
   AppState,
   AppStateStatus,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
@@ -41,6 +40,7 @@ import { PostCard } from '@/components/PostCard';
 import { PostCommentsModal } from '@/components/PostCommentsModal';
 import { useAuthStore } from '@/store/authStore';
 import { useTabBarStore } from '@/store/tabBarStore';
+import { useImmersiveChrome } from '@/hooks/useImmersiveChrome';
 import { isInvalidOrMockImageUrl } from '@/utils/imageResolver';
 import { type Post } from '@/services/api/posts';
 
@@ -66,8 +66,6 @@ export default function PostsScreen() {
   const userDistrict = useAuthStore((s) => s.user?.district || s.user?.state || 'Your Neighborhood');
   const userAvatar = useAuthStore((s) => s.user?.profile_picture);
   const userName = useAuthStore((s) => (s.user as any)?.display_name || s.user?.name || s.user?.user_name || 'Neighbor');
-  const tabBarHeight = useTabBarStore((s) => s.height);
-  const setTabBarVisible = useTabBarStore((s) => s.setVisible);
 
   // AppState tracking for auto-pausing video
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
@@ -76,30 +74,17 @@ export default function PostsScreen() {
     return () => sub.remove();
   }, []);
 
-  // Tab bar visibility lifecycle: show on focus, restore on blur
-  useEffect(() => {
-    setTabBarVisible(true);
-    const unsubFocus = navigation.addListener('focus', () => {
-      setTabBarVisible(true);
-      showHeaderRef.current?.();
-      showFabRef.current?.();
-    });
-    const unsubBlur = navigation.addListener('blur', () => {
-      setTabBarVisible(true);
-    });
-    return () => {
-      unsubFocus();
-      unsubBlur();
-    };
-  }, [navigation, setTabBarVisible]);
-
   // ─── Single Source of Truth for Page Height ───────────────────────────────
-  // Page height = the list container's measured onLayout height, with the tab bar
-  // height already subtracted (tab bar is absolute: useTabBarStore().height or 60 + insets.bottom).
-  // Don't subtract it twice, and don't use window height!
-  const effectiveTabBarHeight = tabBarHeight || (60 + insets.bottom);
+  // Because the bar now hides, size each page from the list container's measured
+  // onLayout height, with NO tab bar height subtracted, the same way Home does.
+  // This also removes the empty black band at the bottom.
+  const measuredTabBarHeight = useTabBarStore((s) => s.height);
+  const bottomInset = Math.max(insets.bottom, Platform.OS === 'ios' ? 24 : 12);
+  const fallbackTabBarHeight = 58 + bottomInset;
+  const effectiveTabBarHeight = measuredTabBarHeight > 0 ? measuredTabBarHeight : fallbackTabBarHeight;
+  const contentBottomOffset = effectiveTabBarHeight + 16;
   const [containerHeight, setContainerHeight] = useState(0);
-  const pageHeight = Math.max(1, containerHeight - effectiveTabBarHeight);
+  const pageHeight = Math.max(1, containerHeight);
 
   // ─── Feed & Queries ────────────────────────────────────────────────────────
   const {
@@ -253,115 +238,50 @@ export default function PostsScreen() {
     flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
   }, []);
 
-  // ─── Header Overlay & FAB Auto-Hide Animations ─────────────────────────────
-  const headerAnim = useRef(new Animated.Value(1)).current;
-  const isHeaderVisibleRef = useRef(true);
-  const [isHeaderVisible, setIsHeaderVisible] = useState(true);
+  // ─── Modal & Sheet States ──────────────────────────────────────────────────
+  const [selectedPostUid, setSelectedPostUid] = useState<string | null>(null);
+  const [isCommentsVisible, setIsCommentsVisible] = useState(false);
+  const [commentCountDeltas, setCommentCountDeltas] = useState<Record<string, number>>({});
 
-  const fabAnim = useRef(new Animated.Value(1)).current;
-  const isFabVisibleRef = useRef(true);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [composerType, setComposerType] = useState<'text' | 'photo' | 'issue' | 'question'>('text');
+  const [newPostContent, setNewPostContent] = useState('');
+  const [newPostImageUrl, setNewPostImageUrl] = useState('');
+  const [newPostHashtags, setNewPostHashtags] = useState('');
 
-  const hideHeader = useCallback(() => {
-    if (!isHeaderVisibleRef.current) return;
-    isHeaderVisibleRef.current = false;
-    setIsHeaderVisible(false);
-    setTabBarVisible(false);
-    Animated.timing(headerAnim, {
-      toValue: 0,
-      duration: 220,
-      useNativeDriver: true,
-    }).start();
-  }, [headerAnim, setTabBarVisible]);
+  // ─── Animation & Visibility (via shared useImmersiveChrome hook) ───────────
+  const isModalOpen = isCommentsVisible || isCreateModalOpen || isSearchActive;
+  const {
+    isShown: isChromeShown,
+    show: showChrome,
+    hide: hideChrome,
+    toggle: toggleChrome,
+    headerAnim,
+    headerOpacity,
+  } = useImmersiveChrome({
+    autoHideDelayMs: 2500,
+    isModalOpen,
+  });
 
-  const showHeader = useCallback(() => {
-    if (isHeaderVisibleRef.current) return;
-    isHeaderVisibleRef.current = true;
-    setIsHeaderVisible(true);
-    setTabBarVisible(true);
-    Animated.timing(headerAnim, {
-      toValue: 1,
-      duration: 220,
-      useNativeDriver: true,
-    }).start();
-  }, [headerAnim, setTabBarVisible]);
+  const hideChromeRef = useRef(hideChrome);
+  hideChromeRef.current = hideChrome;
+  const showChromeRef = useRef(showChrome);
+  showChromeRef.current = showChrome;
 
-  const hideFab = useCallback(() => {
-    if (!isFabVisibleRef.current) return;
-    isFabVisibleRef.current = false;
-    Animated.timing(fabAnim, {
-      toValue: 0,
-      duration: 200,
-      useNativeDriver: true,
-    }).start();
-  }, [fabAnim]);
-
-  const showFab = useCallback(() => {
-    if (isFabVisibleRef.current) return;
-    isFabVisibleRef.current = true;
-    Animated.timing(fabAnim, {
-      toValue: 1,
-      duration: 200,
-      useNativeDriver: true,
-    }).start();
-  }, [fabAnim]);
-
-  const hideHeaderRef = useRef(hideHeader);
-  hideHeaderRef.current = hideHeader;
-  const showHeaderRef = useRef(showHeader);
-  showHeaderRef.current = showHeader;
-  const hideFabRef = useRef(hideFab);
-  hideFabRef.current = hideFab;
-  const showFabRef = useRef(showFab);
-  showFabRef.current = showFab;
-
-  // Toggle UI overlay on post tap
-  const handleToggleUI = useCallback(() => {
-    if (isHeaderVisibleRef.current) {
-      hideHeaderRef.current?.();
-      hideFabRef.current?.();
-    } else {
-      showHeaderRef.current?.();
-      showFabRef.current?.();
-    }
-  }, []);
-
-  // Scroll detection for auto-hiding header and FAB
-  const prevScrollY = useRef(0);
-  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const currentScrollY = event.nativeEvent.contentOffset.y;
-    const diff = currentScrollY - prevScrollY.current;
-
-    if (Math.abs(diff) > 8) {
-      if (diff > 0 && currentScrollY > 40) {
-        // Scrolling down -> hide header & FAB
-        hideHeaderRef.current?.();
-        hideFabRef.current?.();
-      } else if (diff < 0) {
-        // Scrolling up -> show header & FAB
-        showHeaderRef.current?.();
-        showFabRef.current?.();
-      }
-    }
-    prevScrollY.current = currentScrollY;
-  }, []);
-
-  // Stable viewable items changed handler
+  // ─── Paging & Viewability ──────────────────────────────────────────────────
+  // Stable viewable items changed handler: when user swipes to a new post, hide header overlay and tab bar
   const onViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: ViewToken[] }) => {
       if (viewableItems.length > 0 && viewableItems[0].index != null) {
         const nextIndex = viewableItems[0].index;
         if (nextIndex !== lastActiveIndexRef.current) {
-          if (nextIndex > lastActiveIndexRef.current) {
-            // Scrolling down to next card
-            hideHeaderRef.current?.();
-            hideFabRef.current?.();
-          } else {
-            // Scrolling up to previous card
-            showHeaderRef.current?.();
-            showFabRef.current?.();
-          }
           lastActiveIndexRef.current = nextIndex;
           setActiveIndex(nextIndex);
+          if (Platform.OS !== 'web') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }
+          // Auto-hide header overlay and tab bar when user swipes between posts
+          hideChromeRef.current?.();
         }
       }
     }
@@ -372,10 +292,6 @@ export default function PostsScreen() {
   }).current;
 
   // ─── Comments & Real-Time Count Overrides ──────────────────────────────────
-  const [selectedPostUid, setSelectedPostUid] = useState<string | null>(null);
-  const [isCommentsVisible, setIsCommentsVisible] = useState(false);
-  const [commentCountDeltas, setCommentCountDeltas] = useState<Record<string, number>>({});
-
   const handleOpenComments = useCallback((postUid: string) => {
     setSelectedPostUid(postUid);
     setIsCommentsVisible(true);
@@ -399,13 +315,6 @@ export default function PostsScreen() {
     setActiveIndex(0);
     flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
   }, []);
-
-  // ─── Composer Sheet State ──────────────────────────────────────────────────
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [composerType, setComposerType] = useState<'text' | 'photo' | 'issue' | 'question'>('text');
-  const [newPostContent, setNewPostContent] = useState('');
-  const [newPostImageUrl, setNewPostImageUrl] = useState('');
-  const [newPostHashtags, setNewPostHashtags] = useState('');
 
   const openCreateModal = (mode: 'text' | 'photo' | 'issue' | 'question' = 'text', opts?: { prefillTag?: string; prefillContent?: string }) => {
     setComposerType(mode);
@@ -491,9 +400,10 @@ export default function PostsScreen() {
           isBookmarked={isBookmarked}
           onOpenComments={handleOpenComments}
           onSelectHashtag={handleSelectHashtag}
-          onToggleUI={handleToggleUI}
+          onToggleUI={toggleChrome}
           currentUserId={currentUserId}
           commentCountOverride={countOverride}
+          bottomOffset={contentBottomOffset}
         />
       );
     },
@@ -506,8 +416,9 @@ export default function PostsScreen() {
       commentCountDeltas,
       handleOpenComments,
       handleSelectHashtag,
-      handleToggleUI,
+      toggleChrome,
       currentUserId,
+      contentBottomOffset,
     ]
   );
 
@@ -516,19 +427,14 @@ export default function PostsScreen() {
   // ─── Header Overlay Interpolations ─────────────────────────────────────────
   const headerTranslateY = headerAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [-140, 0],
-  });
-
-  const headerOpacity = headerAnim.interpolate({
-    inputRange: [0, 0.4, 1],
-    outputRange: [0, 0, 1],
+    outputRange: [-160, 0],
   });
 
   return (
     <View
       style={styles.container}
       onLayout={(e) => {
-        const h = e.nativeEvent.layout.height;
+        const h = Math.round(e.nativeEvent.layout.height);
         if (h > 0 && Math.abs(h - containerHeight) > 1) {
           setContainerHeight(h);
         }
@@ -546,7 +452,7 @@ export default function PostsScreen() {
             transform: [{ translateY: headerTranslateY }],
           },
         ]}
-        pointerEvents={isHeaderVisible ? 'box-none' : 'none'}
+        pointerEvents={isChromeShown ? 'box-none' : 'none'}
       >
         <LinearGradient
           colors={['rgba(0,0,0,0.85)', 'rgba(0,0,0,0.48)', 'rgba(0,0,0,0.0)']}
@@ -730,8 +636,6 @@ export default function PostsScreen() {
           onEndReachedThreshold={0.5}
           onViewableItemsChanged={onViewableItemsChanged}
           viewabilityConfig={viewabilityConfig}
-          onScroll={handleScroll}
-          scrollEventThrottle={16}
           bounces={true}
           refreshControl={
             <RefreshControl
@@ -749,18 +653,18 @@ export default function PostsScreen() {
         style={[
           styles.floatingComposerButton,
           {
-            bottom: effectiveTabBarHeight + 16,
+            bottom: contentBottomOffset,
             left: 18, // Placed on bottom-left, completely away from the right action rail!
-            opacity: fabAnim,
+            opacity: headerOpacity,
             transform: [
               {
-                translateY: fabAnim.interpolate({
+                translateY: headerAnim.interpolate({
                   inputRange: [0, 1],
                   outputRange: [60, 0],
                 }),
               },
               {
-                scale: fabAnim.interpolate({
+                scale: headerAnim.interpolate({
                   inputRange: [0, 1],
                   outputRange: [0.6, 1],
                 }),
@@ -768,7 +672,7 @@ export default function PostsScreen() {
             ],
           },
         ]}
-        pointerEvents={isFabVisibleRef.current ? 'auto' : 'none'}
+        pointerEvents={isChromeShown ? 'auto' : 'none'}
       >
         <TouchableOpacity
           style={styles.floatingTouchable}

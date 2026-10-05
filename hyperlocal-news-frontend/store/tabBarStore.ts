@@ -10,7 +10,7 @@ interface TabBarState {
 
 export const useTabBarStore = create<TabBarState>((set) => ({
   visible: true,
-  setVisible: (visible) => set({ visible }),
+  setVisible: (visible) => set((s) => (s.visible === visible ? s : { visible })),
   height: 0,
-  setHeight: (height) => set({ height }),
+  setHeight: (height) => set((s) => (s.height === height ? s : { height })),
 }));

@@ -125,10 +125,28 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
     const activeDescriptor = descriptors[activeRoute.key];
     const activeOptions = activeDescriptor?.options;
 
-    // Auto-hide on Home (index) and Community (posts) fullscreen feeds
+    // Fullscreen feeds that auto-hide tab bar: Home (index) and Posts (posts)
+    // Shorts, Local, Discover and More always keep the bar visible
     const routeName = activeRoute?.name;
     const isFullscreenFeed = routeName === 'index' || routeName === 'posts';
     const isTabBarVisible = isFullscreenFeed ? visible : true;
+
+    // Requirement: Log tab bar debug values on focus for the posts route
+    useEffect(() => {
+        if (routeName === 'posts') {
+            console.log('[DEBUG][TabBar:Posts]', {
+                routeName,
+                tabBarStyle_display: (activeOptions?.tabBarStyle as any)?.display ?? 'default',
+                useTabBarStore_visible: visible,
+                isTabBarVisible,
+                translateY_target: isTabBarVisible ? 0 : 150,
+                backgroundColor: colors.surface,
+                isSolidBackground: colors.surface !== 'transparent',
+                tabHeight,
+                bottomInset,
+            });
+        }
+    }, [routeName, activeOptions, visible, isTabBarVisible, colors.surface, tabHeight, bottomInset]);
 
     useEffect(() => {
         Animated.spring(translateY, {

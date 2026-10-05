@@ -36,6 +36,7 @@ export interface PostCardProps {
   onToggleUI?: () => void;
   currentUserId?: string | null;
   commentCountOverride?: number;
+  bottomOffset?: number;
 }
 
 // ─── Text-Only Post Gradient Palette ──────────────────────────────────────────
@@ -73,6 +74,7 @@ const PostCardInner: React.FC<PostCardProps> = ({
   onToggleUI,
   currentUserId,
   commentCountOverride,
+  bottomOffset = 22,
 }) => {
   const colorScheme = useAppColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -479,7 +481,7 @@ const PostCardInner: React.FC<PostCardProps> = ({
       )}
 
       {/* ─── Bottom-Left Overlay (Author Meta, Caption, Tags) ─────────────── */}
-      <View style={styles.bottomLeftOverlay} pointerEvents="box-none">
+      <View style={[styles.bottomLeftOverlay, { bottom: bottomOffset }]} pointerEvents="box-none">
         {/* Author Avatar & Handle */}
         <View style={styles.authorRow}>
           <View style={styles.avatarWrapper}>
@@ -571,7 +573,7 @@ const PostCardInner: React.FC<PostCardProps> = ({
       </View>
 
       {/* ─── Right-Side Action Rail (44px Targets, 16px Gap) ───────────────── */}
-      <View style={styles.rightActionRail} pointerEvents="box-none">
+      <View style={[styles.rightActionRail, { bottom: bottomOffset }]} pointerEvents="box-none">
         {/* 1. Like */}
         <TouchableOpacity
           style={styles.actionButtonContainer}
@@ -655,7 +657,8 @@ export const PostCard = React.memo(PostCardInner, (prev, next) => {
     prev.isFocused === next.isFocused &&
     prev.appState === next.appState &&
     prev.itemHeight === next.itemHeight &&
-    prev.commentCountOverride === next.commentCountOverride
+    prev.commentCountOverride === next.commentCountOverride &&
+    prev.bottomOffset === next.bottomOffset
   );
 });
 

@@ -22,6 +22,7 @@ import { ImmersiveFeedCard } from '@/components/ImmersiveNewsCard';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
+import { useImmersiveChrome } from '@/hooks/useImmersiveChrome';
 import { useAuthStore } from '@/store/authStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useTabBarStore } from '@/store/tabBarStore';
@@ -175,91 +176,31 @@ export default function HomeScreen() {
   const { data: rawNewsBookmarks = [] } = useBookmarks('news');
   const { data: rawPostBookmarks = [] } = useBookmarks('post');
 
-  // ─── Animation & Visibility ─────────────────────────────────────────────
+  // ─── Animation & Visibility (via shared useImmersiveChrome hook) ─────────
   const categoryTabRef = useRef<FlatList>(null);
-  const headerAnim = useRef(new Animated.Value(1)).current;
-  const isHeaderVisible = useRef(true);
-  const [isHeaderShown, setIsHeaderShown] = useState(true);
-  const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isModalOpen = Boolean(activeCommentUid);
+  const {
+    isShown: isHeaderShown,
+    show: showHeader,
+    hide: hideHeader,
+    toggle: handleToggleUI,
+    headerAnim,
+    headerOpacity,
+  } = useImmersiveChrome({
+    autoHideDelayMs: 2500,
+    isModalOpen,
+    disabled: isLoadingCategories,
+  });
+
+  const hideHeaderRef = useRef(hideHeader);
+  hideHeaderRef.current = hideHeader;
+  const showHeaderRef = useRef(showHeader);
+  showHeaderRef.current = showHeader;
 
   const headerTranslateY = headerAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [-(totalHeaderHeight + 60), 0],
   });
-
-  const headerOpacity = headerAnim.interpolate({
-    inputRange: [0, 0.4, 1],
-    outputRange: [0, 0, 1],
-  });
-
-  const hideHeader = useCallback(() => {
-    if (!isHeaderVisible.current) return;
-    if (isLoadingCategories) return;
-    if (hideTimerRef.current) {
-      clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = null;
-    }
-    isHeaderVisible.current = false;
-    setIsHeaderShown(false);
-    setTabBarVisible(false);
-    Animated.timing(headerAnim, {
-      toValue: 0,
-      duration: 250,
-      useNativeDriver: true,
-    }).start();
-  }, [isLoadingCategories, setTabBarVisible, headerAnim]);
-
-  const hideHeaderRef = useRef(hideHeader);
-  hideHeaderRef.current = hideHeader;
-
-  const showHeader = useCallback(() => {
-    if (isHeaderVisible.current) return;
-    if (hideTimerRef.current) {
-      clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = null;
-    }
-    isHeaderVisible.current = true;
-    setIsHeaderShown(true);
-    setTabBarVisible(true);
-    Animated.timing(headerAnim, {
-      toValue: 1,
-      duration: 250,
-      useNativeDriver: true,
-    }).start();
-  }, [setTabBarVisible, headerAnim]);
-
-  const showHeaderRef = useRef(showHeader);
-  showHeaderRef.current = showHeader;
-
-  const handleToggleUI = useCallback(() => {
-    if (isHeaderVisible.current) {
-      hideHeaderRef.current?.();
-    } else {
-      showHeaderRef.current?.();
-    }
-  }, []);
-
-  // On screen focus or initial mount, show header briefly then auto-hide for full immersion
-  useEffect(() => {
-    const unsub = navigation.addListener('focus', () => {
-      showHeaderRef.current?.();
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = setTimeout(() => {
-        hideHeaderRef.current?.();
-      }, 2500);
-    });
-
-    hideTimerRef.current = setTimeout(() => {
-      hideHeaderRef.current?.();
-    }, 2500);
-
-    return () => {
-      unsub();
-      if (hideTimerRef.current) {
-        clearTimeout(hideTimerRef.current);
-      }
-    };
-  }, [navigation]);
 
   // ─── Derived ──────────────────────────────────────────────────────────
 
