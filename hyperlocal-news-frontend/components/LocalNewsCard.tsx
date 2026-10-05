@@ -14,6 +14,7 @@ export interface LocalNewsItem {
   timeAgo: string;
   views: string;
   imageUrl: string;
+  originalImageUrl?: string | null;
   variant: 'vertical' | 'horizontal';
 }
 
@@ -41,10 +42,19 @@ function LocalNewsCardComponent({ item, onPress }: LocalNewsCardProps) {
     setImgSrc(resolvedImg);
   }, [resolvedImg]);
 
+  const handleImageError = () => {
+    if (imgSrc === resolvedImg && item.originalImageUrl && item.originalImageUrl !== imgSrc) {
+      setImgSrc(item.originalImageUrl);
+    } else {
+      const fallback = getCategoryFallbackImage('Local');
+      if (imgSrc !== fallback) setImgSrc(fallback);
+    }
+  };
+
   if (item.variant === 'horizontal') {
     return (
-      <TouchableOpacity 
-        style={[styles.horizontalCard, { backgroundColor: colors.card, borderColor: colors.border }]} 
+      <TouchableOpacity
+        style={[styles.horizontalCard, { backgroundColor: colors.card, borderColor: colors.border }]}
         onPress={onPress}
         activeOpacity={0.8}
       >
@@ -64,37 +74,31 @@ function LocalNewsCardComponent({ item, onPress }: LocalNewsCardProps) {
           </View>
         </View>
         <Image
-          source={{ uri: imgSrc }}
+          source={{ uri: imgSrc, headers: { Accept: 'image/webp,image/*;q=0.8' } }}
           style={styles.horizontalImage}
           contentFit="cover"
           transition={200}
           cachePolicy="disk"
-          onError={() => {
-            const fb = getCategoryFallbackImage('Local');
-            if (imgSrc !== fb) setImgSrc(fb);
-          }}
+          onError={handleImageError}
         />
       </TouchableOpacity>
     );
   }
 
   return (
-    <TouchableOpacity 
-      style={[styles.verticalCard, { backgroundColor: colors.card, borderColor: colors.border }]} 
+    <TouchableOpacity
+      style={[styles.verticalCard, { backgroundColor: colors.card, borderColor: colors.border }]}
       onPress={onPress}
       activeOpacity={0.8}
     >
       <View style={styles.verticalImageContainer}>
         <Image
-          source={{ uri: imgSrc }}
+          source={{ uri: imgSrc, headers: { Accept: 'image/webp,image/*;q=0.8' } }}
           style={styles.verticalImage}
           contentFit="cover"
           transition={200}
           cachePolicy="disk"
-          onError={() => {
-            const fb = getCategoryFallbackImage('Local');
-            if (imgSrc !== fb) setImgSrc(fb);
-          }}
+          onError={handleImageError}
         />
         <View style={[styles.distanceBadgeSolid, { backgroundColor: colors.primary }]}>
           <MaterialIcons name="near-me" size={10} color="#FFF" />
@@ -127,6 +131,7 @@ export const LocalNewsCard = React.memo(
       prevProps.item.timeAgo === nextProps.item.timeAgo &&
       prevProps.item.views === nextProps.item.views &&
       prevProps.item.imageUrl === nextProps.item.imageUrl &&
+      prevProps.item.originalImageUrl === nextProps.item.originalImageUrl &&
       prevProps.item.variant === nextProps.item.variant
     );
   }
@@ -184,7 +189,8 @@ const styles = StyleSheet.create({
   },
   title: {
     fontWeight: '700',
-    lineHeight: 22.5,
+    lineHeight: 25,
+    paddingVertical: 4,
   },
   infoRow: {
     flexDirection: 'row',

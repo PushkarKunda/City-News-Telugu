@@ -6,7 +6,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { Spacing, BorderRadius } from '@/constants/Spacing';
-import { useNotifications, useMarkNotificationRead, useMarkAllNotificationsRead, useClearAllNotifications } from '@/hooks/useNotifications';
+import { useNotifications, useUnreadCount, useMarkNotificationRead, useMarkAllNotificationsRead, useClearAllNotifications } from '@/hooks/useNotifications';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
 interface NotificationItem {
@@ -27,8 +27,9 @@ export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  // API hooks
+  // Fetch the list on demand; only the lightweight count polls while focused.
   const { data: rawNotifications = [], isLoading, refetch } = useNotifications();
+  const { data: unread } = useUnreadCount();
   const { mutate: markRead } = useMarkNotificationRead();
   const { mutate: markAllRead } = useMarkAllNotificationsRead();
   const { mutate: clearAll } = useClearAllNotifications();
@@ -177,7 +178,7 @@ export default function NotificationsScreen() {
   const todayNotifications = notifications.filter((item) => item.section === 'Today');
   const earlierNotifications = notifications.filter((item) => item.section === 'Earlier');
 
-  const unreadCount = notifications.filter((item) => item.unread).length;
+  const unreadCount = unread?.count ?? notifications.filter((item) => item.unread).length;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>

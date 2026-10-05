@@ -7,6 +7,8 @@ import {
   FlatList,
   ViewToken,
   useWindowDimensions,
+  AppState,
+  AppStateStatus,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
@@ -18,9 +20,11 @@ import { Typography } from '@/constants/Typography';
 import { Spacing } from '@/constants/Spacing';
 import { useNewsShorts } from '@/hooks/useNews';
 import { useQuery } from '@tanstack/react-query';
+import { useShortsScreen } from '@/hooks/useScreens';
 import { contentApi, Advertisement } from '@/services/api/content';
 import { injectAdsIntoFeed, isAdvertisement } from '@/hooks/feedInjection';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { useTabBarStore } from '@/store/tabBarStore';
 
 type ShortFeedItem = any;
 
@@ -40,7 +44,7 @@ const ShortAdCard = React.memo(({ item, itemHeight }: {
   item: { type: 'ad'; data: Advertisement }; itemHeight: number;
 }) => (
   <View style={[styles.itemContainer, { height: itemHeight, backgroundColor: '#000' }]}>
-    <Image source={{ uri: item.data.image_url }} style={StyleSheet.absoluteFillObject} contentFit="cover" />
+    <Image source={{ uri: item.data.image_url, headers: { Accept: 'image/webp,image/*;q=0.8' } }} style={StyleSheet.absoluteFillObject} contentFit="cover" />
     <LinearGradient colors={['transparent', 'rgba(0,0,0,0.8)']} style={[styles.bottomGradient, { paddingBottom: 40 }]}>
       <View style={styles.adInfoContainer}>
         <Text style={styles.adTitle} numberOfLines={2}>{item.data.title}</Text>
@@ -58,15 +62,16 @@ const ShortAdCard = React.memo(({ item, itemHeight }: {
 // ─── YouTube Short Card ───────────────────────────────────────────────────────
 // Full-screen WebView. No app overlay on top — YouTube's own UI is the only
 // interaction surface (like / share / save / comments / subscribe).
-const YouTubeShortCard = React.memo(({ item, isActive, isFocused, shouldLoad, itemHeight }: {
-  item: any; isActive: boolean; isFocused: boolean; shouldLoad: boolean; itemHeight: number;
+const YouTubeShortCard = React.memo(({ item, isActive, isFocused, appState, shouldLoad, itemHeight }: {
+  item: any; isActive: boolean; isFocused: boolean; appState: AppStateStatus; shouldLoad: boolean; itemHeight: number;
 }) => {
   const trackFiredRef = useRef(false);
   const webViewRef = useRef<any>(null);
+  const playing = isActive && isFocused && appState === 'active';
 
   // Silent view tracking: fire after 3 s of active playback
   useEffect(() => {
-    if (!isActive || !isFocused) { trackFiredRef.current = false; return; }
+    if (!playing) { trackFiredRef.current = false; return; }
     const timer = setTimeout(() => {
       if (!trackFiredRef.current && item.video_id) {
         trackFiredRef.current = true;
@@ -74,16 +79,16 @@ const YouTubeShortCard = React.memo(({ item, isActive, isFocused, shouldLoad, it
       }
     }, 3000);
     return () => clearTimeout(timer);
-  }, [isActive, isFocused, item.video_id]);
+  }, [playing, item.video_id]);
 
-  // Pause / mute when screen loses focus (tab switch, back press, etc.)
+  // Pause / mute on tab switches and when the app becomes inactive/backgrounded.
   useEffect(() => {
     if (!webViewRef.current) return;
-    const js = isFocused && isActive
+    const js = playing
       ? `(function(){ var v=document.querySelector('video'); if(v){ v.play(); v.muted=false; } })(); true;`
       : `(function(){ var v=document.querySelector('video'); if(v){ v.pause(); v.muted=true; } })(); true;`;
     try { webViewRef.current.injectJavaScript(js); } catch (_) {}
-  }, [isActive, isFocused]);
+  }, [playing]);
 
   const shortsUrl = `https://www.youtube.com/shorts/${item.video_id}`;
 
@@ -130,7 +135,7 @@ const YouTubeShortCard = React.memo(({ item, isActive, isFocused, shouldLoad, it
 
   return (
     <View style={[styles.itemContainer, { height: itemHeight }]}>
-      {isActive && shouldLoad ? (
+      {playing && shouldLoad ? (
         <WebView
           ref={webViewRef}
           source={{ uri: shortsUrl }}
@@ -151,7 +156,7 @@ const YouTubeShortCard = React.memo(({ item, isActive, isFocused, shouldLoad, it
       ) : (
         <View style={[StyleSheet.absoluteFillObject, styles.thumbnailContainer]}>
           <Image
-            source={{ uri: item.thumbnail_url || `https://img.youtube.com/vi/${item.video_id}/maxresdefault.jpg` }}
+            source={{ uri: item.thumbnail_url || `https://img.youtube.com/vi/${item.video_id}/maxresdefault.jpg`, headers: { Accept: 'image/webp,image/*;q=0.8' } }}
             style={StyleSheet.absoluteFillObject}
             contentFit="cover"
             transition={150}
@@ -165,22 +170,23 @@ const YouTubeShortCard = React.memo(({ item, isActive, isFocused, shouldLoad, it
 }, (prev, next) => (
   prev.isActive === next.isActive &&
   prev.isFocused === next.isFocused &&
+  prev.appState === next.appState &&
   prev.shouldLoad === next.shouldLoad &&
   prev.itemHeight === next.itemHeight &&
   (prev.item.video_id || prev.item.news_uid) === (next.item.video_id || next.item.news_uid)
 ));
 
 // ─── Native Video Short Card ──────────────────────────────────────────────────
-const NativeVideoItem = React.memo(({ item, isActive, isFocused, shouldLoad, itemHeight }: {
-  item: any; isActive: boolean; isFocused: boolean; shouldLoad: boolean; itemHeight: number;
+const NativeVideoItem = React.memo(({ item, isActive, isFocused, appState, shouldLoad, itemHeight }: {
+  item: any; isActive: boolean; isFocused: boolean; appState: AppStateStatus; shouldLoad: boolean; itemHeight: number;
 }) => {
   const [progress, setProgress] = useState(0);
   const trackFiredRef = useRef(false);
-  const playing = isActive && isFocused;
+  const playing = isActive && isFocused && appState === 'active';
 
   const player = useVideoPlayer(
     playing && (item.video_url || item.image_url) ? { uri: item.video_url || item.image_url } : null,
-    (p) => { p.loop = true; p.muted = false; }
+    (p) => { p.loop = true; p.muted = false; p.staysActiveInBackground = false; }
   );
 
   useEffect(() => {
@@ -229,7 +235,7 @@ const NativeVideoItem = React.memo(({ item, isActive, isFocused, shouldLoad, ite
       ) : (
         <View style={[StyleSheet.absoluteFillObject, styles.thumbnailContainer]}>
           <Image
-            source={{ uri: item.thumbnail_url || `https://img.youtube.com/vi/${item.video_id}/maxresdefault.jpg` }}
+            source={{ uri: item.thumbnail_url || `https://img.youtube.com/vi/${item.video_id}/maxresdefault.jpg`, headers: { Accept: 'image/webp,image/*;q=0.8' } }}
             style={StyleSheet.absoluteFillObject}
             contentFit="cover"
             cachePolicy="disk"
@@ -249,6 +255,7 @@ const NativeVideoItem = React.memo(({ item, isActive, isFocused, shouldLoad, ite
 }, (prev, next) => (
   prev.isActive === next.isActive &&
   prev.isFocused === next.isFocused &&
+  prev.appState === next.appState &&
   prev.shouldLoad === next.shouldLoad &&
   prev.itemHeight === next.itemHeight &&
   (prev.item.video_id || prev.item.news_uid) === (next.item.video_id || next.item.news_uid)
@@ -259,16 +266,44 @@ export default function ShortsScreen() {
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   const { height: windowHeight } = useWindowDimensions();
-  const [activeTab, setActiveTab] = useState<'Following' | 'For You'>('Following');
   const [activeIndex, setActiveIndex] = useState(0);
+  const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
+  const tabBarHeight = useTabBarStore((state) => state.height);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', setAppState);
+    return () => subscription.remove();
+  }, []);
 
   // ── Single source of truth for page height ───────────────────────────────
-  // The tab bar is position:absolute so the screen content View always spans
-  // the full window height — onLayout gives windowHeight, not windowHeight-tabBar.
-  // We initialise to windowHeight so the FlatList is visible immediately on
-  // first render (no black-screen / reel-not-playing on mount). onLayout then
-  // confirms or adjusts the value for devices with unusual insets.
-  const [listHeight, setListHeight] = useState(windowHeight);
+  // The absolute tab bar overlays the measured container. Both the list viewport
+  // and every page must exclude it so native paging and snapping agree.
+  const [containerHeight, setContainerHeight] = useState(windowHeight);
+  const listHeight = Math.max(1, containerHeight - (tabBarHeight || 60 + insets.bottom));
+
+  // Single aggregate endpoint for Shorts Screen (1 call vs 2 calls)
+  const {
+    data: shortsScreenData,
+    isLoading: isLoadingShortsAggregate,
+  } = useShortsScreen({ language: 'te' });
+
+  useEffect(() => {
+    const t0 = Date.now();
+    console.log('[PERF][Screen:Shorts] Initializing with aggregate endpoint GET /screens/shorts (1 call vs 2 individual calls)');
+    return () => {
+      console.log(`[PERF][Screen:Shorts] Screen active duration: ${Date.now() - t0}ms`);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (shortsScreenData) {
+      console.log('[PERF][Screen:Shorts] Aggregate payload hydrated successfully:', {
+        shorts_count: shortsScreenData.shorts?.items?.length ?? 0,
+        ads_count: shortsScreenData.ads?.length ?? 0,
+        errors: shortsScreenData.errors,
+      });
+    }
+  }, [shortsScreenData]);
 
   const { data: rawShorts = [], isLoading: isLoadingShorts } = useNewsShorts('te');
   const { data: ads = [], isLoading: isLoadingAds } = useQuery({
@@ -277,7 +312,7 @@ export default function ShortsScreen() {
   });
 
   const shortsFeed = useMemo(() => injectAdsIntoFeed(rawShorts, ads, 5), [rawShorts, ads]);
-  const isLoading = isLoadingShorts || isLoadingAds;
+  const isLoading = (isLoadingShortsAggregate && isLoadingShorts) || isLoadingAds;
 
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
     if (viewableItems.length > 0) setActiveIndex(viewableItems[0].index || 0);
@@ -299,6 +334,7 @@ export default function ShortsScreen() {
           item={item}
           isActive={isCardActive}
           isFocused={isFocused}
+          appState={appState}
           shouldLoad={shouldLoad}
           itemHeight={listHeight}
         />
@@ -309,11 +345,12 @@ export default function ShortsScreen() {
         item={item}
         isActive={isCardActive}
         isFocused={isFocused}
+        appState={appState}
         shouldLoad={shouldLoad}
         itemHeight={listHeight}
       />
     );
-  }, [activeIndex, isFocused, listHeight]);
+  }, [activeIndex, isFocused, appState, listHeight]);
 
   const getItemLayout = useCallback(
     (_: any, index: number) => ({ length: listHeight, offset: listHeight * index, index }),
@@ -334,17 +371,15 @@ export default function ShortsScreen() {
   }
 
   return (
-    // flex:1 — Expo Router already constrains this to the space above the tab bar.
-    // overflow:hidden clips any video content that would otherwise bleed under the bar.
     <View
       style={styles.container}
       onLayout={(e) => {
         const h = e.nativeEvent.layout.height;
-        // Accept any positive measurement. This is the authoritative page height.
-        if (h > 0) setListHeight(h);
+        if (h > 0) setContainerHeight(h);
       }}
     >
       <FlatList
+          style={{ height: listHeight, flexGrow: 0, flexShrink: 0 }}
           data={shortsFeed}
           keyExtractor={keyExtractor}
           renderItem={renderVideoItem}
@@ -364,38 +399,12 @@ export default function ShortsScreen() {
           removeClippedSubviews={false}
           contentContainerStyle={styles.flatListContent}
         />
-
-      {/* Following / For You tabs — rendered above the video with a dark scrim */}
-      <View
-        style={[styles.topOverlay, { paddingTop: insets.top + 4 }]}
-        pointerEvents="box-none"
-      >
-        <LinearGradient
-          colors={['rgba(0,0,0,0.6)', 'transparent']}
-          style={StyleSheet.absoluteFillObject}
-          pointerEvents="none"
-        />
-        <View style={styles.topBar} pointerEvents="box-none">
-          <View style={styles.tabsContainer} pointerEvents="box-none">
-            <TouchableOpacity onPress={() => setActiveTab('Following')} style={styles.tabItem} activeOpacity={0.8}>
-              <Text style={[styles.tabText, activeTab === 'Following' && styles.activeTabText]}>Following</Text>
-              {activeTab === 'Following' && <View style={styles.activeTabIndicator} />}
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setActiveTab('For You')} style={styles.tabItem} activeOpacity={0.8}>
-              <Text style={[styles.tabText, activeTab === 'For You' && styles.activeTabText]}>For You</Text>
-              {activeTab === 'For You' && <View style={styles.activeTabIndicator} />}
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // flex:1 — Expo Router constrains this to the space above the tab bar.
-  // overflow:hidden prevents any video content from bleeding under the nav bar.
-  // No paddingBottom / marginBottom here — the tab bar is a separate sibling.
+  // The list reserves space inside this container for the absolute tab bar.
   container: {
     flex: 1,
     backgroundColor: '#000',
@@ -415,43 +424,6 @@ const styles = StyleSheet.create({
 
   thumbnailContainer: { backgroundColor: '#111' },
   thumbnailDimmer: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.35)' },
-
-  // "Following / For You" top overlay
-  topOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 120,
-    zIndex: 10,
-  },
-  topBar: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingTop: Spacing.sm,
-    height: 52,
-  },
-  tabsContainer: {
-    flexDirection: 'row',
-    gap: Spacing.lg,
-    alignItems: 'center',
-  },
-  tabItem: {
-    alignItems: 'center',
-    paddingHorizontal: Spacing.xs,
-  },
-  tabText: {
-    color: 'rgba(255,255,255,0.65)',
-    fontSize: Typography.sizes.lg,
-    fontFamily: Typography.fonts.bold,
-    marginBottom: 4,
-    textShadowColor: 'rgba(0,0,0,0.7)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
-  },
-  activeTabText: { color: '#FFF' },
-  activeTabIndicator: { height: 2, backgroundColor: '#FFF', width: '100%', borderRadius: 1 },
 
   // Ad card gradient
   bottomGradient: {

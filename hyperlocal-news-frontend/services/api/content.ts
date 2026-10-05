@@ -18,6 +18,8 @@ export interface Advertisement {
     ad_id: number;
     title: string;
     image_url: string;
+    original_image_url?: string | null;
+    thumbnail_url?: string | null;
     placement: string;
     start_date: string;
     end_date: string;
@@ -49,6 +51,8 @@ export interface SponsoredPost {
     title: string;
     content: string;
     image_url: string;
+    original_image_url?: string | null;
+    thumbnail_url?: string | null;
     cta_text: string;
     cta_url: string;
     start_date: string;

@@ -44,10 +44,11 @@ export const notificationsApi = {
    * Get all engagement notifications
    */
   list: async (): Promise<Notification[]> => {
-    return await request<Notification[]>({
+    const response = await request<{ items: Array<Notification & { notification_type?: string }> }>({
       url: API_ROUTES.engagement.notifications,
       method: 'GET',
     });
+    return response.items.map((item) => ({ ...item, type: item.notification_type || item.type }));
   },
 
   /**
@@ -55,10 +56,11 @@ export const notificationsApi = {
    * Get unread notification count
    */
   getUnreadCount: async (): Promise<UnreadCountResponse> => {
-    return await request<UnreadCountResponse>({
+    const response = await request<{ unread_count: number }>({
       url: API_ROUTES.engagement.unreadCount,
       method: 'GET',
     });
+    return { count: response.unread_count };
   },
 
   /**
@@ -115,10 +117,7 @@ export const notificationsApi = {
    * Get in-app notifications (system announcements, updates, etc.)
    */
   getInAppNotifications: async (): Promise<InAppNotification[]> => {
-    return await request<InAppNotification[]>({
-      url: API_ROUTES.inAppNotifications.list,
-      method: 'GET',
-    });
+    return notificationsApi.list();
   },
 
   /**
@@ -126,10 +125,7 @@ export const notificationsApi = {
    * Get unread in-app notification count
    */
   getInAppUnreadCount: async (): Promise<UnreadCountResponse> => {
-    return await request<UnreadCountResponse>({
-      url: API_ROUTES.inAppNotifications.unreadCount,
-      method: 'GET',
-    });
+    return notificationsApi.getUnreadCount();
   },
 
   /**
@@ -155,10 +151,9 @@ export const notificationsApi = {
     inApp: InAppNotification[];
     total: number;
   }> => {
-    const [engagement, inApp] = await Promise.all([
-      notificationsApi.list(),
-      notificationsApi.getInAppNotifications(),
-    ]);
+    // Both route families expose the same notifications table.
+    const engagement = await notificationsApi.list();
+    const inApp: InAppNotification[] = [];
 
     return {
       engagement,
@@ -171,13 +166,6 @@ export const notificationsApi = {
    * Get total unread count (engagement + in-app)
    */
   getTotalUnreadCount: async (): Promise<{ count: number }> => {
-    const [engagementCount, inAppCount] = await Promise.all([
-      notificationsApi.getUnreadCount(),
-      notificationsApi.getInAppUnreadCount(),
-    ]);
-
-    return {
-      count: engagementCount.count + inAppCount.count,
-    };
+    return notificationsApi.getUnreadCount();
   },
 };

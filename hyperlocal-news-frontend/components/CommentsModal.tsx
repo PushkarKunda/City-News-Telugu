@@ -11,13 +11,13 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
-  AppState,
   RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNewsComments, useAddComment, useDeleteComment, newsKeys } from '@/hooks/useNews';
 import { NewsComment, CommentsPage } from '@/services/api/news';
@@ -232,6 +232,7 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const isFocused = useIsFocused();
   const queryClient = useQueryClient();
   const { user, isAuthenticated } = useAuthStore();
 
@@ -249,7 +250,7 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
-  } = useNewsComments(newsUid);
+  } = useNewsComments(newsUid, visible && isFocused);
 
   const { mutate: addComment, isPending: isAdding } = useAddComment();
   const { mutate: deleteComment } = useDeleteComment();
@@ -286,9 +287,10 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
   useEffect(() => {
     if (!newsUid) return;
     const serverTotal = data?.pages?.[0]?.total;
+    const countedComments = comments.filter((comment) => comment.status !== 'failed').length;
     const confirmedCount = typeof serverTotal === 'number'
-      ? Math.max(serverTotal, comments.length)
-      : comments.length;
+      ? serverTotal
+      : countedComments;
 
     if (data?.pages && data.pages.length > 0) {
       useCommentCountStore.getState().setCount(newsUid, confirmedCount);
@@ -297,11 +299,7 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
 
   // Requirement 4: Sheet header Comments (N) derived from list length / shared count
   const serverTotal = data?.pages?.[0]?.total;
-  const totalCommentsCount = Math.max(
-    liveStoreCount ?? 0,
-    comments.length,
-    typeof serverTotal === 'number' ? serverTotal : 0
-  );
+  const totalCommentsCount = liveStoreCount ?? serverTotal ?? comments.filter((comment) => comment.status !== 'failed').length;
 
   // Restore saved draft when sheet opens
   useEffect(() => {
@@ -312,33 +310,6 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
       }
     }
   }, [visible, newsUid]);
-
-  // Refetch when modal opens
-  useEffect(() => {
-    if (visible && newsUid) {
-      refetch();
-    }
-  }, [visible, newsUid, refetch]);
-
-  // AppState: refetch when app returns from background while sheet is open
-  useEffect(() => {
-    if (!visible || !newsUid) return;
-    const subscription = AppState.addEventListener('change', (nextAppState) => {
-      if (nextAppState === 'active') {
-        refetch();
-      }
-    });
-    return () => subscription.remove();
-  }, [visible, newsUid, refetch]);
-
-  // Stay fresh: poll every 30 seconds while sheet is open
-  useEffect(() => {
-    if (!visible || !newsUid) return;
-    const interval = setInterval(() => {
-      refetch();
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [visible, newsUid, refetch]);
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -404,6 +375,7 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
         uid: newsUid,
         comment_text: failedItem.comment_text,
         tempId: failedItem.id,
+        idempotency_key: failedItem.idempotency_key,
         userName: user?.name || user?.user_name || 'You',
         userAvatar: user?.profile_picture || user?.avatar || undefined,
       });

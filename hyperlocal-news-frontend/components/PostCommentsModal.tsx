@@ -24,6 +24,7 @@ interface PostCommentsModalProps {
   visible: boolean;
   onClose: () => void;
   postUid: string | null;
+  onCommentAdded?: (postUid: string) => void;
 }
 
 const PostCommentItem = React.memo(({ item, colors }: any) => {
@@ -58,7 +59,7 @@ const PostCommentItem = React.memo(({ item, colors }: any) => {
   );
 });
 
-export const PostCommentsModal = ({ visible, onClose, postUid }: PostCommentsModalProps) => {
+export const PostCommentsModal = ({ visible, onClose, postUid, onCommentAdded }: PostCommentsModalProps) => {
   const colorScheme = useAppColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const isDark = colorScheme === 'dark';
@@ -78,11 +79,13 @@ export const PostCommentsModal = ({ visible, onClose, postUid }: PostCommentsMod
 
   const handlePostComment = () => {
     if (!postUid || !commentText.trim()) return;
+    const targetUid = postUid;
     addComment(
-      { postUid, commentText: commentText.trim() },
+      { postUid: targetUid, commentText: commentText.trim() },
       {
         onSuccess: () => {
           setCommentText('');
+          onCommentAdded?.(targetUid);
         },
         onError: (error: any) => {
           Alert.alert('Error', 'Failed to post comment. ' + (error?.message || 'Please try again.'));

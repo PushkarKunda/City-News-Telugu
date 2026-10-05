@@ -1,5 +1,5 @@
 // hooks/usePosts.ts
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { postsApi, type Post, type PostComment } from '@/services/api/posts';
 
 export const postKeys = {
@@ -22,6 +22,18 @@ export function usePublicPostsFeed(limit = 20, cursor: string | null = null) {
   return useQuery({
     queryKey: postKeys.feed(cursor),
     queryFn: () => postsApi.getPublicFeed(limit, cursor),
+    staleTime: 1000 * 60 * 5,
+    gcTime: 1000 * 60 * 15,
+  });
+}
+
+export function useInfinitePublicPostsFeed(limit = 20) {
+  return useInfiniteQuery({
+    queryKey: ['posts', 'feed', 'infinite'] as const,
+    queryFn: ({ pageParam }) => postsApi.getPublicFeed(limit, pageParam as string | null),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage: any) =>
+      lastPage?.has_more && lastPage?.next_cursor ? lastPage.next_cursor : undefined,
     staleTime: 1000 * 60 * 5,
     gcTime: 1000 * 60 * 15,
   });
@@ -107,6 +119,7 @@ export function useCreatePost() {
       hashtags?: string[];
     }) => postsApi.createPost(data),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['screens', 'profile'] });
       queryClient.invalidateQueries({ queryKey: postKeys.all });
     },
   });
@@ -128,6 +141,7 @@ export function useUpdatePost() {
       data: { content?: string | null; image_url?: string | null; video_url?: string | null };
     }) => postsApi.updatePost(postUid, data),
     onSuccess: (_, { postUid }) => {
+      queryClient.invalidateQueries({ queryKey: ['screens', 'profile'] });
       queryClient.invalidateQueries({ queryKey: postKeys.single(postUid) });
       queryClient.invalidateQueries({ queryKey: postKeys.all });
     },
@@ -144,6 +158,7 @@ export function useDeletePost() {
   return useMutation({
     mutationFn: (postUid: string) => postsApi.deletePost(postUid),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['screens', 'profile'] });
       queryClient.invalidateQueries({ queryKey: postKeys.all });
     },
   });
@@ -228,6 +243,7 @@ export function useAddPostComment() {
 
     // Always refetch after success or error to sync with the server.
     onSettled: (_data, _err, { postUid }) => {
+      queryClient.invalidateQueries({ queryKey: ['screens', 'profile'] });
       queryClient.invalidateQueries({ queryKey: postKeys.comments(postUid) });
       queryClient.invalidateQueries({ queryKey: postKeys.all });
     },

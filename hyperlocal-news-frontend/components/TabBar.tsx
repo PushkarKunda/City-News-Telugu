@@ -125,9 +125,9 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
     const activeDescriptor = descriptors[activeRoute.key];
     const activeOptions = activeDescriptor?.options;
 
-    // Auto-hide only on the Home (index) fullscreen feed — Shorts always keeps the bar visible
+    // Auto-hide on Home (index) and Community (posts) fullscreen feeds
     const routeName = activeRoute?.name;
-    const isFullscreenFeed = routeName === 'index';
+    const isFullscreenFeed = routeName === 'index' || routeName === 'posts';
     const isTabBarVisible = isFullscreenFeed ? visible : true;
 
     useEffect(() => {

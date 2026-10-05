@@ -19,6 +19,8 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useCommentCountStore } from '@/store/commentCountStore';
 import { CommentsModal } from '@/components/CommentsModal';
+import { PostCommentsModal } from '@/components/PostCommentsModal';
+import { useNewsDetailScreen } from '@/hooks/useScreens';
 import * as WebBrowser from 'expo-web-browser';
 import { Share } from 'react-native';
 import {
@@ -67,11 +69,13 @@ export default function NewsDetailScreen() {
 
   const isPostType = contentType === 'post';
 
-  // Load article or post dynamically based on contentType
-  const { data: newsArticleData, isLoading: isLoadingNews } = useNewsArticle(!isPostType ? (id as string) : null);
+  const detail = useNewsDetailScreen(!isPostType ? (id as string) : null);
+  // Disabled observers subscribe to the aggregate's hydrated caches without
+  // issuing the old initial article/engagement/bookmark requests.
+  const { data: newsArticleData } = useNewsArticle(!isPostType ? (id as string) : null, false);
   const { data: postData, isLoading: isLoadingPost } = usePostByUid(isPostType ? (id as string) : null);
 
-  const isLoading = isPostType ? isLoadingPost : isLoadingNews;
+  const isLoading = isPostType ? isLoadingPost : detail.isLoading;
 
   const article = useMemo(() => {
     if (isPostType && postData) {
@@ -92,17 +96,18 @@ export default function NewsDetailScreen() {
         source: p.user_display_name || p.user_name || 'Community Member',
       };
     }
-    return newsArticleData;
-  }, [isPostType, newsArticleData, postData]);
-  const { data: engagement } = useNewsEngagement(id as string);
-  const { data: bookmarkCheck } = useCheckBookmark(id as string, contentType);
-  const { data: comments } = useNewsComments(id as string);
+    return detail.data?.article ? newsArticleData : undefined;
+  }, [isPostType, newsArticleData, postData, detail.data?.article]);
+  const { data: engagement } = useNewsEngagement(!isPostType ? (id as string) : null, false);
+  const { data: bookmarkCheck } = useCheckBookmark(id as string, contentType, isPostType);
 
   // Fetch Ads
-  const { data: ads = [] } = useQuery({
+  const { data: postAds = [] } = useQuery({
     queryKey: ['active-ads', 'detail'],
     queryFn: () => contentApi.getActiveAdvertisements(),
+    enabled: isPostType,
   });
+  const ads = isPostType ? postAds : detail.data?.ads ?? [];
 
   // Engagement Mutations
   const { mutate: recordView } = useRecordView();
@@ -116,6 +121,9 @@ export default function NewsDetailScreen() {
 
   const [isLiked, setIsLiked] = useState(false);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
+  useEffect(() => {
+    setIsLiked(isPostType ? Boolean(postData?.is_liked) : Boolean(engagement?.user_liked));
+  }, [isPostType, id, postData?.is_liked, engagement?.user_liked]);
 
   const liveCommentCount = useCommentCountStore((s) => (id ? s.counts[id as string] : undefined));
   const commentCount =
@@ -184,6 +192,19 @@ export default function NewsDetailScreen() {
     }
   };
 
+  // Hooks must run on loading/error renders too.
+  const categoryName = article?.category_names?.[0] || 'News';
+  const resolvedHeroImage = useMemo(() => resolveArticleImageUrl({
+    imageUrl: article?.image_url,
+    categoryNames: article?.category_names,
+    categoryName,
+    title: article?.title,
+    isBreaking: article?.is_breaking,
+    itemType: contentType,
+  }), [article?.image_url, article?.category_names, categoryName, article?.title, article?.is_breaking, contentType]);
+  const [heroImageUri, setHeroImageUri] = useState<string>(resolvedHeroImage);
+  useEffect(() => { setHeroImageUri(resolvedHeroImage); }, [resolvedHeroImage]);
+
   if (isLoading) {
     return (
       <View style={[styles.container, styles.centered, { backgroundColor: colors.background }]}>
@@ -197,7 +218,10 @@ export default function NewsDetailScreen() {
     return (
       <View style={[styles.container, styles.centered, { backgroundColor: colors.background }]}>
         <StatusBar style={isDark ? 'light' : 'dark'} translucent backgroundColor="transparent" />
-        <Text style={{ color: colors.text, fontFamily: 'Poppins_500Medium', fontSize: 16 }}>Article not found</Text>
+        <Text style={{ color: colors.text, fontFamily: 'Poppins_500Medium', fontSize: 16 }}>
+          {detail.isError || detail.data?.errors.article ? 'Could not load this story' : 'Article not found'}
+        </Text>
+        {!isPostType && <TouchableOpacity onPress={() => detail.refetch()}><Text style={{ color: colors.primary }}>Retry</Text></TouchableOpacity>}
         <TouchableOpacity
           onPress={() => {
             if (router.canGoBack()) {
@@ -214,24 +238,7 @@ export default function NewsDetailScreen() {
     );
   }
 
-  const categoryName = article.category_names?.[0] || 'News';
   const adToInject = ads.length > 0 ? ads[0] : null;
-
-  const resolvedHeroImage = useMemo(() => {
-    return resolveArticleImageUrl({
-      imageUrl: article.image_url,
-      categoryNames: article.category_names,
-      categoryName,
-      title: article.title,
-      isBreaking: article.is_breaking,
-      itemType: contentType,
-    });
-  }, [article.image_url, article.category_names, categoryName, article.title, article.is_breaking, contentType]);
-
-  const [heroImageUri, setHeroImageUri] = useState<string>(resolvedHeroImage);
-  useEffect(() => {
-    setHeroImageUri(resolvedHeroImage);
-  }, [resolvedHeroImage]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.surface }]}>
@@ -299,6 +306,11 @@ export default function NewsDetailScreen() {
           </View>
 
           {/* Premium Headline */}
+          {!isPostType && Object.keys(detail.data?.errors ?? {}).length > 0 && (
+            <TouchableOpacity onPress={() => detail.refetch()}>
+              <Text style={{ color: colors.textSecondary }}>Some sections are unavailable. Tap to retry.</Text>
+            </TouchableOpacity>
+          )}
           <Text style={[styles.headline, { color: colors.text }]}>
             {article.title}
           </Text>
@@ -400,13 +412,15 @@ export default function NewsDetailScreen() {
         </TouchableOpacity>
       </View>
 
-      {Boolean(isCommentsOpen && id) && (
+      {Boolean(isCommentsOpen && id) && (isPostType ? (
+        <PostCommentsModal visible={isCommentsOpen} onClose={() => setIsCommentsOpen(false)} postUid={id as string} />
+      ) : (
         <CommentsModal
           visible={isCommentsOpen}
           onClose={() => setIsCommentsOpen(false)}
           newsUid={id as string}
         />
-      )}
+      ))}
     </View>
   );
 }
@@ -494,7 +508,8 @@ const styles = StyleSheet.create({
   headline: {
     fontSize: 28,
     fontFamily: 'Poppins_700Bold',
-    lineHeight: 36,
+    lineHeight: 46,
+    paddingVertical: 4,
     marginBottom: Spacing.xl,
     letterSpacing: -0.5,
   },
@@ -545,7 +560,8 @@ const styles = StyleSheet.create({
   bodyText: {
     fontSize: 17,
     fontFamily: 'Poppins_400Regular',
-    lineHeight: 28,
+    lineHeight: 30,
+    paddingVertical: 4,
     letterSpacing: 0.3,
     marginBottom: Spacing.lg,
   },

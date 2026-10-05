@@ -94,31 +94,32 @@ export function useGoogleFirebaseAuth(options: UseGoogleFirebaseAuthOptions = {}
       console.log('✅ Google auth successful');
       options.onSuccess?.(backendResponse);
     } catch (error: any) {
-      const endpointCode =
-        error?.code && error.code !== 'SERVER_ERROR'
-          ? error.code
-          : error?.status
-          ? `[POST /user/auth/google ${error.status}]`
-          : '[POST /user/auth/google ERROR]';
-
-      console.error(`❌ Google Sign-In failed: ${endpointCode}`, error?.message || error);
+      if (typeof __DEV__ !== 'undefined' && __DEV__) {
+        console.error('❌ Google Sign-In failed:', error?.message || error);
+      }
 
       if (
         error.code === statusCodes.SIGN_IN_CANCELLED ||
         error.code === 'SIGN_IN_CANCELLED' ||
         error.message?.includes('cancelled')
       ) {
-        console.log('🚫 User cancelled');
+        if (typeof __DEV__ !== 'undefined' && __DEV__) {
+          console.log('🚫 User cancelled');
+        }
         return; // Silent cancel
       }
 
       if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
-        options.onError?.(new Error('Google Play Services is not available or outdated on this device.'));
+        options.onError?.(
+          new Error('Google Play Services is not available or outdated on this device.')
+        );
         return;
       }
 
       if (error.code === statusCodes.IN_PROGRESS) {
-        console.log('⏳ Google Sign-In already in progress');
+        if (typeof __DEV__ !== 'undefined' && __DEV__) {
+          console.log('⏳ Google Sign-In already in progress');
+        }
         return;
       }
 
@@ -134,14 +135,30 @@ export function useGoogleFirebaseAuth(options: UseGoogleFirebaseAuthOptions = {}
           'Package: com.hypernews.app\n' +
           'Debug SHA-1:\n5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25\n\n' +
           'To fix this, add this SHA-1 in Firebase Console > Project Settings > Your Android App.';
-        console.error(developerMsg);
-        options.onError?.(new Error(developerMsg));
+        if (typeof __DEV__ !== 'undefined' && __DEV__) {
+          console.error(developerMsg);
+          options.onError?.(new Error(developerMsg));
+        } else {
+          options.onError?.(new Error("Couldn't complete sign-in, please try again."));
+        }
         return;
       }
 
-      // Requirement 6: Show the user a simple "Couldn't complete sign-in, please try again" message
-      const userFacingError = new Error("Couldn't complete sign-in, please try again");
-      (userFacingError as any).code = endpointCode;
+      // Friendly retry message for user without raw endpoint strings
+      const rawMessage = error?.message || '';
+      const isRawEndpoint =
+        rawMessage.includes('[POST') ||
+        rawMessage.includes('[GET') ||
+        rawMessage.includes('404') ||
+        rawMessage.includes('500');
+
+      const message =
+        rawMessage && !isRawEndpoint
+          ? rawMessage
+          : "Couldn't complete sign-in, please try again.";
+
+      const userFacingError = new Error(message);
+      (userFacingError as any).code = 'GOOGLE_AUTH_FAILED';
       options.onError?.(userFacingError);
     } finally {
       setIsGoogleLoading(false);

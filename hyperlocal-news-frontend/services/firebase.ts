@@ -1,7 +1,12 @@
 // services/firebase.ts
-import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  PhoneAuthProvider,
+  FirebaseAuthTypes,
+} from '@react-native-firebase/auth';
 
-export const firebaseAuth = auth();
+export const firebaseAuth = getAuth();
 
 // ─── Check Firebase Connection ────────────────────────────────────────────────
 export const checkFirebaseConnection = async (): Promise<void> => {
@@ -44,8 +49,8 @@ export const verifyPhoneOTP = async (
       console.log('🔗 Linking phone to existing user...');
       const credential =
         typeof confirmationOrVerificationId === 'string'
-          ? auth.PhoneAuthProvider.credential(confirmationOrVerificationId, otp)
-          : auth.PhoneAuthProvider.credential(
+          ? PhoneAuthProvider.credential(confirmationOrVerificationId, otp)
+          : PhoneAuthProvider.credential(
             confirmationOrVerificationId.verificationId,
             otp
           );
@@ -69,7 +74,7 @@ export const verifyPhoneOTP = async (
     } else {
       console.log('📱 Verifying OTP...');
       if (typeof confirmationOrVerificationId === 'string') {
-        const credential = auth.PhoneAuthProvider.credential(
+        const credential = PhoneAuthProvider.credential(
           confirmationOrVerificationId,
           otp
         );
@@ -94,7 +99,7 @@ export const verifyPhoneOTP = async (
 export const signInWithGoogle = async (idToken: string): Promise<string> => {
   try {
     console.log('🔐 Signing in with Google...');
-    const googleCredential = auth.GoogleAuthProvider.credential(idToken);
+    const googleCredential = GoogleAuthProvider.credential(idToken);
     const userCredential = await firebaseAuth.signInWithCredential(googleCredential);
     const firebaseToken = await userCredential.user.getIdToken(true);
     console.log('✅ Google Sign-In Success');
@@ -115,7 +120,7 @@ export const linkGoogleAccount = async (idToken: string): Promise<string> => {
     }
 
     console.log('🔗 Linking Google account...');
-    const googleCredential = auth.GoogleAuthProvider.credential(idToken);
+    const googleCredential = GoogleAuthProvider.credential(idToken);
     let firebaseToken: string;
     try {
       const userCredential = await currentUser.linkWithCredential(googleCredential);
@@ -154,7 +159,7 @@ export const linkPhoneNumber = async (
     }
 
     console.log('🔗 Linking phone number...');
-    const credential = auth.PhoneAuthProvider.credential(verificationId, otp);
+    const credential = PhoneAuthProvider.credential(verificationId, otp);
     const userCredential = await currentUser.linkWithCredential(credential);
     const firebaseToken = await userCredential.user.getIdToken(true);
     console.log('✅ Phone Number Linked');

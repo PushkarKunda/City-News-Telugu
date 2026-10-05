@@ -1,6 +1,8 @@
 // hooks/useNotifications.ts
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { notificationsApi } from '@/services/api';
+import { useIsFocused } from '@react-navigation/native';
+import { useAuthStore } from '@/store/authStore';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // QUERY KEYS
@@ -9,11 +11,13 @@ import { notificationsApi } from '@/services/api';
 const queryKeys = {
   list: ['notifications', 'list'] as const,
   unreadCount: ['notifications', 'unread-count'] as const,
-  inApp: ['notifications', 'in-app'] as const,
-  inAppUnreadCount: ['notifications', 'in-app-unread-count'] as const,
-  all: ['notifications', 'all'] as const,
-  totalUnreadCount: ['notifications', 'total-unread-count'] as const,
+  inApp: ['notifications', 'list'] as const,
 };
+
+function useScopedNotificationKeys() {
+  const uid = useAuthStore((state) => state.user?.user_uid);
+  return { ...queryKeys, list: [...queryKeys.list, uid], inApp: [...queryKeys.list, uid] };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ENGAGEMENT NOTIFICATIONS
@@ -24,11 +28,13 @@ const queryKeys = {
  * GET /engagement/notifications
  */
 export function useNotifications() {
+  const isFocused = useIsFocused();
+  const userUid = useAuthStore((state) => state.user?.user_uid);
   return useQuery({
-    queryKey: queryKeys.list,
+    queryKey: [...queryKeys.list, userUid],
     queryFn: () => notificationsApi.list(),
+    enabled: isFocused && Boolean(userUid),
     staleTime: 1000 * 60 * 2,
-    refetchInterval: 1000 * 60 * 3,
   });
 }
 
@@ -37,11 +43,15 @@ export function useNotifications() {
  * GET /engagement/notifications/unread/count
  */
 export function useUnreadCount() {
+  const isFocused = useIsFocused();
+  const userUid = useAuthStore((state) => state.user?.user_uid);
   return useQuery({
-    queryKey: queryKeys.unreadCount,
+    queryKey: [...queryKeys.unreadCount, userUid],
     queryFn: () => notificationsApi.getUnreadCount(),
+    enabled: isFocused && Boolean(userUid),
     staleTime: 1000 * 60 * 1,
-    refetchInterval: 1000 * 60 * 2,
+    refetchInterval: isFocused ? 1000 * 60 * 2 : false,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -50,6 +60,7 @@ export function useUnreadCount() {
  * PATCH /engagement/notifications/:id/read
  */
 export function useMarkNotificationRead() {
+  const queryKeys = useScopedNotificationKeys();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -82,7 +93,6 @@ export function useMarkNotificationRead() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.list });
       queryClient.invalidateQueries({ queryKey: queryKeys.unreadCount });
-      queryClient.invalidateQueries({ queryKey: queryKeys.totalUnreadCount });
     },
   });
 }
@@ -92,6 +102,7 @@ export function useMarkNotificationRead() {
  * PATCH /engagement/notifications/read-all
  */
 export function useMarkAllNotificationsRead() {
+  const queryKeys = useScopedNotificationKeys();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -120,7 +131,6 @@ export function useMarkAllNotificationsRead() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.list });
       queryClient.invalidateQueries({ queryKey: queryKeys.unreadCount });
-      queryClient.invalidateQueries({ queryKey: queryKeys.totalUnreadCount });
     },
   });
 }
@@ -130,6 +140,7 @@ export function useMarkAllNotificationsRead() {
  * DELETE /engagement/notifications/:id
  */
 export function useDeleteNotification() {
+  const queryKeys = useScopedNotificationKeys();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -157,7 +168,6 @@ export function useDeleteNotification() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.list });
       queryClient.invalidateQueries({ queryKey: queryKeys.unreadCount });
-      queryClient.invalidateQueries({ queryKey: queryKeys.totalUnreadCount });
     },
   });
 }
@@ -167,6 +177,7 @@ export function useDeleteNotification() {
  * DELETE /engagement/notifications/clear
  */
 export function useClearAllNotifications() {
+  const queryKeys = useScopedNotificationKeys();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -189,7 +200,6 @@ export function useClearAllNotifications() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.list });
       queryClient.invalidateQueries({ queryKey: queryKeys.unreadCount });
-      queryClient.invalidateQueries({ queryKey: queryKeys.totalUnreadCount });
     },
   });
 }
@@ -203,12 +213,7 @@ export function useClearAllNotifications() {
  * GET /notifications/in-app
  */
 export function useInAppNotifications() {
-  return useQuery({
-    queryKey: queryKeys.inApp,
-    queryFn: () => notificationsApi.getInAppNotifications(),
-    staleTime: 1000 * 60 * 2,
-    refetchInterval: 1000 * 60 * 3,
-  });
+  return useNotifications();
 }
 
 /**
@@ -216,12 +221,7 @@ export function useInAppNotifications() {
  * GET /notifications/in-app/unread/count
  */
 export function useInAppUnreadCount() {
-  return useQuery({
-    queryKey: queryKeys.inAppUnreadCount,
-    queryFn: () => notificationsApi.getInAppUnreadCount(),
-    staleTime: 1000 * 60 * 1,
-    refetchInterval: 1000 * 60 * 2,
-  });
+  return useUnreadCount();
 }
 
 /**
@@ -229,6 +229,7 @@ export function useInAppUnreadCount() {
  * PATCH /notifications/in-app/:id/read
  */
 export function useMarkInAppRead() {
+  const queryKeys = useScopedNotificationKeys();
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -257,8 +258,7 @@ export function useMarkInAppRead() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.inApp });
-      queryClient.invalidateQueries({ queryKey: queryKeys.inAppUnreadCount });
-      queryClient.invalidateQueries({ queryKey: queryKeys.totalUnreadCount });
+      queryClient.invalidateQueries({ queryKey: queryKeys.unreadCount });
     },
   });
 }
@@ -272,12 +272,8 @@ export function useMarkInAppRead() {
  * Fetches both engagement + in-app notifications
  */
 export function useAllNotifications() {
-  return useQuery({
-    queryKey: queryKeys.all,
-    queryFn: () => notificationsApi.getAllNotifications(),
-    staleTime: 1000 * 60 * 2,
-    refetchInterval: 1000 * 60 * 3,
-  });
+  const query = useNotifications();
+  return { ...query, data: query.data ? { engagement: query.data, inApp: [], total: query.data.length } : undefined };
 }
 
 /**
@@ -285,10 +281,5 @@ export function useAllNotifications() {
  * Combined unread count (engagement + in-app)
  */
 export function useTotalUnreadCount() {
-  return useQuery({
-    queryKey: queryKeys.totalUnreadCount,
-    queryFn: () => notificationsApi.getTotalUnreadCount(),
-    staleTime: 1000 * 60 * 1,
-    refetchInterval: 1000 * 60 * 2,
-  });
+  return useUnreadCount();
 }

@@ -22,7 +22,7 @@ import * as WebBrowser from 'expo-web-browser';
 WebBrowser.maybeCompleteAuthSession();
 
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import NetInfo from '@react-native-community/netinfo';
 import {
   View,
@@ -30,6 +30,8 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
+  AppState,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -47,6 +49,7 @@ import { setOnUnauthorizedCallback } from '@/services/api/client';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { Colors } from '@/constants/Colors';
 import { useRealtimeReconciliation } from '@/hooks/useRealtimeReconciliation';
+import { bindQueryFocus } from '@/services/queryFocus';
 
 // ─── Splash Screen ────────────────────────────────────────────────────────────
 SplashScreen.preventAutoHideAsync();
@@ -58,6 +61,7 @@ const queryClient = new QueryClient({
       retry: 2,
       staleTime: 5 * 60 * 1000,
       gcTime: 10 * 60 * 1000,
+      refetchIntervalInBackground: false,
     },
     mutations: {
       retry: 1,
@@ -148,6 +152,12 @@ export default function RootLayout() {
   });
 
   // ─── Firebase Init ────────────────────────────────────────────────────────
+  useEffect(() => {
+    // Web already uses document visibility; native apps need AppState.
+    if (Platform.OS === 'web') return;
+    return bindQueryFocus(AppState, focusManager);
+  }, []);
+
   useEffect(() => {
     // ✅ FIXED: void operator so no floating promise warning
     void checkFirebaseConnection();

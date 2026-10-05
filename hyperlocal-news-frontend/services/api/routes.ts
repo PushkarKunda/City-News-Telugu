@@ -277,4 +277,16 @@ export const API_ROUTES = {
     rewards: '/rewards/health',                                  // GET - Rewards health
     userActivity: '/user-activity/health',                       // GET - User activity health
   },
+
+  // ─── Screen Aggregations (Single-flight endpoints) ──────────────────────────
+  screens: {
+    newsDetail: (uid: string) => `/screens/news/${encodeURIComponent(uid)}`,
+    home: '/screens/home',                   // GET - Home screen aggregate
+    profile: '/screens/profile',             // GET - Profile screen aggregate
+    community: '/screens/community',         // GET - Community/Posts screen aggregate
+    shorts: '/screens/shorts',               // GET - Shorts screen aggregate
+    discover: '/screens/discover',           // GET - Discover screen aggregate
+    local: '/screens/local',                 // GET - Local screen aggregate
+    notifications: '/screens/notifications', // GET - Notifications screen aggregate
+  },
 } as const;

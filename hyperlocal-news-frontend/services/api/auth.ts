@@ -62,6 +62,8 @@ export interface PublisherEligibilityResponse {
   switch_endpoint: string;
 }
 
+let isGoogleAuthSupported: boolean | null = null;
+
 // ─── Auth API ─────────────────────────────────────────────────────────────────
 
 export const authApi = {
@@ -90,7 +92,8 @@ export const authApi = {
 
   /**
    * Single unified backend call for Google Sign-In
-   * POST /user/auth/google with Firebase ID token in Authorization header
+   * POST /user/auth/google with Firebase ID token in Authorization header.
+   * Seamlessly falls back to /user/auth/firebase/login when /user/auth/google is not deployed on Railway.
    */
   loginWithGoogleAuth: async (
     firebaseToken: string
@@ -99,7 +102,12 @@ export const authApi = {
     const method = 'POST';
     const hasAuthHeader = Boolean(firebaseToken);
 
-    // Requirement: Log full URL, HTTP method, and whether Authorization header is set (never log token)
+    // If server does not have /user/auth/google deployed yet, directly use firebaseLogin
+    if (isGoogleAuthSupported === false) {
+      console.log(`[authApi.loginWithGoogleAuth] Using deployed endpoint: ${API_ROUTES.auth.firebaseLogin}`);
+      return await authApi.loginWithFirebase(firebaseToken);
+    }
+
     console.log(`[authApi.loginWithGoogleAuth] Calling: ${method} ${fullUrl} | Authorization header set: ${hasAuthHeader}`);
 
     try {
@@ -111,6 +119,8 @@ export const authApi = {
         },
         data: { firebase_token: firebaseToken },
       });
+
+      isGoogleAuthSupported = true;
 
       if ((response as any)?.access_token && (response as any)?.refresh_token) {
         await saveTokens(
@@ -124,9 +134,6 @@ export const authApi = {
       const status = err?.response?.status ?? err?.status ?? 'UNKNOWN';
       const body = err?.response?.data ?? err?.message;
 
-      // Requirement: Log response status and body on failure
-      console.error(`[authApi.loginWithGoogleAuth] Failed: ${method} ${fullUrl} - Status: ${status}, Body:`, body);
-
       err.endpoint = `${method} ${API_ROUTES.auth.google}`;
       err.status = status;
 
@@ -138,13 +145,18 @@ export const authApi = {
         err?.code === 'NOT_FOUND';
 
       if (is404) {
+        isGoogleAuthSupported = false;
+        console.log(`[authApi.loginWithGoogleAuth] ${fullUrl} returned 404 (endpoint pending Railway deployment). Falling back to ${API_ROUTES.auth.firebaseLogin}...`);
         try {
-          console.warn('⚠️ /user/auth/google returned 404, attempting fallback to /user/auth/firebase/login...');
           return await authApi.loginWithFirebase(firebaseToken);
         } catch (fallbackErr: any) {
-          console.warn('[authApi.loginWithGoogleAuth] Fallback to /user/auth/firebase/login also failed:', fallbackErr?.message);
+          console.error('[authApi.loginWithGoogleAuth] Both /user/auth/google and fallback /user/auth/firebase/login failed:', fallbackErr?.message);
+          throw fallbackErr;
         }
       }
+
+      // Log actual failure (non-404)
+      console.error(`[authApi.loginWithGoogleAuth] Failed: ${method} ${fullUrl} - Status: ${status}, Body:`, body);
       throw err;
     }
   },

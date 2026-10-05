@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
-import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
+import { getAuth, FirebaseAuthTypes } from '@react-native-firebase/auth';
 import {
   sendPhoneOTP as firebaseSendOTP,
   verifyPhoneOTP as firebaseVerifyOTP,
@@ -146,8 +146,14 @@ const sanitizeUser = (user: RawUser): User => {
     avatar: profilePicture,
     profile_picture: profilePicture,
     language: user.language ?? user.language_name ?? null,
-    state: user.state ?? user.state_name ?? null,
-    district: user.district ?? user.district_name ?? null,
+    state: user.state ?? user.state_name ?? (user as any).location?.state_name ?? (user as any).location?.state ?? null,
+    district: user.district ?? user.district_name ?? (user as any).location?.district_name ?? (user as any).location?.district ?? null,
+    state_name: user.state_name ?? (user as any).location?.state_name ?? null,
+    district_name: user.district_name ?? (user as any).location?.district_name ?? null,
+    city_name: user.city_name ?? (user as any).location?.city_name ?? null,
+    state_id: user.state_id ?? (user as any).location?.state_id ?? null,
+    district_id: user.district_id ?? (user as any).location?.district_id ?? null,
+    city_id: user.city_id ?? (user as any).location?.city_id ?? null,
     interests: user.interests ?? null,
     category_ids: user.category_ids ?? user.categories?.map((category) => category.id) ?? null,
     google_id: user.google_id ?? null,
@@ -232,47 +238,7 @@ const isAlreadyLinkedError = (error: any): boolean => {
   return false;
 };
 
-let syncRetryTimeout: ReturnType<typeof setTimeout> | null = null;
 
-const queueBackgroundSync = (firebaseToken?: string, attempt = 1) => {
-  if (attempt > 4) {
-    console.warn('[authStore] Max background sync retries reached. Will retry on next app launch.');
-    return;
-  }
-  const delayMs = Math.min(attempt * 4000, 20000);
-  if (syncRetryTimeout) clearTimeout(syncRetryTimeout);
-  syncRetryTimeout = setTimeout(async () => {
-    try {
-      console.log(`[authStore] Background sync retry attempt #${attempt}...`);
-      const fbUser = auth().currentUser;
-      const freshToken = fbUser ? await fbUser.getIdToken(true) : firebaseToken;
-      if (!freshToken) return;
-
-      const response = await authApi.loginWithGoogleAuth(freshToken);
-      if (response?.user) {
-        console.log('[authStore] Background sync succeeded on retry!');
-        let fullUserData: RawUser = response.user;
-        try {
-          const meProfile = await usersApi.me();
-          fullUserData = { ...response.user, ...meProfile };
-        } catch (_) {}
-
-        if (!fullUserData.auth_provider) fullUserData.auth_provider = 'google';
-        if (!fullUserData.providers || !fullUserData.providers.includes('google')) {
-          fullUserData.providers = [...(fullUserData.providers || []), 'google'];
-        }
-        fullUserData.is_google_linked = true;
-        fullUserData.email_verified = true;
-
-        const updated = sanitizeUser(fullUserData);
-        useAuthStore.setState({ user: updated });
-      }
-    } catch (e: any) {
-      console.warn(`[authStore] Background sync retry #${attempt} failed:`, e?.message);
-      queueBackgroundSync(firebaseToken, attempt + 1);
-    }
-  }, delayMs);
-};
 
 const handleAuthError = (error: any, endpoint?: string): AuthError => {
   const status = error?.response?.status ?? error?.status;
@@ -283,12 +249,21 @@ const handleAuthError = (error: any, endpoint?: string): AuthError => {
     ? `[HTTP ${status}]`
     : error?.code || 'AUTH_ERROR';
 
-  if (serverDetail || status) {
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
     console.error(`[AuthError] ${endpointInfo}:`, serverDetail || error?.message);
-    return new AuthError(
-      "Couldn't complete sign-in, please try again",
-      endpointInfo
-    );
+  }
+
+  if (serverDetail || status) {
+    const isFatal = status === 401 || status === 403;
+    const msg = isFatal
+      ? 'Your session has expired. Please sign in again.'
+      : status === 404
+      ? 'The requested resource was not found. Please try again later.'
+      : status >= 500
+      ? 'A server error occurred. Please try again later.'
+      : "Couldn't complete sign-in, please try again.";
+
+    return new AuthError(msg, status ? `HTTP_${status}` : 'AUTH_ERROR');
   }
 
   if (error.code === 'auth/network-request-failed') {
@@ -397,23 +372,57 @@ export const useAuthStore = create<AuthState>()(
 
       // ✅ NEW: Update cached preferences locally
       updateCachedPreferences: (updates: Partial<UserPreferences>) => {
-        set((state) => ({
-          cachedPreferences: state.cachedPreferences
-            ? { ...state.cachedPreferences, ...updates }
-            : null,
-        }));
+        set((state) => {
+          const current = state.cachedPreferences;
+          if (current) {
+            let hasDiff = false;
+            for (const key of Object.keys(updates) as (keyof UserPreferences)[]) {
+              if (updates[key] !== undefined && updates[key] !== current[key]) {
+                hasDiff = true;
+                break;
+              }
+            }
+            if (!hasDiff) return state;
+            return {
+              cachedPreferences: {
+                ...current,
+                ...updates,
+              },
+            };
+          }
+          return {
+            cachedPreferences: updates as UserPreferences,
+          };
+        });
       },
 
       fetchUser: async (): Promise<User | null> => {
         try {
-          const token = await getAuthToken();
-          if (!token) {
-            set({ user: null, isAuthenticated: false });
-            return null;
+          let token = await getAuthToken();
+          const currentUser = getAuth().currentUser;
+
+          if (!token && currentUser) {
+            try {
+              const freshToken = await currentUser.getIdToken();
+              if (freshToken) {
+                const loginRes = await authApi.loginWithGoogleAuth(freshToken).catch(() => null);
+                if (loginRes?.access_token) {
+                  token = loginRes.access_token;
+                }
+              }
+            } catch (fbErr) {
+              console.warn('[authStore] Silent Firebase token exchange in fetchUser:', fbErr);
+            }
+          }
+
+          if (!token && !currentUser) {
+            if (!get().user) {
+              set({ user: null, isAuthenticated: false });
+            }
+            return get().user;
           }
 
           // If Firebase user is active, run syncProvider to update provider state with fresh ID token
-          const currentUser = auth().currentUser;
           if (currentUser) {
             try {
               const freshToken = await currentUser.getIdToken(true);
@@ -426,7 +435,7 @@ export const useAuthStore = create<AuthState>()(
           }
 
           const res = await usersApi.me();
-          if (res && res.user_uid) {
+          if (res && (res.user_uid || (res as any).id)) {
             const rawUser = { ...(res as any) };
             const hasFbGoogle = currentUser?.providerData?.some((p) => p.providerId === 'google.com');
             if (hasFbGoogle) {
@@ -446,10 +455,10 @@ export const useAuthStore = create<AuthState>()(
             });
             return sanitized;
           }
-          return null;
+          return get().user;
         } catch (err) {
           console.warn('[authStore] fetchUser failed:', err);
-          return null;
+          return get().user;
         }
       },
 
@@ -579,64 +588,21 @@ export const useAuthStore = create<AuthState>()(
       // ─── Google Sign-In ────────────────────────────────────────────────────
 
       loginWithGoogle: async (idToken: string) => {
-        // Clear any cached user from before the login
-        set({ isLoading: true, error: null, user: null, isAuthenticated: false });
+        // Do not reset user: null or isAuthenticated: false early
+        set({ isLoading: true, error: null });
         try {
           await checkNetwork();
           const firebaseToken = await firebaseGoogleSignIn(idToken);
           
-          let response: BackendLoginResponse;
-          try {
-            // One backend call: POST /auth/google with Firebase ID token in Authorization header
-            response = await authApi.loginWithGoogleAuth(firebaseToken);
-          } catch (syncErr: any) {
-            const status = syncErr?.response?.status ?? syncErr?.status;
-            const isFatalAuthError = status === 401 || status === 403;
+          // One backend call: POST /auth/google with Firebase ID token in Authorization header
+          const response = await authApi.loginWithGoogleAuth(firebaseToken);
 
-            if (isFatalAuthError) {
-              console.error(
-                `[authStore] Real auth failure during Google sign-in [${syncErr?.endpoint || 'POST ' + API_ROUTES.auth.google} ${status}]:`,
-                syncErr?.message
-              );
-              throw syncErr;
-            }
-
-            // Step 3: Failure handling (404, 5xx, or offline)
-            console.warn(
-              `[authStore] Non-blocking backend sync failure [${syncErr?.endpoint || 'POST ' + API_ROUTES.auth.google} ${status || 'OFFLINE'}]. Keeping user signed in via Firebase and queueing background retry.`
+          if (!response?.access_token || !response?.user) {
+            await firebaseSignOut().catch(() => {});
+            throw new AuthError(
+              'Unable to sign in with Google. Please try again.',
+              'INVALID_RESPONSE'
             );
-
-            const fbUser = auth().currentUser;
-            const googleProvider = fbUser?.providerData?.find((p) => p.providerId === 'google.com');
-            const googleId = googleProvider?.uid || fbUser?.uid || null;
-
-            const fallbackUser: RawUser = {
-              user_uid: fbUser?.uid || 'google_user',
-              user_name: fbUser?.displayName || null,
-              name: fbUser?.displayName || null,
-              email: fbUser?.email || null,
-              phone: fbUser?.phoneNumber || null,
-              role: 1,
-              email_verified: true,
-              mobile_verified: Boolean(fbUser?.phoneNumber),
-              profile_picture: fbUser?.photoURL || null,
-              google_id: googleId,
-              auth_provider: 'google',
-              providers: ['google'],
-              is_google_linked: true,
-              is_new_user: false,
-              created_at: new Date().toISOString(),
-            };
-
-            response = {
-              access_token: '',
-              refresh_token: '',
-              token_type: 'bearer',
-              user: fallbackUser as any,
-              is_new_user: false,
-            };
-
-            queueBackgroundSync(firebaseToken);
           }
 
           // Refetch fresh profile and update shared state before navigation
@@ -645,7 +611,9 @@ export const useAuthStore = create<AuthState>()(
             const meProfile = await usersApi.me();
             fullUserData = { ...response.user, ...meProfile };
           } catch (meErr) {
-            console.warn('[authStore] Failed to refetch /me profile on Google login:', meErr);
+            if (typeof __DEV__ !== 'undefined' && __DEV__) {
+              console.warn('[authStore] Failed to refetch /me profile on Google login:', meErr);
+            }
           }
 
           if (!fullUserData.auth_provider) fullUserData.auth_provider = 'google';
@@ -656,12 +624,39 @@ export const useAuthStore = create<AuthState>()(
           fullUserData.email_verified = true;
 
           const sanitized = sanitizeUser(fullUserData);
-          console.log('[authStore] Post-Google login verification status:', {
-            user_google_id: sanitized.google_id,
-            user_auth_provider: sanitized.auth_provider,
-            user_email_verified: sanitized.email_verified,
-            is_google_linked: sanitized.is_google_linked,
-            providers: sanitized.providers,
+
+          // Compute can_apply by checking publisher eligibility
+          let can_apply = false;
+          try {
+            const elig = await authApi.checkPublisherEligibility();
+            can_apply = Boolean(
+              (elig as any)?.can_apply ??
+              (elig as any)?.is_eligible ??
+              (elig as any)?.can_become_reporter ??
+              false
+            );
+          } catch {
+            const isEmailOk = Boolean(
+              sanitized.email_verified ||
+              sanitized.google_id ||
+              sanitized.auth_provider === 'google'
+            );
+            can_apply = Boolean(
+              isEmailOk &&
+              sanitized.mobile_verified &&
+              sanitized.name &&
+              sanitized.date_of_birth &&
+              sanitized.gender
+            );
+          }
+
+          // Requirement: Log user_id, auth_provider, email_verified, google_id, and can_apply
+          console.log('[authStore] Google login success:', {
+            user_id: sanitized.user_uid,
+            auth_provider: sanitized.auth_provider,
+            email_verified: sanitized.email_verified,
+            google_id: sanitized.google_id,
+            can_apply,
           });
 
           set({
@@ -674,6 +669,8 @@ export const useAuthStore = create<AuthState>()(
 
           return response;
         } catch (error: any) {
+          // If /user/auth/google returns 404 or 5xx, stay logged out, sign out of Firebase, and show a friendly retry message.
+          await firebaseSignOut().catch(() => {});
           const authError = handleAuthError(error, `POST ${API_ROUTES.auth.google}`);
           set({ isLoading: false, error: authError.message });
           throw authError;
@@ -688,48 +685,13 @@ export const useAuthStore = create<AuthState>()(
           await checkNetwork();
           const firebaseToken = await linkGoogleAccount(idToken);
           
-          let response: BackendLoginResponse;
-          try {
-            response = await authApi.loginWithGoogleAuth(firebaseToken);
-          } catch (syncErr: any) {
-            const status = syncErr?.response?.status ?? syncErr?.status;
-            const isFatalAuthError = status === 401 || status === 403;
+          const response = await authApi.loginWithGoogleAuth(firebaseToken);
 
-            if (isFatalAuthError) {
-              console.error(
-                `[authStore] Real auth failure during linkGoogle [${syncErr?.endpoint || 'POST ' + API_ROUTES.auth.google} ${status}]:`,
-                syncErr?.message
-              );
-              throw syncErr;
-            }
-
-            console.warn(
-              `[authStore] Non-blocking sync failure on linkGoogle [${syncErr?.endpoint || 'POST ' + API_ROUTES.auth.google} ${status || 'OFFLINE'}]. User kept linked in local state.`
+          if (!response?.access_token || !response?.user) {
+            throw new AuthError(
+              'Unable to link Google account. Please try again.',
+              'INVALID_RESPONSE'
             );
-
-            const current = get().user;
-            const fbUser = auth().currentUser;
-            const googleProvider = fbUser?.providerData?.find((p) => p.providerId === 'google.com');
-            const googleId = googleProvider?.uid || fbUser?.uid || null;
-
-            const fallbackUser: RawUser = {
-              ...(current as any),
-              google_id: googleId || current?.google_id || null,
-              auth_provider: 'google',
-              providers: [...(current?.providers || []).filter((p) => p !== 'google'), 'google'],
-              is_google_linked: true,
-              email_verified: true,
-            };
-
-            response = {
-              access_token: '',
-              refresh_token: '',
-              token_type: 'bearer',
-              user: fallbackUser as any,
-              is_new_user: false,
-            };
-
-            queueBackgroundSync(firebaseToken);
           }
 
           // Refetch fresh profile and update shared state
@@ -738,7 +700,9 @@ export const useAuthStore = create<AuthState>()(
             const meProfile = await usersApi.me();
             fullUserData = { ...response.user, ...meProfile };
           } catch (meErr) {
-            console.warn('[authStore] Failed to refetch /me profile on Google link:', meErr);
+            if (typeof __DEV__ !== 'undefined' && __DEV__) {
+              console.warn('[authStore] Failed to refetch /me profile on Google link:', meErr);
+            }
           }
 
           if (!fullUserData.auth_provider) fullUserData.auth_provider = 'google';
@@ -775,7 +739,7 @@ export const useAuthStore = create<AuthState>()(
 
       syncProvider: async (): Promise<User | null> => {
         try {
-          const currentUser = auth().currentUser;
+          const currentUser = getAuth().currentUser;
           if (!currentUser) return null;
           const freshIdToken = await currentUser.getIdToken(true);
           if (!freshIdToken) return null;
@@ -840,7 +804,7 @@ export const useAuthStore = create<AuthState>()(
           } catch (linkError: any) {
             if (isAlreadyLinkedError(linkError)) {
               console.log('📞 Phone already linked — OTP verified successfully');
-              const currentUser = auth().currentUser;
+              const currentUser = getAuth().currentUser;
               if (!currentUser) {
                 throw new AuthError('No authenticated user found', 'NO_USER');
               }
@@ -942,9 +906,29 @@ export const useAuthStore = create<AuthState>()(
       },
 
       updateProfileLocal: (updates: Partial<User>) => {
-        set((state) => ({
-          user: state.user ? sanitizeUser({ ...state.user, ...updates }) : null,
-        }));
+        set((state) => {
+          const merged = state.user ? { ...state.user, ...updates } : (updates as any);
+          const sanitized =
+            merged && (merged.user_uid || merged.id || merged.email || merged.phone || merged.name)
+              ? sanitizeUser(merged)
+              : state.user;
+
+          if (state.user && sanitized) {
+            let hasChange = false;
+            for (const key of Object.keys(updates) as (keyof User)[]) {
+              if (updates[key] !== undefined && (state.user as any)[key] !== (sanitized as any)[key]) {
+                hasChange = true;
+                break;
+              }
+            }
+            if (!hasChange) return state;
+          }
+
+          return {
+            user: sanitized,
+            ...(sanitized ? { isAuthenticated: true } : {}),
+          };
+        });
       },
 
       updateLanguage: (language: string) => {

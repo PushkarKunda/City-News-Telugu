@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { newsApi } from '@/services/api/news';
 import { useCommentCountStore } from '@/store/commentCountStore';
+import { uuid } from 'expo-modules-core';
 import type {
   NewsFilters,
   LocationNewsParams,
@@ -98,7 +99,6 @@ export function useBreakingNews() {
     queryKey: newsKeys.breaking,
     queryFn: () => newsApi.getBreaking(),
     staleTime: 1000 * 60,
-    refetchInterval: 1000 * 60 * 2,
   });
 }
 
@@ -138,11 +138,11 @@ export function useNewsShorts(language: string = 'te') {
 /**
  * GET /news/v1/news/:uid
  */
-export function useNewsArticle(uid: string | null) {
+export function useNewsArticle(uid: string | null, enabled = true) {
   return useQuery({
     queryKey: newsKeys.single(uid!),
     queryFn: () => newsApi.getById(uid!),
-    enabled: Boolean(uid),
+    enabled: enabled && Boolean(uid),
     staleTime: 1000 * 60 * 5,
   });
 }
@@ -150,11 +150,11 @@ export function useNewsArticle(uid: string | null) {
 /**
  * GET /news/v1/news/:uid/engagement
  */
-export function useNewsEngagement(uid: string | null) {
+export function useNewsEngagement(uid: string | null, enabled = true) {
   return useQuery({
     queryKey: newsKeys.engagement(uid!),
     queryFn: () => newsApi.getEngagement(uid!),
-    enabled: Boolean(uid),
+    enabled: enabled && Boolean(uid),
     staleTime: 1000 * 60 * 2,
   });
 }
@@ -165,7 +165,7 @@ export function useNewsEngagement(uid: string | null) {
  * Returns pages of CommentsPage. The UI flattens pages into a single list
  * and calls fetchNextPage() via FlatList onEndReached.
  */
-export function useNewsComments(uid: string | null) {
+export function useNewsComments(uid: string | null, enabled = true) {
   return useInfiniteQuery<CommentsPage, Error>({
     queryKey: newsKeys.comments(uid!),
     queryFn: ({ pageParam }) =>
@@ -173,7 +173,7 @@ export function useNewsComments(uid: string | null) {
     initialPageParam: 1,
     getNextPageParam: (lastPage) =>
       lastPage.has_more ? lastPage.page + 1 : undefined,
-    enabled: Boolean(uid),
+    enabled: enabled && Boolean(uid),
     staleTime: 1000 * 30, // 30 s
   });
 }
@@ -191,6 +191,7 @@ export function useCreateNews() {
   return useMutation({
     mutationFn: (payload: CreateNewsPayload) => newsApi.create(payload),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['screens', 'profile'] });
       queryClient.invalidateQueries({ queryKey: newsKeys.all });
     },
   });
@@ -211,6 +212,7 @@ export function useUpdateNews() {
       payload: UpdateNewsPayload;
     }) => newsApi.update(uid, payload),
     onSuccess: (_, { uid }) => {
+      queryClient.invalidateQueries({ queryKey: ['screens', 'profile'] });
       queryClient.invalidateQueries({ queryKey: newsKeys.single(uid) });
       queryClient.invalidateQueries({ queryKey: newsKeys.all });
     },
@@ -226,6 +228,7 @@ export function useDeleteNews() {
   return useMutation({
     mutationFn: (uid: string) => newsApi.delete(uid),
     onSuccess: (_, uid) => {
+      queryClient.invalidateQueries({ queryKey: ['screens', 'profile'] });
       queryClient.removeQueries({ queryKey: newsKeys.single(uid) });
       queryClient.invalidateQueries({ queryKey: newsKeys.all });
     },
@@ -285,6 +288,7 @@ export function useRecordShare() {
     mutationFn: ({ uid, platform }: { uid: string; platform?: string }) =>
       newsApi.recordShare(uid, platform),
     onSuccess: (_, { uid }) => {
+      queryClient.invalidateQueries({ queryKey: newsKeys.single(uid) });
       queryClient.invalidateQueries({ queryKey: newsKeys.engagement(uid) });
     },
   });
@@ -297,19 +301,25 @@ export function useAddComment() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({
-      uid,
-      comment_text,
-    }: {
+    mutationFn: (variables: {
       uid: string;
       comment_text: string;
       tempId?: number;
       userName?: string;
       userAvatar?: string;
-    }) => newsApi.addComment(uid, { comment_text }),
+      idempotency_key?: string;
+    }) => newsApi.addComment(variables.uid, {
+      comment_text: variables.comment_text,
+      idempotency_key: variables.idempotency_key,
+    }),
 
     // Optimistic update — works with InfiniteData<CommentsPage>
-    onMutate: async ({ uid, comment_text, tempId, userName, userAvatar }) => {
+    onMutate: async (variables) => {
+      // onMutate runs once per submission; React Query reuses these variables
+      // for automatic retries. Failed rows retain the key for manual Retry.
+      variables.idempotency_key ??= uuid.v4();
+      const { uid, comment_text, tempId, userName, userAvatar, idempotency_key } = variables;
+      await queryClient.cancelQueries({ queryKey: newsKeys.single(uid) });
       await queryClient.cancelQueries({ queryKey: newsKeys.comments(uid) });
 
       // Snapshot the whole infinite data object for rollback.
@@ -328,6 +338,7 @@ export function useAddComment() {
         created_at: new Date().toISOString(),
         likes_count: 0,
         status: 'sending',
+        idempotency_key,
       };
 
       // Prepend to the first page so it appears at the top of the list immediately.
@@ -377,39 +388,52 @@ export function useAddComment() {
       return { previousData, uid, tempId: targetTempId };
     },
 
-    onSuccess: (res, vars, context) => {
+    onSuccess: async (res, vars, context) => {
+      await queryClient.cancelQueries({ queryKey: newsKeys.comments(vars.uid) });
       const tempId = context?.tempId || vars.tempId;
-      const realId = res?.id || res?.data?.id || res?.comment?.id;
-      const realCreatedAt = res?.created_at || res?.data?.created_at || res?.comment?.created_at;
+      const confirmedComment: NewsComment = {
+        id: res.id,
+        user_uid: res.user_id,
+        user_name: res.user_name,
+        user_avatar: res.user_avatar,
+        comment_text: res.text,
+        created_at: res.created_at,
+        likes_count: 0,
+        status: 'sent',
+        idempotency_key: vars.idempotency_key,
+      };
 
-      // Sync confirmed count with shared store if returned by backend
-      const confirmedCount = res?.comments_count ?? res?.data?.comments_count;
-      if (typeof confirmedCount === 'number') {
-        useCommentCountStore.getState().setCount(vars.uid, confirmedCount);
-      }
+      useCommentCountStore.getState().setCount(vars.uid, res.comments_count);
 
-      // Replace the optimistic comment with confirmed real comment
+      // Replace temporary/realtime copies with the server's full comment.
+      // Also update page totals so the sheet cannot overwrite the new count
+      // with the old optimistic total.
       queryClient.setQueryData<{ pages: CommentsPage[]; pageParams: any[] }>(
         newsKeys.comments(vars.uid),
         (old) => {
-          if (!old || !old.pages) return old;
-          const pages = old.pages.map((p) => ({
+          if (!old?.pages?.length) {
+            return {
+              pages: [{ comments: [confirmedComment], page: 1, limit: 20, total: res.comments_count, has_more: res.comments_count > 1 }],
+              pageParams: [1],
+            };
+          }
+          const pages = old.pages.map((p, index) => ({
             ...p,
-            comments: p.comments.map((c) => {
-              if (c.id === tempId) {
-                return {
-                  ...c,
-                  id: realId || c.id,
-                  created_at: realCreatedAt || c.created_at,
-                  status: 'sent' as const,
-                };
-              }
-              return c;
-            }),
+            total: res.comments_count,
+            comments: [
+              ...(index === 0 ? [confirmedComment] : []),
+              ...p.comments.filter((c) => c.id !== tempId && c.id !== res.id),
+            ],
           }));
           return { ...old, pages };
         }
       );
+      queryClient.setQueryData(newsKeys.engagement(vars.uid), (old: any) => old ? {
+        ...old,
+        comments_count: res.comments_count,
+        total_comments: res.comments_count,
+        comments: res.comments_count,
+      } : old);
     },
 
     onError: (_err, vars, context) => {
@@ -467,6 +491,7 @@ export function useDeleteComment() {
     mutationFn: ({ uid, commentId }: { uid: string; commentId: number }) =>
       newsApi.deleteComment(uid, commentId),
     onMutate: async ({ uid, commentId }) => {
+      await queryClient.cancelQueries({ queryKey: newsKeys.single(uid) });
       await queryClient.cancelQueries({ queryKey: newsKeys.comments(uid) });
       const previousData = queryClient.getQueryData(newsKeys.comments(uid));
 
@@ -515,4 +540,4 @@ export function useDeleteComment() {
       queryClient.invalidateQueries({ queryKey: newsKeys.single(uid) });
     },
   });
-}
+}

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
@@ -10,6 +10,7 @@ import { Typography } from '@/constants/Typography';
 import { useCategoriesAll, useDistrictsList } from '@/hooks/useApi';
 import { useTrendingNews, usePopularNews } from '@/hooks/useNews';
 import { useDiscoverySearch, useTrendingHashtags, useHashtagSuggestions } from '@/hooks/useDiscovery';
+import { useDiscoverScreen } from '@/hooks/useScreens';
 import { useAuthStore } from '@/store/authStore';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useRouter } from 'expo-router';
@@ -49,7 +50,34 @@ export default function DiscoverScreen() {
 
   const user = useAuthStore(state => state.user);
 
-  // Fetch Server Data
+  // Single aggregate endpoint for Discover Screen (1 call vs 5 individual calls)
+  const {
+    data: discoverScreenData,
+    isLoading: isLoadingDiscoverAggregate,
+  } = useDiscoverScreen({ limit: 10 });
+
+  useEffect(() => {
+    const t0 = Date.now();
+    console.log('[PERF][Screen:Discover] Initializing with aggregate endpoint GET /screens/discover (1 call vs 5 individual calls)');
+    return () => {
+      console.log(`[PERF][Screen:Discover] Screen active duration: ${Date.now() - t0}ms`);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (discoverScreenData) {
+      console.log('[PERF][Screen:Discover] Aggregate payload hydrated successfully:', {
+        trending_count: discoverScreenData.trending_news?.length ?? 0,
+        hashtags_count: discoverScreenData.trending_hashtags?.length ?? 0,
+        categories_count: discoverScreenData.categories?.length ?? 0,
+        popular_count: discoverScreenData.popular_news?.length ?? 0,
+        districts_count: discoverScreenData.districts?.length ?? 0,
+        errors: discoverScreenData.errors,
+      });
+    }
+  }, [discoverScreenData]);
+
+  // Fetch Server Data - read from seeded React Query cache
   const { data: trendingNews = [], isLoading: isLoadingTrending } = useTrendingNews();
   const { data: trendingHashtags = [], isLoading: isLoadingTrendingHashtags } = useTrendingHashtags();
   const { data: categories = [], isLoading: isLoadingCategories } = useCategoriesAll();
@@ -60,7 +88,7 @@ export default function DiscoverScreen() {
   const { data: searchResults = [], isLoading: isSearching } = useDiscoverySearch(searchQuery);
   const { data: hashtagSuggestions = [] } = useHashtagSuggestions(searchQuery);
 
-  const isLoading = isLoadingTrending || isLoadingCategories || isLoadingPopular || isLoadingDistricts || isLoadingTrendingHashtags;
+  const isLoading = (isLoadingDiscoverAggregate && (isLoadingTrending || isLoadingCategories || isLoadingPopular)) || isLoadingDistricts || isLoadingTrendingHashtags;
 
   // Extract unique sources dynamically from Popular News
   const sources = React.useMemo(() => {

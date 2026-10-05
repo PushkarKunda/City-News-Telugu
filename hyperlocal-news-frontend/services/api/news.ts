@@ -34,6 +34,8 @@ export interface NewsArticle {
   title: string;
   summary: string;
   image_url?: string;
+  original_image_url?: string | null;
+  thumbnail_url?: string | null;
   created_at: string;
   views: number;
   likes: number;
@@ -166,6 +168,7 @@ export interface NewsComment {
   likes_count: number;
   is_liked?: boolean;
   status?: 'sending' | 'sent' | 'failed';
+  idempotency_key?: string;
   user_display_name?: string;
   username?: string;
   author_name?: string;
@@ -199,6 +202,17 @@ export interface CreateCommentPayload {
   comment_text: string;
   idempotency_key?: string;
   request_id?: string;
+}
+
+export interface CreatedCommentResponse {
+  id: number;
+  article_id: string;
+  user_id: string;
+  user_name: string;
+  text: string;
+  created_at: string;
+  comments_count: number;
+  user_avatar?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -537,44 +551,20 @@ export const newsApi = {
 
   /**
    * POST /news/v1/user/news/:uid/comment
-   * Body: { comment_text: string }
-   * Returns: string (success message)
-  /**
-   * POST /news/v1/user/news/:uid/comment
+   * Returns the created comment and authoritative count (HTTP 201).
    */
   addComment: async (
     uid: string,
     payload: CreateCommentPayload
-  ): Promise<any> => {
-    try {
-      return await request<any>({
-        url: API_ROUTES.news.comment(uid),
-        method: 'POST',
-        data: payload,
-      });
-    } catch (err: any) {
-      console.warn('Comment POST failed, verifying database persistence...', err?.message);
-      // Check if comment was persisted despite 500 error
-      try {
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        const commentsRes = await newsApi.getComments(uid, 1, 15);
-        const textToMatch = (payload.comment_text || (payload as any).text || '').trim();
-        const matchingComment = commentsRes?.comments?.find(
-          (c: any) => c.comment_text?.trim() === textToMatch
-        );
-        if (matchingComment) {
-          console.log('Comment verified in DB despite backend error:', matchingComment);
-          return {
-            ...matchingComment,
-            verifiedInDb: true,
-            comments_count: commentsRes?.total ?? undefined,
-          };
-        }
-      } catch (verifyErr) {
-        console.warn('Failed to verify comment in DB:', verifyErr);
-      }
-      throw err;
-    }
+  ): Promise<CreatedCommentResponse> => {
+    return await request<CreatedCommentResponse>({
+      url: API_ROUTES.news.comment(uid),
+      method: 'POST',
+      headers: payload.idempotency_key
+        ? { 'Idempotency-Key': payload.idempotency_key }
+        : undefined,
+      data: payload,
+    });
   },
 
   /**

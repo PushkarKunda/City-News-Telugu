@@ -27,7 +27,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { CreateArticleModal } from '@/components/CreateArticleModal';
 import { useCreateNews, useDeleteNews } from '@/hooks/useNews';
 import { useDeletePost } from '@/hooks/usePosts';
-import { useBookmarks } from '@/hooks/useEngagement';
+import { useProfileScreen } from '@/hooks/useScreens';
 import { usersApi, postsApi, type DashboardResponse } from '@/services/api';
 import type { Post } from '@/services/api/posts';
 import { compressImage } from '@/services/image';
@@ -46,7 +46,67 @@ export default function ProfileScreen() {
 
   // ─── Dashboard Data ──────────────────────────────────────────────────────
   const [dashboardData, setDashboardData] = useState<DashboardResponse | null>(null);
-  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
+
+  // Single aggregate endpoint for Profile Screen (1 call vs 4+ calls)
+  const {
+    data: profileScreenData,
+    isLoading: isLoadingProfileAggregate,
+    isError: profileScreenError,
+    refetch: refetchProfileScreen,
+  } = useProfileScreen();
+
+  const [isLoadingLocalDashboard, setIsLoadingLocalDashboard] = useState(false);
+  const isLoadingProfile = isLoadingProfileAggregate || (isLoadingLocalDashboard && !dashboardData);
+
+  // Direct dashboard loader as bulletproof fallback
+  const loadDashboard = React.useCallback(async () => {
+    try {
+      setIsLoadingLocalDashboard(true);
+      const [freshUser, dbResponse] = await Promise.allSettled([
+        fetchUser(),
+        usersApi.dashboard({ detailed: true, page: 1, limit: 20, recent_limit: 5 }),
+      ]);
+      if (dbResponse.status === 'fulfilled' && dbResponse.value) {
+        setDashboardData(dbResponse.value);
+      }
+    } catch (err) {
+      console.warn('[profile] Direct loadDashboard fallback error:', err);
+    } finally {
+      setIsLoadingLocalDashboard(false);
+    }
+  }, [fetchUser]);
+
+  useEffect(() => {
+    void loadDashboard();
+  }, [loadDashboard]);
+
+  useEffect(() => {
+    const t0 = Date.now();
+    console.log('[PERF][Screen:Profile] Initializing with aggregate endpoint GET /screens/profile (1 call vs 4+ individual calls)');
+    return () => {
+      console.log(`[PERF][Screen:Profile] Screen session duration: ${Date.now() - t0}ms`);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (profileScreenData) {
+      console.log('[PERF][Screen:Profile] Aggregate payload hydrated successfully:', {
+        has_user: Boolean(profileScreenData.user),
+        has_dashboard: Boolean(profileScreenData.dashboard),
+        posts_count: profileScreenData.posts?.length ?? 0,
+        has_bookmarks: Boolean(profileScreenData.bookmarks),
+        has_rewards: Boolean(profileScreenData.rewards),
+        errors: profileScreenData.errors,
+      });
+
+      if (profileScreenData.dashboard) {
+        setDashboardData(profileScreenData.dashboard);
+      }
+      if (profileScreenData.posts && profileScreenData.posts.length > 0) {
+        setPosts(profileScreenData.posts);
+      }
+    }
+  }, [profileScreenData]);
 
   // ─── UI State ────────────────────────────────────────────────────────────
   const [isMenuVisible, setIsMenuVisible] = useState(false);
@@ -83,9 +143,8 @@ export default function ProfileScreen() {
     );
   };
 
-  // ✅ API hooks - Fetch BOTH content types
-  const { data: newsBookmarks = [] } = useBookmarks('news');
-  const { data: postBookmarks = [] } = useBookmarks('post');
+  const newsBookmarks = profileScreenData?.bookmarks?.news ?? [];
+  const postBookmarks = profileScreenData?.bookmarks?.posts ?? [];
 
   // ✅ Combine bookmarks
   const allBookmarks = [...newsBookmarks, ...postBookmarks];
@@ -105,7 +164,7 @@ export default function ProfileScreen() {
   const [postCaption, setPostCaption] = useState('');
   const [postCoverImage, setPostCoverImage] = useState('');
   const [posts, setPosts] = useState<Post[]>([]);
-  const [isLoadingPosts, setIsLoadingPosts] = useState(false);
+  const isLoadingPosts = isLoadingProfileAggregate;
   const [isPublishingPost, setIsPublishingPost] = useState(false);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [comments, setComments] = useState<any[]>([]);
@@ -193,32 +252,25 @@ export default function ProfileScreen() {
     }
   };
 
-  const loadUserPosts = async () => {
-    if (!user?.user_uid) return;
-    setIsLoadingPosts(true);
-    try {
-      const response = await postsApi.getUserPosts(user.user_uid);
-      setPosts(response.posts || []);
-    } catch (error) {
-      console.error('[profile] Failed to load user posts:', error);
-    } finally {
-      setIsLoadingPosts(false);
-    }
-  };
-
   // ─── Publisher Application State ─────────────────────────────────────────
   const [isApplyingPublisher, setIsApplyingPublisher] = useState(false);
 
   // ─── Derived from Dashboard ───────────────────────────────────────────────
 
-  const displayName = dashboardData?.user.name || user?.name || 'User';
-  const userHandle = '@' + (dashboardData?.user.user_name || user?.user_name || 'user');
-  const userLocation = dashboardData?.user.location || 'Set Location';
-  const followersCount = dashboardData?.user.followers_count ?? 0;
-  const followingCount = dashboardData?.user.following_count ?? 0;
-  const profileCompletion = dashboardData?.user.profile_completion ?? 0;
-  const unreadNotifications = dashboardData?.user.unread_notifications ?? 0;
-  const joinedDate = dashboardData?.user.joined_date ?? (
+  const displayName = dashboardData?.user?.name || user?.name || user?.user_name || 'User';
+  const userHandle = '@' + (dashboardData?.user?.user_name || user?.user_name || 'user');
+  const userLocation =
+    dashboardData?.user?.location ||
+    user?.district ||
+    user?.state ||
+    user?.district_name ||
+    user?.state_name ||
+    'Set Location';
+  const followersCount = dashboardData?.user?.followers_count ?? 0;
+  const followingCount = dashboardData?.user?.following_count ?? 0;
+  const profileCompletion = dashboardData?.user?.profile_completion ?? 0;
+  const unreadNotifications = dashboardData?.user?.unread_notifications ?? 0;
+  const joinedDate = dashboardData?.user?.joined_date ?? (
     user?.created_at
       ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
       : 'Recently'
@@ -226,7 +278,7 @@ export default function ProfileScreen() {
 
   // ─── Publisher / CTA ──────────────────────────────────────────────────────
 
-  const isPublisher = dashboardData?.user.is_publisher ?? user?.isPublisher ?? false;
+  const isPublisher = dashboardData?.user?.is_publisher ?? user?.isPublisher ?? false;
   const verifiedEmail = isEmailVerified(user);
   const isGoogleLinked = isUserGoogleLinked(user);
   const rawMissingRequirements = dashboardData?.publisher_cta?.missing_requirements ?? [];
@@ -254,78 +306,29 @@ export default function ProfileScreen() {
   // ─── Avatar ───────────────────────────────────────────────────────────────
 
   const avatarUri =
-    dashboardData?.user.profile_picture ||
+    dashboardData?.user?.profile_picture ||
     user?.profile_picture ||
     user?.avatar ||
     'https://placehold.co/200x200/E2E8F0/E2E8F0?text=U';
 
-  // ─── Load Dashboard ───────────────────────────────────────────────────────
-
-  const loadDashboard = async () => {
-    setIsLoadingProfile(true);
-    try {
-      const dashboardResponse = await usersApi.dashboard({
-        detailed: true,
-        page: 1,
-        limit: 20,
-        recent_limit: 5,
-      });
-
-      setDashboardData(dashboardResponse);
-
-      const isVerified = isEmailVerified(user);
-      const isLinked = isUserGoogleLinked(user);
-      const rawMissing = dashboardResponse?.publisher_cta?.missing_requirements ?? [];
-      const filteredMissing = rawMissing.filter(
-        (req: string) => req !== 'email_verified' || !isVerified
-      );
-      const canApply = Boolean(dashboardResponse?.publisher_cta?.can_apply) || (
-        filteredMissing.length === 0 && Boolean(dashboardResponse?.publisher_cta?.show_cta)
-      );
-
-      console.log('[profile:PublisherTab] Load Dashboard & Eligibility Check:', {
-        user_google_id: user?.google_id,
-        user_auth_provider: user?.auth_provider,
-        user_email_verified: isVerified,
-        is_google_linked: isLinked,
-        can_apply: canApply,
-        filtered_missing: filteredMissing,
-        raw_missing: rawMissing,
-      });
-
-      // ✅ Sync auth store with latest profile from dashboard
-      updateProfileLocal({
-        name: dashboardResponse.user.name,
-        user_name: dashboardResponse.user.user_name,
-        avatar: dashboardResponse.user.profile_picture,
-        profile_picture: dashboardResponse.user.profile_picture,
-        isPublisher: dashboardResponse.user.is_publisher,
-        role: dashboardResponse.user.role,
-      });
-
-    } catch (error: any) {
-      console.error('[profile] Failed to load dashboard:', error);
-      // ✅ Silently fail — fallback to store data
-    } finally {
-      setIsLoadingProfile(false);
-    }
-  };
-
-  useEffect(() => {
-    loadDashboard();
-    loadUserPosts();
-  }, [user?.user_uid, user?.email_verified, user?.is_google_linked, user?.google_id, user?.auth_provider]);
-
   // ✅ Refresh user & publisher status whenever Publisher tab opens
   useEffect(() => {
     if (activeTab === 'publisher') {
-      console.log('[profile:PublisherTab] Active tab is publisher -> refetching user and publisher status...');
-      void (async () => {
-        await fetchUser();
-        await loadDashboard();
-      })();
+      void refetchProfileScreen();
+      void loadDashboard();
     }
-  }, [activeTab]);
+  }, [activeTab, loadDashboard, refetchProfileScreen]);
+
+  // Fallback for user posts if not populated yet
+  useEffect(() => {
+    if (user?.user_uid && posts.length === 0) {
+      postsApi.getUserPosts(user.user_uid).then((res) => {
+        if (res?.posts && res.posts.length > 0) {
+          setPosts(res.posts);
+        }
+      }).catch(() => {});
+    }
+  }, [user?.user_uid, posts.length]);
 
   // ─── Avatar Upload ────────────────────────────────────────────────────────
 
@@ -650,6 +653,11 @@ export default function ProfileScreen() {
       </View>
 
       {/* Loading Overlay */}
+      {(profileScreenError || Object.keys(profileScreenData?.errors ?? {}).length > 0) && (
+        <TouchableOpacity onPress={() => refetchProfileScreen()} style={{ padding: 16 }}>
+          <Text style={{ color: colors.textSecondary }}>Some profile sections could not load. Tap to retry.</Text>
+        </TouchableOpacity>
+      )}
       {isLoadingProfile && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color={colors.primary} />
@@ -1081,7 +1089,7 @@ export default function ProfileScreen() {
                     onPress={() => setSelectedPost(post)}
                   >
                     <ExpoImage
-                      source={{ uri: post.image_url || 'https://placehold.co/200x200/E2E8F0/E2E8F0?text=Post' }}
+                      source={{ uri: post.image_url || 'https://placehold.co/200x200/E2E8F0/E2E8F0?text=Post', headers: { Accept: 'image/webp,image/*;q=0.8' } }}
                       style={styles.postImage}
                       contentFit="cover"
                       transition={200}
@@ -1192,21 +1200,21 @@ export default function ProfileScreen() {
                 {allBookmarks.map((bookmark) => {
                   // ✅ Handle both news and post content types
                   const isNews = bookmark.content_type === 'news';
-                  const content = isNews ? bookmark.news : bookmark.post;
+                  const content = bookmark.content || (isNews ? bookmark.news : bookmark.post);
 
                   if (!content) return null;
 
                   const imageUrl = isNews
                     ? content.image_url
-                    : content.images?.[0]?.image_url;
+                    : content.image_url || content.images?.[0]?.image_url;
 
                   const likesCount = isNews
                     ? content.likes || 0
-                    : content.like_count || 0;
+                    : content.like_count ?? content.likes ?? 0;
 
                   const commentsCount = isNews
                     ? content.comments || 0
-                    : content.comment_count || 0;
+                    : content.comment_count ?? content.comments ?? 0;
 
                   return (
                     <TouchableOpacity
@@ -1224,7 +1232,8 @@ export default function ProfileScreen() {
                     >
                       <Image
                         source={{
-                          uri: imageUrl || 'https://placehold.co/200x200/E2E8F0/E2E8F0?text=Saved'
+                          uri: imageUrl || 'https://placehold.co/200x200/E2E8F0/E2E8F0?text=Saved',
+                          headers: { Accept: 'image/webp,image/*;q=0.8' },
                         }}
                         style={styles.postImage}
                       />

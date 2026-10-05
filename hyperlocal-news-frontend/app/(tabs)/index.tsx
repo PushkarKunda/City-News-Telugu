@@ -23,18 +23,22 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useAuthStore } from '@/store/authStore';
+import { useShallow } from 'zustand/react/shallow';
 import { useTabBarStore } from '@/store/tabBarStore';
 import { useReaderFontStore } from '@/store/readerFontStore';
-import { useCommentCountStore } from '@/store/commentCountStore';
 import { CommentsModal } from '@/components/CommentsModal';
 import { DistrictPickerModal, SelectedDistrictPayload } from '@/components/DistrictPickerModal';
 import { CategoryExplorerModal } from '@/components/CategoryExplorerModal';
 import { FontSizeModal } from '@/components/FontSizeModal';
 import { useActivePolls } from '@/hooks/usePolls';
+import { useHomeScreen } from '@/hooks/useScreens';
 import { usersApi } from '@/services/api/users';
 
 const FOR_YOU_ID = 'for-you' as const;
 type CategoryId = typeof FOR_YOU_ID | number;
+
+const HOME_SCREEN_PARAMS = { limit: 50 };
+const NEWS_FEED_PARAMS = { limit: 50 };
 
 export default function HomeScreen() {
   const colorScheme = useAppColorScheme();
@@ -42,8 +46,21 @@ export default function HomeScreen() {
   const isDark = colorScheme === 'dark';
   const router = useRouter();
   const navigation = useNavigation();
-  const { user, cachedPreferences, fetchPreferences, updateCachedPreferences } =
-    useAuthStore();
+
+  // Fine-grained primitive & shallow selectors to prevent unnecessary re-renders
+  const userDistrict = useAuthStore((s) => s.user?.district);
+  const userState = useAuthStore((s) => s.user?.state);
+  const prefDistrictName = useAuthStore((s) => s.cachedPreferences?.district_name);
+  const prefStateName = useAuthStore((s) => s.cachedPreferences?.state_name);
+  const prefStateId = useAuthStore((s) => s.cachedPreferences?.state_id ?? 1);
+  const prefLanguageId = useAuthStore((s) => s.cachedPreferences?.language_id ?? 1);
+  const prefCategoryIds = useAuthStore(useShallow((s) => s.cachedPreferences?.category_ids ?? null));
+  const fetchPreferences = useAuthStore((s) => s.fetchPreferences);
+  const updateCachedPreferences = useAuthStore((s) => s.updateCachedPreferences);
+
+  const currentDistrictName = prefDistrictName || userDistrict;
+  const currentStateName = prefStateName || userState;
+
   const { height: screenHeight } = useWindowDimensions();
 
   const [isDistrictModalVisible, setIsDistrictModalVisible] = useState(false);
@@ -52,12 +69,11 @@ export default function HomeScreen() {
   useEffect(() => {
     // Fetch user preferences in the background to ensure header location is up-to-date
     fetchPreferences().catch((err) => console.log('Failed to fetch preferences', err));
-  }, [fetchPreferences]);
+  }, []);
   const insets = useSafeAreaInsets();
   const setTabBarVisible = useTabBarStore((s) => s.setVisible);
   const isFontModalOpen = useReaderFontStore((s) => s.isModalOpen);
   const closeFontModal = useReaderFontStore((s) => s.closeModal);
-  const commentCounts = useCommentCountStore((s) => s.counts);
 
   const topBarHeight = 60;
   const categoriesHeight = 46;
@@ -87,24 +103,51 @@ export default function HomeScreen() {
   }, [activeCategory]);
 
   // ─── Data ─────────────────────────────────────────────────────────────
+  // Single aggregate endpoint for Home Screen: seeds categories, polls, feed, bookmarks & prefs
+  const {
+    data: homeScreenData,
+    isLoading: isLoadingHomeScreen,
+    refetch: refetchHomeScreen,
+    isRefetching: isRefetchingHomeScreen,
+  } = useHomeScreen(HOME_SCREEN_PARAMS);
 
-  // Dynamic categories from backend - excludes "Local" (has its own tab)
+  // Performance telemetry logging (before: 5 roundtrips, after: 1 aggregate roundtrip)
+  useEffect(() => {
+    const t0 = Date.now();
+    console.log('[PERF][Screen:Home] Initializing with aggregate endpoint GET /screens/home (1 call vs 5 individual calls)');
+    return () => {
+      console.log(`[PERF][Screen:Home] Screen active duration: ${Date.now() - t0}ms`);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (homeScreenData) {
+      console.log('[PERF][Screen:Home] Aggregate payload hydrated successfully:', {
+        categories: homeScreenData.categories?.length ?? 0,
+        active_polls: homeScreenData.active_polls?.length ?? 0,
+        feed_items: homeScreenData.feed?.items?.length ?? 0,
+        has_bookmarks: Boolean(homeScreenData.bookmarks),
+        has_preferences: Boolean(homeScreenData.preferences),
+        errors: homeScreenData.errors,
+      });
+    }
+  }, [homeScreenData]);
+
+  // Dynamic categories from backend - read from seeded React Query cache
   const { data: categoriesData = [], isLoading: isLoadingCategories } =
     useCategories();
 
-  // Active public opinion polls
+  // Active public opinion polls - read from seeded React Query cache
   const { data: activePolls = [] } = useActivePolls();
 
-  // "For You" = full mixed feed (news + ads + sponsored) as API returns
+  // "For You" = full mixed feed (news + ads + sponsored) - read from seeded React Query cache
   const {
     data: forYouFeed,
     isLoading: isLoadingFeed,
     isError: isErrorFeed,
     refetch: refetchFeed,
     isRefetching: isRefetchingFeed,
-  } = useNewsFeed({
-    limit: 50,
-  });
+  } = useNewsFeed(NEWS_FEED_PARAMS);
 
   // Category tab news (pure news only, no ads)
   const {
@@ -117,15 +160,16 @@ export default function HomeScreen() {
     typeof activeCategory === 'number' ? activeCategory : null
   );
 
-  const isRefreshing = isRefetchingFeed || isRefetchingCategoryNews;
+  const isRefreshing = isRefetchingHomeScreen || isRefetchingFeed || isRefetchingCategoryNews;
 
   const handleRefresh = useCallback(() => {
     if (activeCategory === FOR_YOU_ID) {
+      refetchHomeScreen();
       refetchFeed();
     } else {
       refetchCategoryNews();
     }
-  }, [activeCategory, refetchFeed, refetchCategoryNews]);
+  }, [activeCategory, refetchHomeScreen, refetchFeed, refetchCategoryNews]);
 
   // Bookmarks - used to show filled/outline bookmark icon
   const { data: rawNewsBookmarks = [] } = useBookmarks('news');
@@ -184,18 +228,21 @@ export default function HomeScreen() {
     }).start();
   }, [setTabBarVisible, headerAnim]);
 
+  const showHeaderRef = useRef(showHeader);
+  showHeaderRef.current = showHeader;
+
   const handleToggleUI = useCallback(() => {
     if (isHeaderVisible.current) {
-      hideHeader();
+      hideHeaderRef.current?.();
     } else {
-      showHeader();
+      showHeaderRef.current?.();
     }
-  }, [hideHeader, showHeader]);
+  }, []);
 
   // On screen focus or initial mount, show header briefly then auto-hide for full immersion
   useEffect(() => {
     const unsub = navigation.addListener('focus', () => {
-      showHeader();
+      showHeaderRef.current?.();
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
       hideTimerRef.current = setTimeout(() => {
         hideHeaderRef.current?.();
@@ -212,7 +259,7 @@ export default function HomeScreen() {
         clearTimeout(hideTimerRef.current);
       }
     };
-  }, [navigation, showHeader]);
+  }, [navigation]);
 
   // ─── Derived ──────────────────────────────────────────────────────────
 
@@ -329,8 +376,8 @@ export default function HomeScreen() {
           state_id: item.stateId,
           district_id: item.districtId,
           city_id: null,
-          language_id: cachedPreferences?.language_id ?? 1,
-          category_ids: cachedPreferences?.category_ids ?? null,
+          language_id: prefLanguageId,
+          category_ids: prefCategoryIds,
         });
       } catch (e) {
         console.log('Background updatePreferences error:', e);
@@ -339,7 +386,7 @@ export default function HomeScreen() {
       // 3. Refetch the feed to load local news for newly selected district
       refetchFeed();
     },
-    [cachedPreferences, updateCachedPreferences, refetchFeed]
+    [prefLanguageId, prefCategoryIds, updateCachedPreferences, refetchFeed]
   );
 
   const handleOpenComments = useCallback((uid: string) => {
@@ -361,9 +408,9 @@ export default function HomeScreen() {
           if (Platform.OS !== 'web') {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           }
+          // Auto-hide header and footer when user changes news cards
+          hideHeaderRef.current?.();
         }
-        // Auto-hide header and footer when user is browsing news cards
-        hideHeaderRef.current?.();
       }
     }
   ).current;
@@ -471,10 +518,8 @@ export default function HomeScreen() {
               />
               <Text style={[styles.locationText, { color: colors.textSecondary }]}>
                 {(() => {
-                  const dist = cachedPreferences?.district_name || user?.district;
-                  const st = cachedPreferences?.state_name || user?.state;
-                  if (dist) return `${dist.toUpperCase()}, ${st?.toUpperCase() ?? ''}`;
-                  if (st) return st.toUpperCase();
+                  if (currentDistrictName) return `${currentDistrictName.toUpperCase()}, ${currentStateName?.toUpperCase() ?? ''}`;
+                  if (currentStateName) return currentStateName.toUpperCase();
                   return 'SELECT LOCATION';
                 })()}
               </Text>
@@ -586,7 +631,7 @@ export default function HomeScreen() {
       <View
         style={styles.feedWrapper}
         onLayout={(e) => {
-          const h = e.nativeEvent.layout.height;
+          const h = Math.round(e.nativeEvent.layout.height);
           if (h > 0 && Math.abs(h - scrollHeight) > 1) {
             setScrollHeight(h);
           }
@@ -700,7 +745,6 @@ export default function HomeScreen() {
             data={feedItems}
             keyExtractor={keyExtractor}
             renderItem={renderFeedItem}
-            extraData={commentCounts}
             pagingEnabled={true}
             showsVerticalScrollIndicator={false}
             decelerationRate="fast"
@@ -732,8 +776,8 @@ export default function HomeScreen() {
         <DistrictPickerModal
           visible={isDistrictModalVisible}
           onClose={() => setIsDistrictModalVisible(false)}
-          currentDistrictName={cachedPreferences?.district_name || user?.district}
-          currentStateId={cachedPreferences?.state_id ?? 1}
+          currentDistrictName={currentDistrictName}
+          currentStateId={prefStateId}
           onSelectDistrict={handleSelectDistrict}
           onOpenAdvancedSettings={() => router.push('/(tabs)/settings-location')}
         />

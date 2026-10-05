@@ -29,7 +29,8 @@ export function useBookmarks(contentType: ContentType) {
  */
 export function useCheckBookmark(
   contentUid: string | null,
-  contentType: ContentType
+  contentType: ContentType,
+  enabled = true,
 ) {
   return useQuery({
     queryKey: engagementKeys.checkBookmark(contentUid!, contentType),
@@ -37,7 +38,7 @@ export function useCheckBookmark(
       if (!contentUid) throw new Error('Content UID required');
       return engagementApi.checkBookmark(contentUid, contentType);
     },
-    enabled: Boolean(contentUid),
+    enabled: enabled && Boolean(contentUid),
     staleTime: 1000 * 60 * 5,
   });
 }
@@ -62,6 +63,9 @@ export function useAddBookmark() {
       return engagementApi.addBookmark(contentUid, contentType);
     },
     onMutate: async ({ contentUid, contentType }) => {
+      if (contentType === 'news') {
+        await queryClient.cancelQueries({ queryKey: ['news', 'single', contentUid] });
+      }
       await queryClient.cancelQueries({
         queryKey: engagementKeys.bookmarks(contentType),
       });
@@ -106,7 +110,11 @@ export function useAddBookmark() {
         );
       }
     },
-    onSuccess: (_data, { contentType }) => {
+    onSuccess: (_data, { contentType, contentUid }) => {
+      if (contentType === 'news') {
+        queryClient.invalidateQueries({ queryKey: ['news', 'single', contentUid] });
+      }
+      queryClient.invalidateQueries({ queryKey: ['screens', 'profile'] });
       queryClient.invalidateQueries({
         queryKey: engagementKeys.bookmarks(contentType),
       });
@@ -132,6 +140,9 @@ export function useRemoveBookmark() {
       return engagementApi.removeBookmark(contentUid, contentType);
     },
     onMutate: async ({ contentUid, contentType }) => {
+      if (contentType === 'news') {
+        await queryClient.cancelQueries({ queryKey: ['news', 'single', contentUid] });
+      }
       await queryClient.cancelQueries({
         queryKey: engagementKeys.bookmarks(contentType),
       });
@@ -176,7 +187,11 @@ export function useRemoveBookmark() {
         );
       }
     },
-    onSuccess: (_data, { contentType }) => {
+    onSuccess: (_data, { contentType, contentUid }) => {
+      if (contentType === 'news') {
+        queryClient.invalidateQueries({ queryKey: ['news', 'single', contentUid] });
+      }
+      queryClient.invalidateQueries({ queryKey: ['screens', 'profile'] });
       queryClient.invalidateQueries({
         queryKey: engagementKeys.bookmarks(contentType),
       });

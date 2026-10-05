@@ -27,7 +27,6 @@ import { Colors } from '@/constants/Colors';
 import * as ImagePicker from 'expo-image-picker';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useGoogleFirebaseAuth } from '@/hooks/useGoogleFirebaseAuth';
-import auth from '@react-native-firebase/auth';
 import { statusCodes } from '@react-native-google-signin/google-signin';
 import { usersApi, authApi, type UserMeResponse, type UpdateMePayload } from '@/services/api';
 import { compressImage } from '@/services/image';
@@ -144,59 +143,56 @@ export default function ProfileCompletionScreen() {
 
   useEffect(() => {
     const loadProfile = async () => {
-      // ✅ For onboarding: use user from store (already set)
-      if (!isOnboarded) {
-        setName(user?.name ?? '');
-        setPhoneNumber(user?.phoneNumber ?? user?.phone ?? '');
-        setEmail(user?.email ?? '');
-        setGender(user?.gender ?? '');
-        setDob(user?.date_of_birth ?? '');
-        setSelectedAvatar(user?.profile_picture ?? user?.avatar ?? '');
-        return;
+      // 1. Immediately prefill from store so UI is instantly responsive
+      if (user) {
+        setName((prev) => prev || user.name || '');
+        setPhoneNumber((prev) => prev || user.phoneNumber || user.phone || '');
+        setEmail((prev) => prev || user.email || '');
+        setGender((prev) => prev || user.gender || '');
+        setDob((prev) =>
+          prev || (user.date_of_birth
+            ? new Date(user.date_of_birth).toISOString().split('T')[0]
+            : '')
+        );
+        setSelectedAvatar((prev) => prev || user.profile_picture || user.avatar || '');
       }
 
-      // ✅ For edit mode: fetch fresh from API
+      // 2. Fetch fresh user profile from API to ensure backend data is synced
       setIsLoadingProfile(true);
       try {
         const freshUser: UserMeResponse = await usersApi.me();
+        if (freshUser) {
+          setName((prev) => prev || freshUser.name || '');
+          setPhoneNumber((prev) => prev || freshUser.phone || '');
+          setEmail((prev) => prev || freshUser.email || '');
+          setGender((prev) => prev || freshUser.gender || '');
+          setDob((prev) =>
+            prev || (freshUser.date_of_birth
+              ? new Date(freshUser.date_of_birth).toISOString().split('T')[0]
+              : '')
+          );
+          setSelectedAvatar((prev) => prev || freshUser.profile_picture || '');
 
-        setName(freshUser.name ?? '');
-        setPhoneNumber(freshUser.phone ?? '');
-        setEmail(freshUser.email ?? '');
-        setGender(freshUser.gender ?? '');
-        setDob(
-          freshUser.date_of_birth
-            ? new Date(freshUser.date_of_birth).toISOString().split('T')[0]
-            : ''
-        );
-        setSelectedAvatar(freshUser.profile_picture ?? '');
-
-        // ✅ Update store with fresh data
-        updateProfileLocal({
-          name: freshUser.name,
-          phone: freshUser.phone,
-          phoneNumber: freshUser.phone,
-          email: freshUser.email,
-          profile_picture: freshUser.profile_picture,
-          avatar: freshUser.profile_picture,
-          gender: freshUser.gender,
-          date_of_birth: freshUser.date_of_birth,
-          email_verified: freshUser.email_verified,
-          mobile_verified: freshUser.mobile_verified,
-          google_id: freshUser.google_id,
-          auth_provider: freshUser.auth_provider,
-          providers: freshUser.providers,
-          is_google_linked: freshUser.is_google_linked,
-        });
+          // Update store with fresh data
+          updateProfileLocal({
+            name: freshUser.name,
+            phone: freshUser.phone,
+            phoneNumber: freshUser.phone,
+            email: freshUser.email,
+            profile_picture: freshUser.profile_picture,
+            avatar: freshUser.profile_picture,
+            gender: freshUser.gender,
+            date_of_birth: freshUser.date_of_birth,
+            email_verified: freshUser.email_verified,
+            mobile_verified: freshUser.mobile_verified,
+            google_id: freshUser.google_id,
+            auth_provider: freshUser.auth_provider,
+            providers: freshUser.providers,
+            is_google_linked: freshUser.is_google_linked,
+          });
+        }
       } catch (error) {
-        console.error('[edit-profile] Failed to load profile:', error);
-        // Fallback to store data
-        setName(user?.name ?? '');
-        setPhoneNumber(user?.phoneNumber ?? user?.phone ?? '');
-        setEmail(user?.email ?? '');
-        setGender(user?.gender ?? '');
-        setDob(user?.date_of_birth ?? '');
-        setSelectedAvatar(user?.profile_picture ?? user?.avatar ?? '');
+        console.warn('[edit-profile] Failed to load fresh profile from API:', error);
       } finally {
         setIsLoadingProfile(false);
       }
@@ -933,6 +929,28 @@ export default function ProfileCompletionScreen() {
                         </Text>
                       )}
                     </TouchableOpacity>
+
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, paddingHorizontal: 4 }}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setShowPhoneVerification(false);
+                          setOtpCode('');
+                        }}
+                        disabled={isVerifyingPhone}
+                      >
+                        <Text style={{ color: colors.textSecondary, fontSize: 13, fontFamily: 'Poppins_500Medium' }}>
+                          Change Number
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={handleSendPhoneVerification}
+                        disabled={isVerifyingPhone}
+                      >
+                        <Text style={{ color: colors.primary, fontSize: 13, fontFamily: 'Poppins_500Medium' }}>
+                          Resend Code
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 )}
               </View>

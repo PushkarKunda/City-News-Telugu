@@ -33,7 +33,7 @@ import {
   useRemoveBookmark,
 } from '@/hooks/useEngagement';
 import { useLikePost, useSharePost } from '@/hooks/usePosts';
-import { useAuthStore } from '@/store/authStore';
+import { useShallow } from 'zustand/react/shallow';
 import { formatTimeAgo, calculateTeluguReadTime, getArticleTimestamp } from '@/utils/formatters';
 import { useRecordView } from '@/hooks/useNews';
 import { useReaderFontStore } from '@/store/readerFontStore';
@@ -102,12 +102,13 @@ const AdCard = React.memo(
         onPress={handleAdClick}
       >
         <Image
-          source={{ uri: adImg }}
+          source={{ uri: adImg, headers: { Accept: 'image/webp,image/*;q=0.8' } }}
           style={StyleSheet.absoluteFillObject}
           contentFit="cover"
           transition={200}
           cachePolicy="disk"
-          onError={() => setAdImg(CURATED_FALLBACK_IMAGES.ad_fallback)}
+          onError={() => setAdImg(adImg === resolvedAdImg && item.original_image_url && item.original_image_url !== adImg
+            ? item.original_image_url : CURATED_FALLBACK_IMAGES.ad_fallback)}
         />
 
         <LinearGradient
@@ -195,12 +196,13 @@ const SponsoredCard = React.memo(
           onPress={onToggleUI}
         >
           <Image
-            source={{ uri: sponsoredImg }}
+            source={{ uri: sponsoredImg, headers: { Accept: 'image/webp,image/*;q=0.8' } }}
             style={styles.image}
             contentFit="cover"
             transition={200}
             cachePolicy="disk"
-            onError={() => setSponsoredImg(CURATED_FALLBACK_IMAGES.sponsored_fallback)}
+            onError={() => setSponsoredImg(sponsoredImg === resolvedSponsoredImg && item.original_image_url && item.original_image_url !== sponsoredImg
+              ? item.original_image_url : CURATED_FALLBACK_IMAGES.sponsored_fallback)}
           />
           <View style={styles.sponsoredBadge}>
             <MaterialIcons name="campaign" size={12} color="#fff" />
@@ -282,7 +284,6 @@ const NewsCard = React.memo(
     onOpenComments?: (uid: string) => void;
     onToggleUI?: () => void;
   }) => {
-    const { user } = useAuthStore();
     const {
       fontSizeLevel,
       headlineSize,
@@ -290,7 +291,16 @@ const NewsCard = React.memo(
       headlineLineHeight,
       bodyLineHeight,
       openModal,
-    } = useReaderFontStore();
+    } = useReaderFontStore(
+      useShallow((s) => ({
+        fontSizeLevel: s.fontSizeLevel,
+        headlineSize: s.headlineSize,
+        bodySize: s.bodySize,
+        headlineLineHeight: s.headlineLineHeight,
+        bodyLineHeight: s.bodyLineHeight,
+        openModal: s.openModal,
+      }))
+    );
 
     const contentUid = item.news_uid || (item as any).post_uid || (item as any).id;
 
@@ -467,17 +477,19 @@ const NewsCard = React.memo(
     // Hero image scales: ~35% on short screens (<700px), ~42% on standard screens
     const imageHeight = Math.round(containerHeight * (isShortScreen ? 0.35 : 0.42));
 
-    // Telugu breathing room: >= 1.5 for headline, >= 1.6 for description
+    // Telugu breathing room: ~1.65 for headline, ~1.75 for description
     const adjustedHeadlineSize = isUnder360 ? Math.max(18, headlineSize - 2) : headlineSize;
-    const adjustedHeadlineLineHeight = isUnder360
-      ? Math.round(adjustedHeadlineSize * 1.52)
-      : Math.max(headlineLineHeight, Math.round(adjustedHeadlineSize * 1.5));
+    const adjustedHeadlineLineHeight = Math.max(
+      headlineLineHeight,
+      Math.round(adjustedHeadlineSize * (isUnder360 ? 1.6 : 1.65))
+    );
     const headlineLines = isShortScreen ? 2 : (fontSizeLevel === 'xlarge' ? 2 : 3);
 
     const adjustedBodySize = isUnder360 ? Math.max(13, bodySize - 2) : bodySize;
-    const adjustedBodyLineHeight = isUnder360
-      ? Math.round(adjustedBodySize * 1.62)
-      : Math.max(bodyLineHeight, Math.round(adjustedBodySize * 1.6));
+    const adjustedBodyLineHeight = Math.max(
+      bodyLineHeight,
+      Math.round(adjustedBodySize * (isUnder360 ? 1.7 : 1.75))
+    );
     const summaryLines = isShortScreen
       ? (fontSizeLevel === 'xlarge' ? 3 : 4)
       : (fontSizeLevel === 'xlarge' ? 3 : (fontSizeLevel === 'large' ? 4 : 5));
@@ -522,10 +534,10 @@ const NewsCard = React.memo(
       return `${relativeTime} · ${readTime}`;
     }, [relativeTime, readTime, isUnder360]);
 
-    // Action buttons sizing & touch targets (comfortable default size for 4 buttons)
-    const btnSize = isUnder360 ? 40 : (isNarrow ? 42 : 44);
-    const iconSize = isUnder360 ? 19 : 20;
-    const actionGap = 8;
+    // Action buttons sizing & touch targets (smaller buttons on screens under 360px)
+    const btnSize = isUnder360 ? 36 : (isNarrow ? 40 : 44);
+    const iconSize = isUnder360 ? 17 : 20;
+    const actionGap = isUnder360 ? 6 : 8;
     const hitSlopValue = { top: 6, bottom: 6, left: 4, right: 4 };
 
     const liveCommentCount = useCommentCountStore((s) => (contentUid ? s.counts[contentUid] : undefined));
@@ -616,7 +628,7 @@ const NewsCard = React.memo(
         <TouchableWithoutFeedback onPress={onToggleUI}>
           <View style={[styles.imageContainer, { height: imageHeight }]}>
             <Image
-              source={{ uri: imgSrc }}
+              source={{ uri: imgSrc, headers: { Accept: 'image/webp,image/*;q=0.8' } }}
               style={styles.image}
               contentFit="cover"
               transition={150}
@@ -624,6 +636,10 @@ const NewsCard = React.memo(
               recyclingKey={imgSrc}
               priority={isActive ? 'high' : 'normal'}
               onError={() => {
+                if (imgSrc === resolvedImage && item.original_image_url && item.original_image_url !== imgSrc) {
+                  setImgSrc(item.original_image_url);
+                  return;
+                }
                 const fallback = getCategoryFallbackImage(categoryName, item.is_breaking);
                 if (imgSrc !== fallback) {
                   setImgSrc(fallback);
@@ -1256,7 +1272,7 @@ const styles = StyleSheet.create({
   headline: {
     fontFamily: TELUGU_FONT_STACK.bold,
     fontWeight: 'normal',
-    paddingVertical: 2,
+    paddingVertical: 4,
     marginBottom: 8,
     ...(Platform.OS === 'web'
       ? {
@@ -1269,7 +1285,7 @@ const styles = StyleSheet.create({
   summaryText: {
     fontFamily: TELUGU_FONT_STACK.regular,
     fontWeight: 'normal',
-    paddingVertical: 2,
+    paddingVertical: 4,
     ...(Platform.OS === 'web'
       ? {
           display: '-webkit-box' as any,

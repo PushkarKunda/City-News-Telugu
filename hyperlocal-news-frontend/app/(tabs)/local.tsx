@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
@@ -9,6 +9,7 @@ import { useRouter } from 'expo-router';
 import { LocalNewsCard, LocalNewsItem } from '@/components/LocalNewsCard';
 import { useAuthStore } from '@/store/authStore';
 import { useLocationNews } from '@/hooks/useNews';
+import { useLocalScreen } from '@/hooks/useScreens';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { formatTimeAgo, formatNumber } from '@/utils/formatters';
 
@@ -26,11 +27,41 @@ export default function LocalScreen() {
 
   const user = useAuthStore(state => state.user);
 
-  // Fetch live local news
-  const { data: rawNews = [], isLoading: isLoadingNews } = useLocationNews({
+  // Single aggregate endpoint for Local Screen
+  const {
+    data: localScreenData,
+    isLoading: isLoadingLocalAggregate,
+  } = useLocalScreen({
+    state: user?.state || '',
+    district: user?.district || '',
+    limit: 20,
+  });
+
+  useEffect(() => {
+    const t0 = Date.now();
+    console.log('[PERF][Screen:Local] Initializing with aggregate endpoint GET /screens/local');
+    return () => {
+      console.log(`[PERF][Screen:Local] Screen active duration: ${Date.now() - t0}ms`);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (localScreenData) {
+      console.log('[PERF][Screen:Local] Aggregate payload hydrated successfully:', {
+        news_count: localScreenData.news?.items?.length ?? 0,
+        location: localScreenData.location,
+        errors: localScreenData.errors,
+      });
+    }
+  }, [localScreenData]);
+
+  // Fetch live local news - read from seeded React Query cache
+  const { data: rawNews = [], isLoading: isLoadingRawNews } = useLocationNews({
     state: user?.state || '',
     district: user?.district || '',
   });
+
+  const isLoadingNews = isLoadingLocalAggregate && isLoadingRawNews;
 
   // Filtered lists based on activeFilter
   const filteredNews = useMemo(() => {
@@ -84,6 +115,7 @@ export default function LocalScreen() {
         timeAgo: timeStr,
         views: `${formatNumber(article.views || 0)} views`,
         imageUrl: article.image_url ?? '',
+        originalImageUrl: article.original_image_url,
         variant: idx === 0 ? 'vertical' : 'horizontal',
       };
 

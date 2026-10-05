@@ -15,6 +15,12 @@ export const TELUGU_FONT_STACK = {
   }),
 };
 
+export const TELUGU_TYPOGRAPHY = {
+  headlineMultiplier: 1.65,
+  bodyMultiplier: 1.75,
+  matraPaddingVertical: 4,
+};
+
 export const Typography = {
   fonts: {
     // Body / Interface (Poppins)

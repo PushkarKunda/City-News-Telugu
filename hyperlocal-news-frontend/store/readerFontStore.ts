@@ -17,16 +17,16 @@ export const FONT_SIZE_CONFIGS: Record<FontSizeLevel, FontSizeConfig> = {
   small: {
     headlineSize: 20,
     bodySize: 14,
-    headlineLineHeight: 30, // 20 * 1.5 = 30 (>= 1.5)
-    bodyLineHeight: 24,     // 14 * 1.71 = 24 (>= 1.6)
+    headlineLineHeight: 33, // 20 * 1.65 = 33
+    bodyLineHeight: 25,     // 14 * 1.75 = 24.5 -> 25
     label: 'Small',
     teluguLabel: 'చిన్నది',
   },
   medium: {
     headlineSize: 22,
     bodySize: 16,
-    headlineLineHeight: 34, // 22 * 1.54 = 34 (>= 1.5)
-    bodyLineHeight: 27,     // 16 * 1.68 = 27 (>= 1.6)
+    headlineLineHeight: 36, // 22 * 1.65 = 36.3 -> 36
+    bodyLineHeight: 28,     // 16 * 1.75 = 28
     label: 'Medium',
     teluguLabel: 'సాధారణం',
     badge: 'Default',
@@ -34,16 +34,16 @@ export const FONT_SIZE_CONFIGS: Record<FontSizeLevel, FontSizeConfig> = {
   large: {
     headlineSize: 24,
     bodySize: 18,
-    headlineLineHeight: 37, // 24 * 1.54 = 37 (>= 1.5)
-    bodyLineHeight: 30,     // 18 * 1.66 = 30 (>= 1.6)
+    headlineLineHeight: 40, // 24 * 1.65 = 39.6 -> 40
+    bodyLineHeight: 32,     // 18 * 1.75 = 31.5 -> 32
     label: 'Large',
     teluguLabel: 'పెద్దది',
   },
   xlarge: {
     headlineSize: 27,
     bodySize: 20,
-    headlineLineHeight: 42, // 27 * 1.55 = 42 (>= 1.5)
-    bodyLineHeight: 33,     // 20 * 1.65 = 33 (>= 1.6)
+    headlineLineHeight: 45, // 27 * 1.65 = 44.55 -> 45
+    bodyLineHeight: 35,     // 20 * 1.75 = 35
     label: 'Extra Large',
     teluguLabel: 'మరింత పెద్దది',
   },

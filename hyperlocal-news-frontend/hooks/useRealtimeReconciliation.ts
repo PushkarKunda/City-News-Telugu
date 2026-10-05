@@ -36,7 +36,7 @@ export function useRealtimeReconciliation() {
           // 3. Update feed caches dynamically
           queryClient.setQueriesData({ queryKey: ['news', 'feed'] }, (oldData: any) => {
             if (!oldData || !oldData.items) return oldData;
-            
+
             const newItems = oldData.items.map((item: FeedItem) => {
               if (item.type === 'news' && item.data && (item.data as NewsArticle).news_uid === uid) {
                 return {
@@ -76,6 +76,7 @@ export function useRealtimeReconciliation() {
 
           queryClient.invalidateQueries({ queryKey: newsKeys.comments(uid) });
           queryClient.invalidateQueries({ queryKey: newsKeys.engagement(uid) });
+          queryClient.invalidateQueries({ queryKey: newsKeys.single(uid) });
         }
       )
       .subscribe();
@@ -93,6 +94,7 @@ export function useRealtimeReconciliation() {
           if (!uid) return;
 
           queryClient.invalidateQueries({ queryKey: newsKeys.engagement(uid) });
+          queryClient.invalidateQueries({ queryKey: newsKeys.single(uid) });
         }
       )
       .subscribe();

@@ -9,6 +9,8 @@ export interface Post {
   post_uid: string;
   content: string;
   image_url: string | null;
+  original_image_url?: string | null;
+  thumbnail_url?: string | null;
   video_url: string | null;
   user_uid: string;
   user_name: string;

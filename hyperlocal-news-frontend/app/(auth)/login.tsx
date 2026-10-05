@@ -40,8 +40,7 @@ export default function LoginScreen() {
   const heroCardHeight = Math.min(Math.max(width * 0.46, 160), 220);
 
   // ✅ Only from store - no duplicate useState for isLoading
-  const { sendPhoneOTP, isLoading, fetchUser, loginAsDemo } = useAuthStore();
-  const [isDemoLoading, setIsDemoLoading] = useState(false);
+  const { sendPhoneOTP, isLoading, fetchUser } = useAuthStore();
   const {
     signInWithGoogle,
     isGoogleReady,
@@ -195,19 +194,6 @@ export default function LoginScreen() {
       });
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to send OTP. Please try again.');
-    }
-  };
-
-  const handleDemoLogin = async () => {
-    setIsDemoLoading(true);
-    try {
-      // 1. Instant 1-tap demo session (Pushkar Kunda / Telugu / Bapatla)
-      loginAsDemo();
-      router.replace('/(tabs)');
-    } catch (error: any) {
-      Alert.alert('Demo Login', error?.message || 'Failed to authenticate');
-    } finally {
-      setIsDemoLoading(false);
     }
   };
 
@@ -427,31 +413,6 @@ export default function LoginScreen() {
                     <Ionicons name="logo-google" size={18} color={colors.text} />
                     <Text style={[styles.googleButtonText, { color: colors.text }]}>
                       Sign in with Google
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.demoButton,
-                  {
-                    backgroundColor: isDark ? 'rgba(99,102,241,0.12)' : 'rgba(70,72,212,0.06)',
-                    borderColor: isDark ? 'rgba(99,102,241,0.35)' : 'rgba(70,72,212,0.22)',
-                  },
-                  isDemoLoading && { opacity: 0.7 },
-                ]}
-                onPress={handleDemoLogin}
-                disabled={isDemoLoading}
-                activeOpacity={0.8}
-              >
-                {isDemoLoading ? (
-                  <ActivityIndicator color={colors.primary} size="small" />
-                ) : (
-                  <>
-                    <Feather name="zap" size={16} color={colors.primary} />
-                    <Text style={[styles.demoButtonText, { color: colors.primary }]}>
-                      Quick Demo Login (Pushkar Kunda)
                     </Text>
                   </>
                 )}
@@ -717,21 +678,6 @@ const styles = StyleSheet.create({
   },
   googleButtonText: {
     fontSize: 16,
-    fontWeight: '600',
-    fontFamily: 'Poppins_600SemiBold',
-  },
-  demoButton: {
-    height: 50,
-    borderRadius: 25,
-    borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: 4,
-  },
-  demoButtonText: {
-    fontSize: 14,
     fontWeight: '600',
     fontFamily: 'Poppins_600SemiBold',
   },

@@ -16,6 +16,7 @@ export * from './posts';
 export * from './follow';
 export * from './content';
 export * from './discovery';
+export * from './screens';
 
 // Re-export APIs for convenience
 export { categoriesApi } from './categories';
@@ -27,3 +28,4 @@ export { postsApi } from './posts';
 export { followApi } from './follow';
 export { contentApi } from './content';
 export { discoveryApi } from './discovery';
+export { screensApi } from './screens';

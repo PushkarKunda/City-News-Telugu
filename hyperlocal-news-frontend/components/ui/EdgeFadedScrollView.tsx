@@ -156,6 +156,10 @@ export const EdgeFadedScrollView = React.forwardRef<ScrollView, EdgeFadedScrollV
           onContentSizeChange={handleContentSizeChange}
           onLayout={handleLayout}
           {...restProps}
+          contentContainerStyle={[
+            restProps.contentContainerStyle,
+            { paddingEnd: Math.max(fadeWidth, 24), paddingRight: Math.max(fadeWidth, 24) },
+          ]}
         >
           {children}
         </ScrollView>
@@ -170,6 +174,7 @@ export const EdgeFadedScrollView = React.forwardRef<ScrollView, EdgeFadedScrollV
           ]}
         >
           <LinearGradient
+            pointerEvents="none"
             colors={[fadeColor, transparentColor]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
@@ -187,6 +192,7 @@ export const EdgeFadedScrollView = React.forwardRef<ScrollView, EdgeFadedScrollV
           ]}
         >
           <LinearGradient
+            pointerEvents="none"
             colors={[transparentColor, fadeColor]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
