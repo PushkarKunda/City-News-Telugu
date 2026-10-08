@@ -9,7 +9,6 @@ import {
   Modal,
   TextInput,
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -19,7 +18,6 @@ import {
   AppStateStatus,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import * as NavigationBar from 'expo-navigation-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from 'expo-router';
@@ -45,6 +43,7 @@ import { useTabBarStore } from '@/store/tabBarStore';
 import { useImmersiveChrome } from '@/hooks/useImmersiveChrome';
 import { isInvalidOrMockImageUrl } from '@/utils/imageResolver';
 import { type Post } from '@/services/api/posts';
+import { useAppAlert } from '@/components/AppAlert';
 
 type FilterCategory = 'all' | 'trending' | 'issues' | 'discussions' | 'events';
 
@@ -64,23 +63,7 @@ export default function PostsScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const isFocused = useIsFocused();
-
-  // ─── Edge-to-Edge Android Navigation Bar ───────────────────────────────────
-  useEffect(() => {
-    const setEdgeToEdgeNav = () => {
-      if (Platform.OS === 'android') {
-        NavigationBar.setPositionAsync('absolute').catch(() => {});
-        NavigationBar.setBackgroundColorAsync('transparent').catch(() => {});
-        NavigationBar.setButtonStyleAsync('light').catch(() => {});
-      }
-    };
-
-    setEdgeToEdgeNav();
-    const unsubFocus = navigation.addListener('focus', setEdgeToEdgeNav);
-    return () => {
-      unsubFocus();
-    };
-  }, [navigation]);
+  const { alert, AlertComponent } = useAppAlert();
 
   // ─── Zustand v5 fine-grained selectors (prevent re-render loops) ───────────
   const currentUserId = useAuthStore((s) => s.user?.user_uid);
@@ -406,7 +389,7 @@ export default function PostsScreen() {
 
   const handleCreatePost = () => {
     if (!newPostContent.trim() && !newPostImageUrl.trim()) {
-      Alert.alert('Empty Post', 'Please write something or provide an image link.');
+      alert('Empty Post', 'Please write something or provide an image link.', [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#F59E0B' });
       return;
     }
 
@@ -433,11 +416,11 @@ export default function PostsScreen() {
           setNewPostImageUrl('');
           setNewPostHashtags('');
           setIsCreateModalOpen(false);
-          Alert.alert('Success', 'Your post has been published to the community!');
+          alert('Success', 'Your post has been published to the community!', [{ text: 'OK' }], { icon: 'checkmark-circle', iconColor: '#10B981' });
           refetch();
         },
         onError: (error: any) => {
-          Alert.alert('Error', error?.message || 'Failed to create post. Please try again.');
+          alert('Error', error?.message || 'Failed to create post. Please try again.', [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
         },
       }
     );
@@ -1017,6 +1000,7 @@ export default function PostsScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+      {AlertComponent}
     </View>
   );
 }

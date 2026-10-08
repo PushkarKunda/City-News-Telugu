@@ -8,7 +8,6 @@ import {
   Pressable,
   Animated,
   Platform,
-  Alert,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Feather, Ionicons } from '@expo/vector-icons';
@@ -21,6 +20,7 @@ import { useAuthStore } from '@/store/authStore'; // ✅ Added
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { useAppAlert } from '@/components/AppAlert';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -75,6 +75,7 @@ const resolveTopicStyle = (slug: string, name: string) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export default function InterestsScreen() {
+  const { alert, AlertComponent } = useAppAlert();
   const router = useRouter();
   const pathname = usePathname();
   const colorScheme = useAppColorScheme();
@@ -186,7 +187,7 @@ export default function InterestsScreen() {
 
   const handleContinue = () => {
     if (selectedTopics.length < MIN_SELECTIONS) {
-      Alert.alert(
+      alert(
         'Selection Required',
         `Please select at least ${MIN_SELECTIONS} interests to continue.`
       );
@@ -202,7 +203,7 @@ export default function InterestsScreen() {
       .filter((id): id is number => id !== undefined);
 
     if (selectedBackendIds.length === 0) {
-      Alert.alert('Error', 'No valid categories selected');
+      alert('Error', 'No valid categories selected');
       return;
     }
 
@@ -519,6 +520,7 @@ export default function InterestsScreen() {
           </Pressable>
         </Animated.View>
       </View>
+      {AlertComponent}
     </SafeAreaView>
   );
 }

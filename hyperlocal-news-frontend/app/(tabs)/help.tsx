@@ -9,13 +9,13 @@ import {
   LayoutAnimation,
   Platform,
   UIManager,
-  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
+import { useAppAlert } from '@/components/AppAlert';
 
 // Enable LayoutAnimation for Android
 if (Platform.OS === 'android') {
@@ -69,6 +69,7 @@ export default function HelpSupportScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { alert, AlertComponent } = useAppAlert();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<'All' | 'General' | 'Publisher' | 'Location' | 'Troubleshooting'>('All');
@@ -98,7 +99,7 @@ export default function HelpSupportScreen() {
 
   const handleSubmitTicket = () => {
     if (!ticketMessage.trim()) {
-      Alert.alert('Error', 'Please describe your query or issue before submitting.');
+      alert('Error', 'Please describe your query or issue before submitting.');
       return;
     }
 
@@ -106,7 +107,7 @@ export default function HelpSupportScreen() {
     // Simulate API call
     setTimeout(() => {
       setIsSubmitting(false);
-      Alert.alert(
+      alert(
         'Ticket Submitted!',
         'Thank you for reaching out. Our support team will review your inquiry and respond within 24 hours.',
         [
@@ -188,7 +189,7 @@ export default function HelpSupportScreen() {
             {/* Call Support Card */}
             <TouchableOpacity
               style={[styles.quickCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-              onPress={() => Alert.alert('Call Support', 'Connecting you to our helpline (toll-free): 1800-419-HYPER')}
+              onPress={() => alert('Call Support', 'Connecting you to our helpline (toll-free): 1800-419-HYPER')}
               activeOpacity={0.75}
             >
               <View style={[styles.quickIconContainer, { backgroundColor: 'rgba(0, 106, 97, 0.08)' }]}>
@@ -201,7 +202,7 @@ export default function HelpSupportScreen() {
             {/* Email Support Card */}
             <TouchableOpacity
               style={[styles.quickCard, { backgroundColor: colors.card, borderColor: colors.border }]}
-              onPress={() => Alert.alert('Email Support', 'Please send your queries directly to support@hyperlocal.news')}
+              onPress={() => alert('Email Support', 'Please send your queries directly to support@hyperlocal.news')}
               activeOpacity={0.75}
             >
               <View style={[styles.quickIconContainer, { backgroundColor: 'rgba(70, 72, 212, 0.08)' }]}>
@@ -367,6 +368,7 @@ export default function HelpSupportScreen() {
         </View>
 
       </ScrollView>
+      {AlertComponent}
     </View>
   );
 }

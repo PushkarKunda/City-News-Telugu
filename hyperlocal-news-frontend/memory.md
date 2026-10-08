@@ -1,7 +1,9 @@
 # 🧠 PROJECT MEMORY & PERMANENT INTELLIGENCE ENGINE
 
-> **Project Name**: Hyperlocal News & Community Engagement Frontend (`hyperlocal-news-frontend`)  
+> **App name (user-facing)**: City News Telugu  
+> **Repo / folder**: `hyperlocal-news-frontend` (internal slug only — not the product name)  
 > **Repository Owner**: Sujana2004  
+> **API**: `https://hypernews-production.up.railway.app` via `EXPO_PUBLIC_API_BASE_URL` — hostname stays `hypernews-*`; do not rename it to match the app  
 > **Framework**: Expo (v52.0.23, Managed Workflow) & React Native (v0.76.9)  
 > **Language**: TypeScript 5.3  
 > **Target Platforms**: Android, iOS, Web  

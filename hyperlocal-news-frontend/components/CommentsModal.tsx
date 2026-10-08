@@ -10,9 +10,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Alert,
   RefreshControl,
 } from 'react-native';
+import { useAppAlert } from '@/components/AppAlert';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -235,6 +235,7 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
   const isFocused = useIsFocused();
   const queryClient = useQueryClient();
   const { user, isAuthenticated } = useAuthStore();
+  const { alert, AlertComponent } = useAppAlert();
 
   const [commentText, setCommentText] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -246,6 +247,7 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
   const {
     data,
     isLoading,
+    isError,
     refetch,
     fetchNextPage,
     hasNextPage,
@@ -258,25 +260,54 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
   // Deduplicate and flatten comments from TanStack infinite query pages
   const comments = useMemo(() => {
     if (!data?.pages) return [];
-    const seenIds = new Set<string | number>();
-    const seenTexts = new Set<string>();
+    const seenConfirmedIds = new Set<string>();
+    const seenConfirmedKeys = new Set<string>();
+
+    // Pass 1: Collect all confirmed / server identifiers
+    for (const page of data.pages) {
+      if (!page?.comments) continue;
+      for (const c of page.comments) {
+        if (!c) continue;
+        const isOptimistic = c.status === 'sending' || c.user_uid === '__optimistic__';
+        if (!isOptimistic) {
+          if (c.id != null) seenConfirmedIds.add(String(c.id));
+          if (c.idempotency_key) seenConfirmedKeys.add(c.idempotency_key);
+          const textKey = (c.comment_text || c.text || c.content || '').trim();
+          if (textKey) seenConfirmedKeys.add(textKey);
+        }
+      }
+    }
+
+    // Pass 2: Build flattened list without duplicate optimistic or repeated items
     const list: NewsComment[] = [];
+    const seenRenderIds = new Set<string>();
+    const seenRenderKeys = new Set<string>();
 
     for (const page of data.pages) {
       if (!page?.comments) continue;
       for (const c of page.comments) {
         if (!c) continue;
-        if (c.id != null) {
-          if (seenIds.has(c.id)) continue;
-          seenIds.add(c.id);
+        const textKey = (c.comment_text || c.text || c.content || '').trim();
+        const idKey = c.id != null ? String(c.id) : null;
+        const idemKey = c.idempotency_key;
+        const isOptimistic = c.status === 'sending' || c.user_uid === '__optimistic__';
+
+        // Skip optimistic comment if confirmed counterpart already exists in feed
+        if (isOptimistic) {
+          if (idemKey && seenConfirmedKeys.has(idemKey)) continue;
+          if (textKey && seenConfirmedKeys.has(textKey)) continue;
+          if (idemKey && seenRenderKeys.has('idem-' + idemKey)) continue;
+          if (textKey && seenRenderKeys.has('opt-text-' + textKey)) continue;
+          if (textKey) seenRenderKeys.add('opt-text-' + textKey);
+          if (idemKey) seenRenderKeys.add('idem-' + idemKey);
         }
-        // Prevent duplicate rendering of identical optimistic and confirmed items
-        const textKey = `${c.comment_text?.trim()}`;
-        if (c.status === 'sending' || c.user_uid === '__optimistic__') {
-          if (seenTexts.has(textKey)) continue;
-        } else {
-          seenTexts.add(textKey);
+
+        // Deduplicate by string-normalized ID
+        if (idKey) {
+          if (seenRenderIds.has(idKey)) continue;
+          seenRenderIds.add(idKey);
         }
+
         list.push(c);
       }
     }
@@ -326,14 +357,16 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
     }
   };
 
+  const isSubmittingRef = useRef(false);
+
   const handlePostComment = () => {
     const textToSend = commentText.trim();
-    if (!textToSend || isAdding) return;
+    if (!textToSend || isAdding || isSubmittingRef.current) return;
 
     // Login Check: preserve draft and prompt user to login if not authenticated
     if (!isAuthenticated) {
       useCommentCountStore.getState().setDraft(newsUid, textToSend);
-      Alert.alert(
+      alert(
         'Sign in required',
         'Please sign in to post comments. Your comment draft has been saved.',
         [
@@ -345,23 +378,33 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
               router.push('/(auth)/login');
             },
           },
-        ]
+        ],
+        { icon: 'lock-closed-outline', iconColor: '#F59E0B' }
       );
       return;
     }
+
+    isSubmittingRef.current = true;
 
     // Clear input field immediately and clear draft for smooth typing UX
     setCommentText('');
     useCommentCountStore.getState().clearDraft(newsUid);
 
     const tempId = Date.now();
-    addComment({
-      uid: newsUid,
-      comment_text: textToSend,
-      tempId,
-      userName: user?.name || user?.user_name || 'You',
-      userAvatar: user?.profile_picture || user?.avatar || undefined,
-    });
+    addComment(
+      {
+        uid: newsUid,
+        comment_text: textToSend,
+        tempId,
+        userName: user?.name || user?.user_name || 'You',
+        userAvatar: user?.profile_picture || user?.avatar || undefined,
+      },
+      {
+        onSettled: () => {
+          isSubmittingRef.current = false;
+        },
+      }
+    );
 
     // Auto-scroll list to the top so user immediately sees their comment
     requestAnimationFrame(() => {
@@ -408,7 +451,7 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
 
   const handleDeleteComment = useCallback(
     (commentId: number) => {
-      Alert.alert('Delete Comment', 'Are you sure you want to delete this comment?', [
+      alert('Delete Comment', 'Are you sure you want to delete this comment?', [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
@@ -417,7 +460,7 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
             deleteComment({ uid: newsUid, commentId });
           },
         },
-      ]);
+      ], { icon: 'trash-outline', iconColor: '#EF4444' });
     },
     [deleteComment, newsUid]
   );
@@ -494,6 +537,21 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
           {isLoading && !data ? (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color={colors.primary} />
+            </View>
+          ) : isError ? (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="cloud-offline-outline" size={48} color={colors.textTertiary} />
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]} maxFontSizeMultiplier={1.25}>
+                Couldn’t load comments.
+              </Text>
+              <TouchableOpacity
+                onPress={() => refetch()}
+                style={[styles.retryBtn, { backgroundColor: colors.primary + '20', marginTop: 12 }]}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="refresh" size={14} color={colors.primary} style={{ marginRight: 4 }} />
+                <Text style={[styles.retryBtnText, { color: colors.primary }]}>Try again</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <FlatList
@@ -582,6 +640,7 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
           </View>
         </View>
       </KeyboardAvoidingView>
+      {AlertComponent}
     </Modal>
   );
 };

@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
@@ -15,8 +14,10 @@ import { Image } from 'expo-image';
 import { Colors } from '@/constants/Colors';
 import { useAuthStore } from '@/store/authStore';
 import { StatusBar } from 'expo-status-bar';
+import { useAppAlert } from '@/components/AppAlert';
 
 export default function MoreScreen() {
+  const { alert, AlertComponent } = useAppAlert();
   const colorScheme = useAppColorScheme();
   const isDark = colorScheme === 'dark';
   const colors = Colors[colorScheme ?? 'light'];
@@ -30,7 +31,7 @@ export default function MoreScreen() {
     : '@' + displayName.toLowerCase().trim().replace(/\s+/g, '_');
 
   const handleLogout = () => {
-    Alert.alert('Logout', 'Are you sure you want to log out?', [
+    alert('Logout', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Logout',
@@ -172,6 +173,7 @@ export default function MoreScreen() {
           <Text style={styles.logoutText}>Log Out</Text>
         </TouchableOpacity>
       </ScrollView>
+      {AlertComponent}
     </View>
   );
 }

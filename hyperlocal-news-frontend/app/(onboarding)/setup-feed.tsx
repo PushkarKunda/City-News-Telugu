@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Animated,
-  Platform, BackHandler, Alert,
+  Platform, BackHandler,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useAuthStore } from '@/store/authStore';
+import { useAppAlert } from '@/components/AppAlert';
 
 export default function SetupFeedScreen() {
   const router = useRouter();
@@ -17,6 +18,7 @@ export default function SetupFeedScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const isDark = colorScheme === 'dark';
 
+  const { alert, AlertComponent } = useAppAlert();
   const { completeOnboarding, user } = useAuthStore();
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -58,7 +60,7 @@ export default function SetupFeedScreen() {
       router.replace('/(onboarding)/complete');
     } catch (error: any) {
       console.error('[SetupFeed] completeOnboarding failed:', error);
-      Alert.alert(
+      alert(
         'Setup Failed',
         error.message || 'Could not complete setup. Please try again.',
         [{ text: 'Retry', onPress: () => setIsProcessing(false) }]
@@ -166,6 +168,7 @@ export default function SetupFeedScreen() {
           </View>
         </Animated.View>
       </ScrollView>
+      {AlertComponent}
     </SafeAreaView>
   );
 }

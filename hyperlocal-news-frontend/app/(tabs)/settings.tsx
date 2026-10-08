@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   ScrollView,
   Switch,
-  Alert,
   Image,
   Pressable,
 } from 'react-native';
@@ -17,6 +16,7 @@ import { Colors } from '@/constants/Colors';
 import { useAuthStore, isEmailVerified } from '@/store/authStore';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
+import { useAppAlert } from '@/components/AppAlert';
 
 export default function SettingsScreen() {
   const colorScheme = useAppColorScheme();
@@ -24,6 +24,7 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { from } = useLocalSearchParams<{ from?: string }>();
+  const { alert, AlertComponent } = useAppAlert();
 
   const { user, logout, updateTheme } = useAuthStore();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
@@ -32,7 +33,7 @@ export default function SettingsScreen() {
   const emailVerified = isEmailVerified(user);
 
   const handleLogout = () => {
-    Alert.alert(
+    alert(
       'Logout',
       'Are you sure you want to log out of City News Telugu?',
       [
@@ -48,7 +49,8 @@ export default function SettingsScreen() {
             router.replace('/(auth)/login' as any);
           },
         },
-      ]
+      ],
+      { icon: 'log-out-outline', iconColor: '#EF4444' }
     );
   };
 

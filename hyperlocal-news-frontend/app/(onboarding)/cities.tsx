@@ -9,7 +9,6 @@ import {
     Animated,
     TextInput,
     DimensionValue,
-    Alert,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,6 +20,7 @@ import { useCitiesList } from '@/hooks/useApi';
 import { usersApi } from '@/services/api';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useAuthStore } from '@/store/authStore';
+import { useAppAlert } from '@/components/AppAlert';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -134,6 +134,7 @@ function CityCard({
 // ═══════════════════════════════════════════════════════════════════════════
 
 export default function CitiesScreen() {
+    const { alert, AlertComponent } = useAppAlert();
     const colorScheme = useAppColorScheme();
     const colors = Colors[colorScheme ?? 'light'];
     const router = useRouter();
@@ -207,13 +208,13 @@ export default function CitiesScreen() {
     // FIXED: Store data locally, no API call
     const handleContinue = () => {
         if (!selectedCity) {
-            Alert.alert('City Required', 'Please select your city to continue.');
+            alert('City Required', 'Please select your city to continue.');
             return;
         }
 
         const matchedCity = cities.find((city) => city.id === selectedCity);
         if (!matchedCity) {
-            Alert.alert('Error', 'Selected city not found');
+            alert('Error', 'Selected city not found');
             return;
         }
 
@@ -447,6 +448,7 @@ export default function CitiesScreen() {
                     </Pressable>
                 </Animated.View>
             </View>
+            {AlertComponent}
         </SafeAreaView>
     );
 }

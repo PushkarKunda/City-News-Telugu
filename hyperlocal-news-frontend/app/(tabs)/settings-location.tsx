@@ -9,7 +9,6 @@ import {
   Animated,
   TextInput,
   ActivityIndicator,
-  Alert,
   useWindowDimensions,
 } from 'react-native';
 import * as Location from 'expo-location';
@@ -23,6 +22,7 @@ import { useStatesList, useDistrictsList, useCitiesList } from '@/hooks/useApi';
 import { usersApi } from '@/services/api/users';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useAuthStore } from '@/store/authStore';
+import { useAppAlert } from '@/components/AppAlert';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -203,6 +203,7 @@ export default function SettingsLocationScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
+  const { alert, AlertComponent } = useAppAlert();
 
   const { fetchPreferences, updateCachedPreferences, cachedPreferences } =
     useAuthStore();
@@ -271,7 +272,7 @@ export default function SettingsLocationScreen() {
         // so state grid shows all states
       } catch (error) {
         console.error('[SettingsLocation] Failed to load preferences:', error);
-        Alert.alert('Error', 'Failed to load preferences. Please try again.');
+        alert('Error', 'Failed to load preferences. Please try again.');
       } finally {
         setIsLoadingPreferences(false);
       }
@@ -311,7 +312,7 @@ export default function SettingsLocationScreen() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert(
+        alert(
           'Permission Denied',
           'We need location access to find your current state.'
         );
@@ -350,14 +351,14 @@ export default function SettingsLocationScreen() {
             setSelectedDistrictId(null);
             setSelectedCityId(null);
           }
-          Alert.alert(
+          alert(
             'Location Detected',
             `Detected: ${stateName || 'Unknown'}. Defaulting to Telangana.`
           );
         }
       }
     } catch (error) {
-      Alert.alert(
+      alert(
         'Location Error',
         'Could not fetch your location. Please select manually.'
       );
@@ -380,13 +381,13 @@ export default function SettingsLocationScreen() {
     }
 
     if (!selectedStateId) {
-      Alert.alert('Error', 'Please select a state');
+      alert('Error', 'Please select a state');
       return;
     }
 
     const prefs = cachedPreferences;
     if (!prefs) {
-      Alert.alert('Error', 'Preferences not loaded. Please try again.');
+      alert('Error', 'Preferences not loaded. Please try again.');
       return;
     }
 
@@ -407,11 +408,11 @@ export default function SettingsLocationScreen() {
         city_id: selectedCityId,
       });
 
-      Alert.alert('Success', 'Location updated successfully!', [
+      alert('Success', 'Location updated successfully!', [
         { text: 'OK', onPress: () => router.push('/(tabs)/settings') },
       ]);
     } catch (error: any) {
-      Alert.alert('Error', error?.message || 'Failed to update location');
+      alert('Error', error?.message || 'Failed to update location');
     } finally {
       setIsSaving(false);
     }
@@ -750,6 +751,7 @@ export default function SettingsLocationScreen() {
           </Pressable>
         </Animated.View>
       </View>
+      {AlertComponent}
     </View>
   );
 }

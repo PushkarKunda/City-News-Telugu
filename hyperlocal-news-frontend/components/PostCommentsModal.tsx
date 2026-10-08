@@ -10,7 +10,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -19,6 +18,7 @@ import { useAuthStore } from '@/store/authStore';
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { formatTimeAgo } from '@/utils/formatters';
+import { useAppAlert } from '@/components/AppAlert';
 
 interface PostCommentsModalProps {
   visible: boolean;
@@ -64,6 +64,7 @@ export const PostCommentsModal = ({ visible, onClose, postUid, onCommentAdded }:
   const colors = Colors[colorScheme ?? 'light'];
   const isDark = colorScheme === 'dark';
   const { user } = useAuthStore();
+  const { alert, AlertComponent } = useAppAlert();
 
   const [commentText, setCommentText] = useState('');
 
@@ -88,7 +89,7 @@ export const PostCommentsModal = ({ visible, onClose, postUid, onCommentAdded }:
           onCommentAdded?.(targetUid);
         },
         onError: (error: any) => {
-          Alert.alert('Error', 'Failed to post comment. ' + (error?.message || 'Please try again.'));
+          alert('Error', 'Failed to post comment. ' + (error?.message || 'Please try again.'), [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
         },
       }
     );
@@ -200,6 +201,7 @@ export const PostCommentsModal = ({ visible, onClose, postUid, onCommentAdded }:
           </View>
         </View>
       </KeyboardAvoidingView>
+      {AlertComponent}
     </Modal>
   );
 };

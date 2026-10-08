@@ -6,10 +6,10 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   Share,
-  Alert,
   Animated,
   Linking,
   Platform,
+  Clipboard,
   useWindowDimensions,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
@@ -18,6 +18,7 @@ import { Image } from 'expo-image';
 import { Ionicons, Feather, MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAppAlert } from '@/components/AppAlert';
 import {
   NewsArticle,
   FeedItem,
@@ -284,6 +285,7 @@ const NewsCard = React.memo(
     onOpenComments?: (uid: string) => void;
     onToggleUI?: () => void;
   }) => {
+    const { alert, AlertComponent } = useAppAlert();
     const {
       fontSizeLevel,
       headlineSize,
@@ -410,6 +412,54 @@ const NewsCard = React.memo(
           url: newsLink || undefined,
         });
       } catch (_) { }
+    };
+
+    const handleCopyLink = () => {
+      const link = item.source_url || (contentUid ? `https://citynewstelugu.com/news/${contentUid}` : '');
+      if (!link) {
+        alert('No link', 'This story does not have a link to copy yet.');
+        return;
+      }
+      Clipboard.setString(link);
+      if (contentUid) {
+        if (itemType === 'post') {
+          sharePostMutation({ postUid: contentUid, platform: 'copy_link' });
+        } else {
+          recordShare({ newsUid: contentUid, platform: 'copy_link' });
+        }
+      }
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+      alert('Link copied', 'The story link is on your clipboard.');
+    };
+
+    const handleWhatsAppShare = async () => {
+      try {
+        if (Platform.OS !== 'web') {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }
+        if (contentUid) {
+          if (itemType === 'post') {
+            sharePostMutation({ postUid: contentUid, platform: 'whatsapp' });
+          } else {
+            recordShare({ newsUid: contentUid, platform: 'whatsapp' });
+          }
+        }
+        const link = item.source_url || (contentUid ? `https://citynewstelugu.com/news/${contentUid}` : '');
+        const message = [displayTitle, displaySummary, link, 'Shared via City News Telugu']
+          .filter(Boolean)
+          .join('\n\n');
+        const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
+        const canOpen = await Linking.canOpenURL(whatsappUrl);
+        if (canOpen) {
+          await Linking.openURL(whatsappUrl);
+        } else {
+          await Share.share({ message, title: displayTitle });
+        }
+      } catch (_) {
+        handleShare();
+      }
     };
 
     const handleWhatsAppStatusShare = async () => {
@@ -593,8 +643,16 @@ const NewsCard = React.memo(
         },
       });
       options.push({
+        text: 'Share on WhatsApp',
+        onPress: handleWhatsAppShare,
+      });
+      options.push({
         text: 'Share to WhatsApp Status (ముఖ్యాంశాలు)',
         onPress: handleWhatsAppStatusShare,
+      });
+      options.push({
+        text: 'Copy link',
+        onPress: handleCopyLink,
       });
       if (hasSource) {
         options.push({
@@ -610,7 +668,7 @@ const NewsCard = React.memo(
         text: 'Cancel',
         style: 'cancel' as const,
       });
-      Alert.alert(
+      alert(
         displayTitle || 'Options',
         'Choose an action',
         options
@@ -973,6 +1031,7 @@ const NewsCard = React.memo(
               </View>
             </View>
           </View>
+          {AlertComponent}
         </View>
     );
   },

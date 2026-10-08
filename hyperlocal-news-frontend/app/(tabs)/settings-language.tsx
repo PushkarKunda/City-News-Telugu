@@ -7,7 +7,6 @@ import {
   ScrollView,
   Pressable,
   Animated,
-  Alert,
   useWindowDimensions,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -20,6 +19,7 @@ import { usersApi } from '@/services/api/users';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useAuthStore } from '@/store/authStore';
+import { useAppAlert } from '@/components/AppAlert';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -140,6 +140,7 @@ function LanguageCard({
 // ═══════════════════════════════════════════════════════════════════════════
 
 export default function SettingsLanguageScreen() {
+  const { alert, AlertComponent } = useAppAlert();
   const colorScheme = useAppColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const router = useRouter();
@@ -182,7 +183,7 @@ export default function SettingsLanguageScreen() {
         setInitialLanguageId(langId);
       } catch (error) {
         console.error('[SettingsLanguage] Failed to load preferences:', error);
-        Alert.alert('Error', 'Failed to load preferences. Please try again.');
+        alert('Error', 'Failed to load preferences. Please try again.');
       } finally {
         setIsLoadingPreferences(false);
       }
@@ -204,13 +205,13 @@ export default function SettingsLanguageScreen() {
     }
 
     if (selectedLanguageId === null) {
-      Alert.alert('Error', 'Please select a language');
+      alert('Error', 'Please select a language');
       return;
     }
 
     const prefs = cachedPreferences;
     if (!prefs) {
-      Alert.alert('Error', 'Preferences not loaded. Please try again.');
+      alert('Error', 'Preferences not loaded. Please try again.');
       return;
     }
 
@@ -227,11 +228,11 @@ export default function SettingsLanguageScreen() {
 
       updateCachedPreferences({ language_id: selectedLanguageId });
 
-      Alert.alert('Success', 'Language updated successfully!', [
+      alert('Success', 'Language updated successfully!', [
         { text: 'OK', onPress: () => router.push('/(tabs)/settings') },
       ]);
     } catch (error: any) {
-      Alert.alert('Error', error?.message || 'Failed to update language');
+      alert('Error', error?.message || 'Failed to update language');
     } finally {
       setIsSaving(false);
     }
@@ -412,6 +413,7 @@ export default function SettingsLanguageScreen() {
           </Pressable>
         </Animated.View>
       </View>
+      {AlertComponent}
     </View>
   );
 }

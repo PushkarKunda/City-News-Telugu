@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
   Animated,
   Pressable,
@@ -20,6 +19,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useAuthStore } from '@/store/authStore';
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
+import { useAppAlert } from '@/components/AppAlert';
 
 export default function VerifyOTPScreen() {
   const router = useRouter();
@@ -28,6 +28,7 @@ export default function VerifyOTPScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const isDark = colorScheme === 'dark';
 
+  const { alert, AlertComponent } = useAppAlert();
   const { verifyPhoneOTP, sendPhoneOTP, isLoading } = useAuthStore();
 
   const [otp, setOtp] = useState('');
@@ -65,7 +66,7 @@ export default function VerifyOTPScreen() {
 
   const handleVerify = async () => {
     if (otp.length !== 6) {
-      Alert.alert('Invalid OTP', 'Please enter the 6-digit code');
+      alert('Invalid OTP', 'Please enter the 6-digit code');
       return;
     }
 
@@ -77,7 +78,7 @@ export default function VerifyOTPScreen() {
 
       if (wasAlreadyAuthenticated) {
         // User was linking their phone from Edit Profile
-        Alert.alert(
+        alert(
           'Success',
           'Your phone number has been verified successfully!',
           [
@@ -110,7 +111,7 @@ export default function VerifyOTPScreen() {
       if (error.message?.includes('already been linked') || error.code === 'auth/provider-already-linked') {
         // Fallback UI safety if the firebase.ts fix didn't catch it smoothly
         errorMsg = 'This phone number is already linked to your account.';
-        Alert.alert('Already Verified', errorMsg, [
+        alert('Already Verified', errorMsg, [
           {
             text: 'OK',
             onPress: () => {
@@ -131,7 +132,7 @@ export default function VerifyOTPScreen() {
         errorMsg = 'The OTP code has expired. Please tap "Resend Code".';
       }
 
-      Alert.alert('Verification Failed', errorMsg);
+      alert('Verification Failed', errorMsg);
       setOtp('');
     }
   };
@@ -146,9 +147,9 @@ export default function VerifyOTPScreen() {
     try {
       await sendPhoneOTP(phone);
       setOtp('');
-      Alert.alert('OTP Sent', 'A new code has been sent to ' + phone);
+      alert('OTP Sent', 'A new code has been sent to ' + phone);
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to resend OTP');
+      alert('Error', error.message || 'Failed to resend OTP');
     } finally {
       setResending(false);
     }
@@ -281,6 +282,7 @@ export default function VerifyOTPScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      {AlertComponent}
     </SafeAreaView>
   );
 }

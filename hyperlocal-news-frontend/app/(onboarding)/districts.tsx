@@ -9,7 +9,6 @@ import {
   Animated,
   TextInput,
   DimensionValue,
-  Alert,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,6 +20,7 @@ import { useDistrictsList } from '@/hooks/useApi';
 import { usersApi } from '@/services/api';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useAuthStore } from '@/store/authStore';
+import { useAppAlert } from '@/components/AppAlert';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -136,6 +136,7 @@ function DistrictCard({
 // ═══════════════════════════════════════════════════════════════════════════
 
 export default function DistrictsScreen() {
+  const { alert, AlertComponent } = useAppAlert();
   const colorScheme = useAppColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const router = useRouter();
@@ -232,13 +233,13 @@ export default function DistrictsScreen() {
   // FIXED: Store data locally, no API call
   const handleContinue = () => {
     if (!selectedDistrict) {
-      Alert.alert('District Required', 'Please select your district to continue.');
+      alert('District Required', 'Please select your district to continue.');
       return;
     }
 
     const matchedDistrict = districts.find((d) => d.id === selectedDistrict);
     if (!matchedDistrict) {
-      Alert.alert('Error', 'Selected district not found');
+      alert('Error', 'Selected district not found');
       return;
     }
 
@@ -452,6 +453,7 @@ export default function DistrictsScreen() {
           </Pressable>
         </Animated.View>
       </View>
+      {AlertComponent}
     </SafeAreaView>
   );
 }

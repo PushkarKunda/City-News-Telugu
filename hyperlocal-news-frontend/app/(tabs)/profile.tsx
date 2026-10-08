@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
-  Alert,
   Dimensions,
   TextInput,
   Platform,
@@ -25,6 +24,7 @@ import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { CreateArticleModal } from '@/components/CreateArticleModal';
+import { useAppAlert } from '@/components/AppAlert';
 import { useCreateNews, useDeleteNews } from '@/hooks/useNews';
 import { useDeletePost } from '@/hooks/usePosts';
 import { useProfileScreen } from '@/hooks/useScreens';
@@ -113,12 +113,14 @@ export default function ProfileScreen() {
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
   // ─── API Mutations ───────────────────────────────────────────────────────
+  const { alert, AlertComponent } = useAppAlert();
+
   const { mutate: createArticleMutate } = useCreateNews();
   const { mutate: deleteArticleMutate } = useDeleteNews();
   const { mutate: deletePostMutate } = useDeletePost();
 
   const handleDeleteUserPost = (postUid: string) => {
-    Alert.alert(
+    alert(
       'Delete Post',
       'Are you sure you want to delete this post? This action cannot be undone.',
       [
@@ -131,15 +133,16 @@ export default function ProfileScreen() {
               onSuccess: () => {
                 setPosts((prev) => prev.filter((p) => p.post_uid !== postUid));
                 setSelectedPost(null);
-                Alert.alert('Success', 'Post deleted successfully.');
+                alert('Success', 'Post deleted successfully.', [{ text: 'OK' }], { icon: 'checkmark-circle', iconColor: '#10B981' });
               },
               onError: (err: any) => {
-                Alert.alert('Error', err?.message || 'Failed to delete post.');
+                alert('Error', err?.message || 'Failed to delete post.', [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
               },
             });
           },
         },
-      ]
+      ],
+      { icon: 'trash-outline', iconColor: '#EF4444' }
     );
   };
 
@@ -337,7 +340,7 @@ export default function ProfileScreen() {
       const { status: cameraRollStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
       if (cameraRollStatus !== 'granted' || cameraStatus !== 'granted') {
-        Alert.alert('Permission Denied', 'Sorry, we need camera and library permissions to change profile pictures.');
+        alert('Permission Denied', 'Sorry, we need camera and library permissions to change profile pictures.', [{ text: 'OK' }], { icon: 'lock-closed-outline', iconColor: '#F59E0B' });
         return false;
       }
       return true;
@@ -392,12 +395,14 @@ export default function ProfileScreen() {
           : prev
       );
 
-      Alert.alert('Success', 'Profile picture updated successfully!');
+      alert('Success', 'Profile picture updated successfully!', [{ text: 'OK' }], { icon: 'checkmark-circle', iconColor: '#10B981' });
     } catch (error: any) {
       console.error('[profile] Avatar upload failed:', error);
-      Alert.alert(
+      alert(
         'Upload Failed',
-        error.message || 'Failed to upload profile picture. Please try again.'
+        error.message || 'Failed to upload profile picture. Please try again.',
+        [{ text: 'OK' }],
+        { icon: 'alert-circle', iconColor: '#EF4444' }
       );
     } finally {
       setIsUploadingAvatar(false);
@@ -419,7 +424,7 @@ export default function ProfileScreen() {
         await uploadAndSaveAvatar(result.assets[0].uri);
       }
     } catch {
-      Alert.alert('Error', 'Could not open camera.');
+      alert('Error', 'Could not open camera.', [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
     }
   };
 
@@ -438,19 +443,20 @@ export default function ProfileScreen() {
         await uploadAndSaveAvatar(result.assets[0].uri);
       }
     } catch {
-      Alert.alert('Error', 'Could not open gallery.');
+      alert('Error', 'Could not open gallery.', [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
     }
   };
 
   const handleAvatarPress = () => {
-    Alert.alert(
+    alert(
       'Change Profile Picture',
       'Choose an option to update your photo:',
       [
         { text: 'Take Photo', onPress: handleTakePhoto },
         { text: 'Choose from Gallery', onPress: handlePickLibrary },
         { text: 'Cancel', style: 'cancel' },
-      ]
+      ],
+      { icon: 'camera-outline' }
     );
   };
 
@@ -459,7 +465,7 @@ export default function ProfileScreen() {
   const handleApplyForPublisher = async () => {
     // ✅ Check eligibility
     if (!canApplyForPublisher) {
-      Alert.alert(
+      alert(
         'Requirements Not Met',
         `Please complete the following to apply:\n\n${missingRequirements
           .map((r) => `• ${r.replace(/_/g, ' ')}`)
@@ -470,7 +476,8 @@ export default function ProfileScreen() {
             onPress: () => router.push('/(onboarding)/edit-profile'),
           },
           { text: 'Cancel', style: 'cancel' },
-        ]
+        ],
+        { icon: 'alert-circle', iconColor: '#F59E0B' }
       );
       return;
     }
@@ -482,12 +489,14 @@ export default function ProfileScreen() {
       // Reload dashboard to get updated publisher status
       await loadDashboard();
 
-      Alert.alert('Congratulations!', 'You are now a Verified Publisher!');
+      alert('Congratulations!', 'You are now a Verified Publisher!', [{ text: 'OK' }], { icon: 'shield-checkmark', iconColor: '#10B981' });
       setActiveTab('posts');
     } catch (error: any) {
-      Alert.alert(
+      alert(
         'Application Failed',
-        error.message || 'Could not apply for publisher. Please try again.'
+        error.message || 'Could not apply for publisher. Please try again.',
+        [{ text: 'OK' }],
+        { icon: 'alert-circle', iconColor: '#EF4444' }
       );
     } finally {
       setIsApplyingPublisher(false);
@@ -506,10 +515,10 @@ export default function ProfileScreen() {
       },
       {
         onSuccess: () => {
-          Alert.alert('Submitted!', 'Your news article has been submitted for review.');
+          alert('Submitted!', 'Your news article has been submitted for review.', [{ text: 'OK' }], { icon: 'checkmark-circle', iconColor: '#10B981' });
         },
         onError: (err: any) => {
-          Alert.alert('Error', err.message || 'Failed to publish article.');
+          alert('Error', err.message || 'Failed to publish article.', [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
         },
       }
     );
@@ -527,45 +536,23 @@ export default function ProfileScreen() {
   };
 
   const handleCreatePost = async () => {
-    if (!postCoverImage) {
-      Alert.alert('Validation Error', 'Please select a photo for your post.');
-      return;
-    }
     if (!postCaption.trim()) {
-      Alert.alert('Validation Error', 'Please write a caption.');
+      alert('Validation Error', 'Please write a caption.', [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#F59E0B' });
       return;
     }
 
     setIsPublishingPost(true);
     try {
-      let serverUrl = '';
-      try {
-        // Compress cover image to ensure consistent size and valid local Uri structure
-        const compressed = await compressImage(postCoverImage, {
-          width: 1024,
-          height: 576,
-          compress: 0.8,
-        });
-
-        // 1. Upload cover image to Supabase
-        serverUrl = await uploadImageToSupabaseNews(compressed.uri, 'news');
-      } catch (uploadErr: any) {
-        console.warn('[profile] Supabase upload failed:', uploadErr);
-        throw uploadErr;
-      }
-
-      if (!serverUrl) {
-        throw new Error('Failed to obtain post image URL.');
-      }
+      const imageUrl = postCoverImage.trim() || null;
 
       const captionTags = (postCaption.match(/#[a-zA-Z0-9_]+/g) || []).map((t) =>
         t.replace(/^#/, '').trim()
       );
 
-      // 2. Call backend Post creation API
+      // Call backend Post creation API
       const response = await postsApi.createPost({
         content: postCaption.trim(),
-        image_url: serverUrl,
+        image_url: imageUrl,
         hashtags: captionTags.length > 0 ? captionTags : undefined,
       });
 
@@ -595,17 +582,17 @@ export default function ProfileScreen() {
       setPostCaption('');
       setPostCoverImage('');
       setShowCreatePostModal(false);
-      Alert.alert('Success', 'Your post has been published successfully!');
+      alert('Success', 'Your post has been published successfully!', [{ text: 'OK' }], { icon: 'checkmark-circle', iconColor: '#10B981' });
     } catch (error: any) {
       console.error('[profile] Failed to create post:', error);
-      Alert.alert('Error', error.message || 'Failed to publish post. Please try again.');
+      alert('Error', error.message || 'Failed to publish post. Please try again.', [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
     } finally {
       setIsPublishingPost(false);
     }
   };
 
   const handleDeleteArticle = (uid: string) => {
-    Alert.alert('Delete Article', 'Are you sure you want to delete this article?', [
+    alert('Delete Article', 'Are you sure you want to delete this article?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -614,7 +601,7 @@ export default function ProfileScreen() {
           deleteArticleMutate(uid);
         },
       },
-    ]);
+    ], { icon: 'trash-outline', iconColor: '#EF4444' });
   };
 
   // ─── Render ───────────────────────────────────────────────────────────────
@@ -1494,13 +1481,14 @@ export default function ProfileScreen() {
                 if (isPublisher) {
                   setShowCreateArticleModal(true);
                 } else {
-                  Alert.alert(
+                  alert(
                     'Access Denied',
                     'Write News is only available for verified publishers.',
                     [
                       { text: 'View Status', onPress: () => setActiveTab('publisher') },
                       { text: 'Cancel', style: 'cancel' },
-                    ]
+                    ],
+                    { icon: 'lock-closed-outline', iconColor: '#F59E0B' }
                   );
                 }
               }}
@@ -1530,6 +1518,8 @@ export default function ProfileScreen() {
         onClose={() => setShowCreateArticleModal(false)}
         onSubmit={handleCreateNewsArticle}
       />
+
+      {AlertComponent}
 
       {/* Create Post Modal */}
       <Modal
@@ -1577,35 +1567,29 @@ export default function ProfileScreen() {
               </View>
 
               <View style={styles.formGroup}>
-                <Text style={[styles.formLabel, { color: colors.text }]}>Cover Image</Text>
-                {postCoverImage ? (
-                  <View style={styles.postCoverContainer}>
-                    <Image source={{ uri: postCoverImage }} style={styles.postCoverImg} />
-                    <TouchableOpacity
-                      style={styles.postCoverRemoveBtn}
-                      onPress={() => setPostCoverImage('')}
-                    >
-                      <Ionicons name="close" size={16} color="#FFFFFF" />
-                    </TouchableOpacity>
-                  </View>
-                ) : (
-                  <TouchableOpacity
-                    style={[
-                      styles.textInput,
-                      { alignItems: 'center', justifyContent: 'center', height: 100 },
-                    ]}
-                    onPress={handlePickPostImage}
-                  >
-                    <Ionicons
-                      name="image-outline"
-                      size={24}
-                      color={colors.textSecondary}
-                      style={{ marginBottom: 4 }}
-                    />
-                    <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-                      Pick from Gallery
-                    </Text>
-                  </TouchableOpacity>
+                <Text style={[styles.formLabel, { color: colors.text }]}>Image URL (optional)</Text>
+                <TextInput
+                  style={[
+                    styles.modalTextInput,
+                    {
+                      backgroundColor: colors.surface,
+                      color: colors.text,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                  placeholder="https://example.com/image.jpg"
+                  placeholderTextColor={colors.textTertiary}
+                  value={postCoverImage}
+                  onChangeText={setPostCoverImage}
+                  autoCapitalize="none"
+                  keyboardType="url"
+                />
+                {postCoverImage.trim().length > 0 && (
+                  <Image
+                    source={{ uri: postCoverImage.trim() }}
+                    style={styles.postCoverImg}
+                    resizeMode="cover"
+                  />
                 )}
               </View>
 

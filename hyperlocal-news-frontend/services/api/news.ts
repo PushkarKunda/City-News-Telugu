@@ -209,7 +209,8 @@ export interface CreatedCommentResponse {
   article_id: string;
   user_id: string;
   user_name: string;
-  text: string;
+  text?: string;
+  comment_text?: string;
   created_at: string;
   comments_count: number;
   user_avatar?: string;
@@ -533,19 +534,22 @@ export const newsApi = {
         items = res.comments;
         total = res.total ?? res.total_count ?? res.count ?? items.length;
       } else if (res && Array.isArray(res.items)) {
+        // Primary path — server returns `items` key
         items = res.items;
-        total = res.total ?? items.length;
+        total = res.total ?? res.total_count ?? items.length;
       } else if (res && Array.isArray(res.data)) {
         items = res.data;
-        total = res.total ?? items.length;
+        total = res.total ?? res.total_count ?? items.length;
       }
 
-      const has_more = items.length === limit;
+      // Use server total for reliable pagination; avoid guessing by items.length === limit
+      const fetchedUpTo = (page - 1) * limit + items.length;
+      const has_more = total > fetchedUpTo;
 
       return { comments: items, page, limit, total, has_more };
     } catch (err) {
-      console.warn('[newsApi] getComments failed:', err);
-      return { comments: [], page, limit, total: 0, has_more: false };
+      // Re-throw so TanStack Query can surface error state in the UI
+      throw err;
     }
   },
 
@@ -557,7 +561,7 @@ export const newsApi = {
     uid: string,
     payload: CreateCommentPayload
   ): Promise<CreatedCommentResponse> => {
-    return await request<CreatedCommentResponse>({
+    const res = await request<any>({
       url: API_ROUTES.news.comment(uid),
       method: 'POST',
       headers: payload.idempotency_key
@@ -565,6 +569,7 @@ export const newsApi = {
         : undefined,
       data: payload,
     });
+    return (res?.data || res?.comment || res) as CreatedCommentResponse;
   },
 
   /**

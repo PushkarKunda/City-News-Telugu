@@ -9,7 +9,6 @@ import {
   Animated,
   TextInput,
   ActivityIndicator,
-  Alert,
   DimensionValue,
 } from 'react-native';
 import * as Location from 'expo-location';
@@ -25,6 +24,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { scaleFontSize } from '@/utils/responsive';
 import { shouldShowDistrictCity } from '@/services/api/location';
 import { useAuthStore } from '@/store/authStore';
+import { useAppAlert } from '@/components/AppAlert';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -140,6 +140,7 @@ function StateCard({
 // ═══════════════════════════════════════════════════════════════════════════
 
 export default function LocationScreen() {
+  const { alert, AlertComponent } = useAppAlert();
   const colorScheme = useAppColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const router = useRouter();
@@ -267,7 +268,7 @@ export default function LocationScreen() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert(
+        alert(
           'Permission Denied',
           'We need location access to find your current state.'
         );
@@ -302,7 +303,7 @@ export default function LocationScreen() {
         } else {
           setSelectedState('ts');
           setSearchQuery('Telangana');
-          Alert.alert(
+          alert(
             'Location Detected',
             `We detected you are in ${stateName || 'another region'}. Defaulting to Telangana.`
           );
@@ -313,7 +314,7 @@ export default function LocationScreen() {
       }
     } catch (error) {
       console.error('[LocationScreen] GPS error:', error);
-      Alert.alert(
+      alert(
         'Location Error',
         'Could not fetch your current location. Please select your state manually.'
       );
@@ -339,13 +340,13 @@ export default function LocationScreen() {
   // FIXED: Store data locally, no API call
   const handleContinue = () => {
     if (!selectedState) {
-      Alert.alert('State Required', 'Please select your state to continue.');
+      alert('State Required', 'Please select your state to continue.');
       return;
     }
 
     const matchedState = statesList.find((s) => s.id === selectedState);
     if (!matchedState) {
-      Alert.alert('Error', 'Selected state not found');
+      alert('Error', 'Selected state not found');
       return;
     }
 
@@ -605,6 +606,7 @@ export default function LocationScreen() {
           </Pressable>
         </Animated.View>
       </View>
+      {AlertComponent}
     </SafeAreaView>
   );
 }

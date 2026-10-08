@@ -7,7 +7,6 @@ import {
   Pressable,
   FlatList,
   Dimensions,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -19,6 +18,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { CreateArticleModal } from '@/components/CreateArticleModal';
+import { useAppAlert } from '@/components/AppAlert';
 
 const TABS = ['all', 'pending', 'published', 'rejected'] as const;
 type TabKey = (typeof TABS)[number];
@@ -31,6 +31,7 @@ const TAB_CONFIG: Record<TabKey, { label: string; icon: string; color: string }>
 };
 
 export default function PublisherDashboard() {
+  const { alert, AlertComponent } = useAppAlert();
   const colorScheme = useAppColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const router = useRouter();
@@ -49,11 +50,11 @@ export default function PublisherDashboard() {
       },
       {
         onSuccess: () => {
-          Alert.alert('Submitted!', 'Your news article has been submitted for review.');
+          alert('Submitted!', 'Your news article has been submitted for review.');
           setIsCreateModalVisible(false);
         },
         onError: (err: any) => {
-          Alert.alert('Error', err.message || 'Failed to publish article.');
+          alert('Error', err.message || 'Failed to publish article.');
         },
       }
     );
@@ -238,6 +239,7 @@ export default function PublisherDashboard() {
         onClose={() => setIsCreateModalVisible(false)}
         onSubmit={handleCreateNewsArticle}
       />
+      {AlertComponent}
     </SafeAreaView>
   );
 }

@@ -390,20 +390,25 @@ export function useAddComment() {
 
     onSuccess: async (res, vars, context) => {
       await queryClient.cancelQueries({ queryKey: newsKeys.comments(vars.uid) });
-      const tempId = context?.tempId || vars.tempId;
+      const tempId = context?.tempId ?? vars.tempId;
+      const confirmedId = res.id ?? (res as any)?.comment_id ?? tempId;
       const confirmedComment: NewsComment = {
-        id: res.id,
+        id: confirmedId,
         user_uid: res.user_id,
         user_name: res.user_name,
         user_avatar: res.user_avatar,
-        comment_text: res.text,
+        // Server may return `text` or `comment_text` depending on endpoint version
+        comment_text: res.text || res.comment_text || vars.comment_text,
         created_at: res.created_at,
         likes_count: 0,
         status: 'sent',
         idempotency_key: vars.idempotency_key,
       };
 
-      useCommentCountStore.getState().setCount(vars.uid, res.comments_count);
+      const finalCount = res.comments_count ?? (res as any)?.count;
+      if (typeof finalCount === 'number') {
+        useCommentCountStore.getState().setCount(vars.uid, finalCount);
+      }
 
       // Replace temporary/realtime copies with the server's full comment.
       // Also update page totals so the sheet cannot overwrite the new count
@@ -413,18 +418,44 @@ export function useAddComment() {
         (old) => {
           if (!old?.pages?.length) {
             return {
-              pages: [{ comments: [confirmedComment], page: 1, limit: 20, total: res.comments_count, has_more: res.comments_count > 1 }],
+              pages: [{
+                comments: [confirmedComment],
+                page: 1,
+                limit: 20,
+                total: typeof finalCount === 'number' ? finalCount : 1,
+                has_more: (finalCount ?? 1) > 1,
+              }],
               pageParams: [1],
             };
           }
-          const pages = old.pages.map((p, index) => ({
-            ...p,
-            total: res.comments_count,
-            comments: [
-              ...(index === 0 ? [confirmedComment] : []),
-              ...p.comments.filter((c) => c.id !== tempId && c.id !== res.id),
-            ],
-          }));
+          const pages = old.pages.map((p, index) => {
+            const filteredComments = p.comments.filter((c) => {
+              if (!c) return false;
+              // Remove optimistic comment by tempId (comparing as strings to handle number/string variations)
+              if (tempId != null && String(c.id) === String(tempId)) return false;
+              // Remove by idempotency_key
+              if (vars.idempotency_key && c.idempotency_key === vars.idempotency_key) return false;
+              // Remove any existing copy with the same confirmed server ID
+              if (confirmedId != null && String(c.id) === String(confirmedId)) return false;
+              // Remove optimistic comment with matching text if sending
+              if (
+                (c.status === 'sending' || c.user_uid === '__optimistic__') &&
+                c.comment_text?.trim() === vars.comment_text?.trim()
+              ) {
+                return false;
+              }
+              return true;
+            });
+
+            return {
+              ...p,
+              total: typeof finalCount === 'number' ? finalCount : p.total,
+              comments: [
+                ...(index === 0 ? [confirmedComment] : []),
+                ...filteredComments,
+              ],
+            };
+          });
           return { ...old, pages };
         }
       );
@@ -437,6 +468,7 @@ export function useAddComment() {
     },
 
     onError: (_err, vars, context) => {
+      console.warn('[useAddComment] Failed to post comment:', _err);
       // Roll back global count
       useCommentCountStore.getState().decrementCount(vars.uid);
 
@@ -474,7 +506,15 @@ export function useAddComment() {
       });
     },
 
-    onSettled: (_data, _err, { uid }) => {
+    onSettled: (_data, err, { uid }) => {
+      // Only invalidate comments on success — onSuccess already sets the cache
+      // correctly with the confirmed comment. On error, we leave the failed
+      // optimistic comment in place so the user can tap Retry or Dismiss;
+      // refetching after a 500 causes a duplicate because the server may have
+      // partially saved the comment and returns it in the list.
+      if (!err) {
+        // no-op: onSuccess already updated the cache correctly
+      }
       queryClient.invalidateQueries({ queryKey: newsKeys.engagement(uid) });
       queryClient.invalidateQueries({ queryKey: newsKeys.single(uid) });
     },

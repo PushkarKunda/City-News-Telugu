@@ -7,7 +7,6 @@ import {
     ScrollView,
     Pressable,
     Animated,
-    Alert,
     useWindowDimensions,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -20,6 +19,7 @@ import { usersApi } from '@/services/api/users';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useAuthStore } from '@/store/authStore';
+import { useAppAlert } from '@/components/AppAlert';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -186,6 +186,7 @@ function CategoryCard({
 // ═══════════════════════════════════════════════════════════════════════════
 
 export default function SettingsInterestsScreen() {
+    const { alert, AlertComponent } = useAppAlert();
     const colorScheme = useAppColorScheme();
     const colors = Colors[colorScheme ?? 'light'];
     const router = useRouter();
@@ -219,7 +220,7 @@ export default function SettingsInterestsScreen() {
                 setInitialCategories(categoryIds);
             } catch (error) {
                 console.error('[SettingsInterests] Failed to load preferences:', error);
-                Alert.alert('Error', 'Failed to load preferences. Please try again.');
+                alert('Error', 'Failed to load preferences. Please try again.');
             } finally {
                 setIsLoadingPreferences(false);
             }
@@ -253,7 +254,7 @@ export default function SettingsInterestsScreen() {
         }
 
         if (selectedCategories.length === 0) {
-            Alert.alert(
+            alert(
                 'Select Interests',
                 'Please select at least one interest to continue.'
             );
@@ -262,7 +263,7 @@ export default function SettingsInterestsScreen() {
 
         const prefs = cachedPreferences;
         if (!prefs) {
-            Alert.alert('Error', 'Preferences not loaded. Please try again.');
+            alert('Error', 'Preferences not loaded. Please try again.');
             return;
         }
 
@@ -279,11 +280,11 @@ export default function SettingsInterestsScreen() {
 
             updateCachedPreferences({ category_ids: selectedCategories });
 
-            Alert.alert('Success', 'Your interests have been updated!', [
+            alert('Success', 'Your interests have been updated!', [
                 { text: 'OK', onPress: () => router.push('/(tabs)/settings') },
             ]);
         } catch (error: any) {
-            Alert.alert(
+            alert(
                 'Error',
                 error?.message || 'Failed to update interests. Please try again.'
             );
@@ -507,6 +508,7 @@ export default function SettingsInterestsScreen() {
                     </Pressable>
                 </Animated.View>
             </View>
+            {AlertComponent}
         </View>
     );
 }

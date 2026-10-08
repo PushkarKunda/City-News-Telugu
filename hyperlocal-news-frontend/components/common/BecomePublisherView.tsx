@@ -6,7 +6,6 @@ import {
     StyleSheet,
     TouchableOpacity,
     ScrollView,
-    Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -15,6 +14,7 @@ import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { StatusBar } from 'expo-status-bar';
 import { useGoogleFirebaseAuth } from '@/hooks/useGoogleFirebaseAuth';
+import { useAppAlert } from '@/components/AppAlert';
 
 interface BecomePublisherViewProps {
     onBack: () => void;
@@ -30,6 +30,7 @@ export const BecomePublisherView = ({
     const colors = Colors[colorScheme ?? 'light'];
     const isDark = colorScheme === 'dark';
     const insets = useSafeAreaInsets();
+    const { alert, AlertComponent } = useAppAlert();
     const {
         signInWithGoogle,
         isGoogleReady,
@@ -39,7 +40,7 @@ export const BecomePublisherView = ({
             router.push('/(onboarding)/edit-profile');
         },
         onError: (error) => {
-            Alert.alert('Google Sign-In Failed', error.message || 'Please try again.');
+            alert('Google Sign-In Failed', error.message || 'Please try again.', [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
         },
     });
 
@@ -153,6 +154,7 @@ export const BecomePublisherView = ({
 
                 </View>
             </ScrollView>
+            {AlertComponent}
         </View>
     );
 };

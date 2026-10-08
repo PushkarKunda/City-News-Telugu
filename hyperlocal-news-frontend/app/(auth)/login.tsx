@@ -10,7 +10,6 @@ import {
   ScrollView,
   Animated,
   Pressable,
-  Alert,
   Image,
   useWindowDimensions,
   ActivityIndicator,
@@ -26,6 +25,7 @@ import { useGoogleFirebaseAuth } from '@/hooks/useGoogleFirebaseAuth';
 import { firebaseAuth } from '@/services/firebase';
 import { authApi } from '@/services/api';
 import { saveTokens } from '@/services/api/token';
+import { useAppAlert } from '@/components/AppAlert';
 
 const COUNTRY_CODES = [
   { code: '+91', country: 'IN', flag: '🇮🇳' },
@@ -38,6 +38,7 @@ export default function LoginScreen() {
   const isDark = colorScheme === 'dark';
   const { width } = useWindowDimensions();
   const heroCardHeight = Math.min(Math.max(width * 0.46, 160), 220);
+  const { alert, AlertComponent } = useAppAlert();
 
   // ✅ Only from store - no duplicate useState for isLoading
   const { sendPhoneOTP, isLoading, fetchUser } = useAuthStore();
@@ -52,7 +53,7 @@ export default function LoginScreen() {
     },
     onError: (error: any) => {
       if (error.code === 'SIGN_IN_CANCELLED' || error.message?.includes('cancelled')) return; // silent cancel
-      Alert.alert('Google Sign-In', error.message || 'Please try again.');
+      alert('Google Sign-In', error.message || 'Please try again.', [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
     },
   });
 
@@ -180,7 +181,7 @@ export default function LoginScreen() {
     const rawDigits = phoneNumber.replace(/\D/g, '');
 
     if (rawDigits.length < 10) {
-      Alert.alert('Invalid Number', 'Please enter a valid 10-digit phone number.');
+      alert('Invalid Number', 'Please enter a valid 10-digit phone number.', [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#F59E0B' });
       return;
     }
 
@@ -193,14 +194,16 @@ export default function LoginScreen() {
         params: { phone: fullPhone },
       });
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to send OTP. Please try again.');
+      alert('Error', error.message || 'Failed to send OTP. Please try again.', [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
     }
   };
 
   const handleLinkPress = (type: 'terms' | 'privacy') => {
-    Alert.alert(
+    alert(
       type === 'terms' ? 'Terms of Service' : 'Privacy Policy',
-      `Redirecting to City News Telugu's ${type === 'terms' ? 'Terms of Service' : 'Privacy Policy'}...`
+      `Redirecting to City News Telugu's ${type === 'terms' ? 'Terms of Service' : 'Privacy Policy'}...`,
+      [{ text: 'OK' }],
+      { icon: 'information-circle-outline' }
     );
   };
 
@@ -443,6 +446,7 @@ export default function LoginScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      {AlertComponent}
     </SafeAreaView>
   );
 }

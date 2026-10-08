@@ -7,7 +7,6 @@ import {
   Pressable,
   Animated,
   DimensionValue,
-  Alert,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +18,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { usersApi } from '@/services/api';
 import { useAuthStore } from '@/store/authStore';
+import { useAppAlert } from '@/components/AppAlert';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -144,6 +144,7 @@ function LanguageCard({
 // ═══════════════════════════════════════════════════════════════════════════
 
 export default function LanguageScreen() {
+  const { alert, AlertComponent } = useAppAlert();
   const colorScheme = useAppColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const router = useRouter();
@@ -218,13 +219,13 @@ export default function LanguageScreen() {
   // FIXED: Store data locally, no API call
   const handleContinue = async () => {
     if (!selectedLanguage) {
-      Alert.alert('Language Required', 'Please select a language to continue.');
+      alert('Language Required', 'Please select a language to continue.');
       return;
     }
 
     const matchedLanguage = languagesList.find((l) => l.id === selectedLanguage);
     if (!matchedLanguage) {
-      Alert.alert('Error', 'Selected language not found');
+      alert('Error', 'Selected language not found');
       return;
     }
 
@@ -404,6 +405,7 @@ export default function LanguageScreen() {
           </Pressable>
         </Animated.View>
       </View>
+      {AlertComponent}
     </SafeAreaView>
   );
 }
