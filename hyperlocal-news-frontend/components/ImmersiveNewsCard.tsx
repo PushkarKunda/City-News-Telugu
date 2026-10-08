@@ -315,8 +315,14 @@ const NewsCard = React.memo(
     const { mutate: recordShare } = useRecordShare();
     const { mutate: recordView } = useRecordView();
 
-    // Local optimistic like state
-    const [liked, setLiked] = React.useState(false);
+    // Start from the server-provided state so a refresh does not make an
+    // already-liked story appear unliked.
+    const serverLiked = Boolean(
+      (item as any).user_liked ??
+      (item as any).is_liked ??
+      item.engagement?.user_liked
+    );
+    const [liked, setLiked] = React.useState(serverLiked);
     const [likeCount, setLikeCount] = React.useState(item.likes ?? 0);
 
     // Micro-animation spring values

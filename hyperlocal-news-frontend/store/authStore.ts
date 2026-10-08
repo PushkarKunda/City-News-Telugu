@@ -194,6 +194,7 @@ interface AuthState {
   linkGoogle: (idToken: string) => Promise<BackendLoginResponse>;
   linkPhone: (phoneNumber: string, otp: string) => Promise<void>;
   logout: () => Promise<void>;
+  expireSession: () => Promise<void>;
 
   updateProfile: (updates: Partial<User>) => void;
   updateProfileLocal: (updates: Partial<User>) => void;
@@ -416,10 +417,8 @@ export const useAuthStore = create<AuthState>()(
           }
 
           if (!token && !currentUser) {
-            if (!get().user) {
-              set({ user: null, isAuthenticated: false });
-            }
-            return get().user;
+            await get().expireSession();
+            return null;
           }
 
           // If Firebase user is active, run syncProvider to update provider state with fresh ID token
@@ -845,7 +844,6 @@ export const useAuthStore = create<AuthState>()(
       // ─── Logout ────────────────────────────────────────────────────────────
 
       logout: async () => {
-        if (get().isLoading) return;
         set({ isLoading: true });
         try {
           const token = await getAuthToken();
@@ -855,22 +853,27 @@ export const useAuthStore = create<AuthState>()(
         } catch {
           // Continue even if API fails
         } finally {
-          await firebaseSignOut();
-          await clearTokens();
-          set({
-            user: null,
-            isAuthenticated: false,
-            isOnboarded: false,
-            isLoading: false,
-            error: null,
-            phoneConfirmation: null,
-            pendingPhone: null,
-            pendingVerificationId: null,
-            lastOtpSentTime: null,
-            onboardingData: {}, // ✅ Clear onboarding data
-            cachedPreferences: null, // ✅ Clear cache on logout
-          });
+          await get().expireSession();
         }
+      },
+
+      expireSession: async () => {
+        // Clear persisted UI state before awaiting native cleanup. Expiry must
+        // work even while an authenticated operation is still loading.
+        set({
+          user: null,
+          isAuthenticated: false,
+          isOnboarded: false,
+          isLoading: false,
+          error: null,
+          phoneConfirmation: null,
+          pendingPhone: null,
+          pendingVerificationId: null,
+          lastOtpSentTime: null,
+          onboardingData: {},
+          cachedPreferences: null,
+        });
+        await Promise.allSettled([firebaseSignOut(), clearTokens()]);
       },
 
       // ─── Switch to Publisher ───────────────────────────────────────────────

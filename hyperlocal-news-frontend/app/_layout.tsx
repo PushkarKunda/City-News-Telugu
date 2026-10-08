@@ -166,8 +166,10 @@ export default function RootLayout() {
   // ─── Token Refresh Failure Handler ───────────────────────────────────────
   useEffect(() => {
     setOnUnauthorizedCallback(() => {
-      console.warn('🔓 Token expired - handled silently without disrupting active session');
+      void queryClient.cancelQueries().then(() => queryClient.clear());
+      void useAuthStore.getState().expireSession();
     });
+    return () => setOnUnauthorizedCallback(null);
   }, []);
 
   // ─── Network Monitoring ──────────────────────────────────────────────────

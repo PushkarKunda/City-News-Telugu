@@ -18,10 +18,8 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { Image } from 'expo-image';
 import { Typography } from '@/constants/Typography';
 import { Spacing } from '@/constants/Spacing';
-import { useNewsShorts } from '@/hooks/useNews';
-import { useQuery } from '@tanstack/react-query';
 import { useShortsScreen } from '@/hooks/useScreens';
-import { contentApi, Advertisement } from '@/services/api/content';
+import { Advertisement } from '@/services/api/content';
 import { injectAdsIntoFeed, isAdvertisement } from '@/hooks/feedInjection';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useTabBarStore } from '@/store/tabBarStore';
@@ -305,14 +303,10 @@ export default function ShortsScreen() {
     }
   }, [shortsScreenData]);
 
-  const { data: rawShorts = [], isLoading: isLoadingShorts } = useNewsShorts('te');
-  const { data: ads = [], isLoading: isLoadingAds } = useQuery({
-    queryKey: ['active-ads', 'shorts'],
-    queryFn: () => contentApi.getActiveAdvertisements(),
-  });
-
+  const rawShorts = shortsScreenData?.shorts?.items ?? [];
+  const ads = shortsScreenData?.ads ?? [];
   const shortsFeed = useMemo(() => injectAdsIntoFeed(rawShorts, ads, 5), [rawShorts, ads]);
-  const isLoading = (isLoadingShortsAggregate && isLoadingShorts) || isLoadingAds;
+  const isLoading = isLoadingShortsAggregate;
 
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
     if (viewableItems.length > 0) setActiveIndex(viewableItems[0].index || 0);

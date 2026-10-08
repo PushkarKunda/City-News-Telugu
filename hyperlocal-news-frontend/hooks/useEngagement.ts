@@ -15,10 +15,11 @@ export const engagementKeys = {
  * GET /engagement/bookmarks
  * ✅ contentType is now REQUIRED parameter
  */
-export function useBookmarks(contentType: ContentType) {
+export function useBookmarks(contentType: ContentType, enabled = true) {
   return useQuery({
     queryKey: engagementKeys.bookmarks(contentType),
     queryFn: () => engagementApi.getBookmarks(contentType),
+    enabled,
     staleTime: 1000 * 60 * 5,
   });
 }
@@ -49,7 +50,7 @@ export function useCheckBookmark(
  */
 export function useAddBookmark() {
   const queryClient = useQueryClient();
-  const { user } = useAuthStore();
+  const user = useAuthStore((state) => state.user);
 
   return useMutation({
     mutationFn: ({
@@ -111,6 +112,9 @@ export function useAddBookmark() {
       }
     },
     onSuccess: (_data, { contentType, contentUid }) => {
+      if (contentType === 'post') {
+        queryClient.invalidateQueries({ queryKey: ['screens', 'community'] });
+      }
       if (contentType === 'news') {
         queryClient.invalidateQueries({ queryKey: ['news', 'single', contentUid] });
       }
@@ -188,6 +192,9 @@ export function useRemoveBookmark() {
       }
     },
     onSuccess: (_data, { contentType, contentUid }) => {
+      if (contentType === 'post') {
+        queryClient.invalidateQueries({ queryKey: ['screens', 'community'] });
+      }
       if (contentType === 'news') {
         queryClient.invalidateQueries({ queryKey: ['news', 'single', contentUid] });
       }

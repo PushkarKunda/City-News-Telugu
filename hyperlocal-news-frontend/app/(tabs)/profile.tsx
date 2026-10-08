@@ -28,7 +28,7 @@ import { useAppAlert } from '@/components/AppAlert';
 import { useCreateNews, useDeleteNews } from '@/hooks/useNews';
 import { useDeletePost } from '@/hooks/usePosts';
 import { useProfileScreen } from '@/hooks/useScreens';
-import { usersApi, postsApi, type DashboardResponse } from '@/services/api';
+import { usersApi, postsApi, getUserFacingError, type DashboardResponse } from '@/services/api';
 import type { Post } from '@/services/api/posts';
 import { compressImage } from '@/services/image';
 import { uploadImageToSupabaseNews, uploadImageToSupabaseProfile } from '@/services/supabase';
@@ -42,7 +42,12 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const { user, logout, updateProfile, updateProfileLocal, switchToPublisher, fetchUser } = useAuthStore();
+  const user = useAuthStore((state) => state.user);
+  const logout = useAuthStore((state) => state.logout);
+  const updateProfile = useAuthStore((state) => state.updateProfile);
+  const updateProfileLocal = useAuthStore((state) => state.updateProfileLocal);
+  const switchToPublisher = useAuthStore((state) => state.switchToPublisher);
+  const fetchUser = useAuthStore((state) => state.fetchUser);
 
   // ─── Dashboard Data ──────────────────────────────────────────────────────
   const [dashboardData, setDashboardData] = useState<DashboardResponse | null>(null);
@@ -136,7 +141,7 @@ export default function ProfileScreen() {
                 alert('Success', 'Post deleted successfully.', [{ text: 'OK' }], { icon: 'checkmark-circle', iconColor: '#10B981' });
               },
               onError: (err: any) => {
-                alert('Error', err?.message || 'Failed to delete post.', [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
+                alert('Error', getUserFacingError(err, 'Failed to delete post.'), [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
               },
             });
           },
@@ -400,7 +405,7 @@ export default function ProfileScreen() {
       console.error('[profile] Avatar upload failed:', error);
       alert(
         'Upload Failed',
-        error.message || 'Failed to upload profile picture. Please try again.',
+        getUserFacingError(error, 'Failed to upload profile picture. Please try again.'),
         [{ text: 'OK' }],
         { icon: 'alert-circle', iconColor: '#EF4444' }
       );
@@ -494,7 +499,7 @@ export default function ProfileScreen() {
     } catch (error: any) {
       alert(
         'Application Failed',
-        error.message || 'Could not apply for publisher. Please try again.',
+        getUserFacingError(error, 'Could not apply for publisher. Please try again.'),
         [{ text: 'OK' }],
         { icon: 'alert-circle', iconColor: '#EF4444' }
       );
@@ -518,7 +523,7 @@ export default function ProfileScreen() {
           alert('Submitted!', 'Your news article has been submitted for review.', [{ text: 'OK' }], { icon: 'checkmark-circle', iconColor: '#10B981' });
         },
         onError: (err: any) => {
-          alert('Error', err.message || 'Failed to publish article.', [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
+          alert('Error', getUserFacingError(err, 'Failed to publish article.'), [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
         },
       }
     );
@@ -585,7 +590,7 @@ export default function ProfileScreen() {
       alert('Success', 'Your post has been published successfully!', [{ text: 'OK' }], { icon: 'checkmark-circle', iconColor: '#10B981' });
     } catch (error: any) {
       console.error('[profile] Failed to create post:', error);
-      alert('Error', error.message || 'Failed to publish post. Please try again.', [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
+      alert('Error', getUserFacingError(error, 'Failed to publish post. Please try again.'), [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
     } finally {
       setIsPublishingPost(false);
     }

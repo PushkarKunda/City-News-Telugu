@@ -120,6 +120,7 @@ export function useCreatePost() {
     }) => postsApi.createPost(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['screens', 'profile'] });
+      queryClient.invalidateQueries({ queryKey: ['screens', 'community'] });
       queryClient.invalidateQueries({ queryKey: postKeys.all });
     },
   });
@@ -142,6 +143,7 @@ export function useUpdatePost() {
     }) => postsApi.updatePost(postUid, data),
     onSuccess: (_, { postUid }) => {
       queryClient.invalidateQueries({ queryKey: ['screens', 'profile'] });
+      queryClient.invalidateQueries({ queryKey: ['screens', 'community'] });
       queryClient.invalidateQueries({ queryKey: postKeys.single(postUid) });
       queryClient.invalidateQueries({ queryKey: postKeys.all });
     },
@@ -159,6 +161,7 @@ export function useDeletePost() {
     mutationFn: (postUid: string) => postsApi.deletePost(postUid),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['screens', 'profile'] });
+      queryClient.invalidateQueries({ queryKey: ['screens', 'community'] });
       queryClient.invalidateQueries({ queryKey: postKeys.all });
     },
   });
@@ -175,6 +178,7 @@ export function useEditPostHashtags() {
     mutationFn: ({ postUid, hashtags }: { postUid: string; hashtags: string[] }) =>
       postsApi.editPostHashtags(postUid, hashtags),
     onSuccess: (_, { postUid }) => {
+      queryClient.invalidateQueries({ queryKey: ['screens', 'community'] });
       queryClient.invalidateQueries({ queryKey: postKeys.single(postUid) });
       queryClient.invalidateQueries({ queryKey: postKeys.all });
     },
@@ -191,6 +195,7 @@ export function useLikePost() {
   return useMutation({
     mutationFn: (postUid: string) => postsApi.likePost(postUid),
     onSuccess: (data, postUid) => {
+      queryClient.invalidateQueries({ queryKey: ['screens', 'community'] });
       queryClient.invalidateQueries({ queryKey: postKeys.all });
     },
   });
@@ -244,6 +249,7 @@ export function useAddPostComment() {
     // Always refetch after success or error to sync with the server.
     onSettled: (_data, _err, { postUid }) => {
       queryClient.invalidateQueries({ queryKey: ['screens', 'profile'] });
+      queryClient.invalidateQueries({ queryKey: ['screens', 'community'] });
       queryClient.invalidateQueries({ queryKey: postKeys.comments(postUid) });
       queryClient.invalidateQueries({ queryKey: postKeys.all });
     },

@@ -20,7 +20,6 @@ import {
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,10 +28,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import {
-  usePublicPostsFeed,
-  useInfinitePublicPostsFeed,
   useCreatePost,
-  useTrendingHashtags,
 } from '@/hooks/usePosts';
 import { useBookmarks } from '@/hooks/useEngagement';
 import { useCommunityScreen } from '@/hooks/useScreens';
@@ -43,6 +39,7 @@ import { useTabBarStore } from '@/store/tabBarStore';
 import { useImmersiveChrome } from '@/hooks/useImmersiveChrome';
 import { isInvalidOrMockImageUrl } from '@/utils/imageResolver';
 import { type Post } from '@/services/api/posts';
+import { getUserFacingError } from '@/services/api';
 import { useAppAlert } from '@/components/AppAlert';
 
 type FilterCategory = 'all' | 'trending' | 'issues' | 'discussions' | 'events';
@@ -61,7 +58,6 @@ export default function PostsScreen() {
   const colorScheme = useAppColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation();
   const isFocused = useIsFocused();
   const { alert, AlertComponent } = useAppAlert();
 
@@ -92,41 +88,33 @@ export default function PostsScreen() {
 
   // ─── Feed & Queries ────────────────────────────────────────────────────────
   const {
-    data: communityScreenData,
+    data: communityPages,
     isLoading: isLoadingCommunityAggregate,
-    refetch: refetchCommunityScreen,
-  } = useCommunityScreen({ limit: 30 });
-
-  const {
-    data: infiniteFeedData,
-    isLoading: isLoadingInfinite,
     isRefetching,
-    refetch: refetchFeed,
+    isError: isFeedError,
+    refetch: refetchCommunityScreen,
     hasNextPage,
     fetchNextPage,
     isFetchingNextPage,
-    isError: isFeedError,
-  } = useInfinitePublicPostsFeed(20);
+  } = useCommunityScreen({ limit: 30 });
+  const communityScreenData = communityPages?.pages[0];
 
-  const { data: trendingData } = useTrendingHashtags(10);
-  const { data: postBookmarks = [] } = useBookmarks('post');
+  // Observe the cache seeded by the aggregate and updated by bookmark
+  // mutations without starting another initial network request.
+  const { data: postBookmarks = [] } = useBookmarks('post', false);
   const { mutate: createPost, isPending: isCreating } = useCreatePost();
 
-  const isLoading = (isLoadingCommunityAggregate && isLoadingInfinite) || containerHeight === 0;
+  const isLoading = isLoadingCommunityAggregate || containerHeight === 0;
 
   const refetch = useCallback(() => {
     refetchCommunityScreen();
-    refetchFeed();
-  }, [refetchCommunityScreen, refetchFeed]);
+  }, [refetchCommunityScreen]);
 
   // Aggregate all pages of posts
-  const allPosts: Post[] = useMemo(() => {
-    if (infiniteFeedData?.pages) {
-      const flattened = infiniteFeedData.pages.flatMap((page) => page?.posts || []);
-      if (flattened.length > 0) return flattened;
-    }
-    return communityScreenData?.feed?.posts || [];
-  }, [infiniteFeedData, communityScreenData]);
+  const allPosts: Post[] = useMemo(
+    () => communityPages?.pages.flatMap((page) => page.feed?.posts ?? []) ?? [],
+    [communityPages]
+  );
 
   const bookmarkedPostUids = useMemo(
     () => new Set(postBookmarks.map((b: any) => b.content_uid || b.post_uid)),
@@ -134,14 +122,14 @@ export default function PostsScreen() {
   );
 
   const rawTrendingList: string[] = useMemo(() => {
-    const list = (trendingData as any)?.hashtags || (Array.isArray(trendingData) ? trendingData : []);
+    const list = communityScreenData?.trending_hashtags ?? [];
     if (list && list.length > 0) {
       return list.map((item: any) =>
         typeof item === 'string' ? item.replace(/^#/, '') : String(item?.tag || item?.name || item).replace(/^#/, '')
       );
     }
     return ['Hyderabad', 'LocalIssues', 'CivicNews', 'RoadSafety', 'CommunityHelp'];
-  }, [trendingData]);
+  }, [communityScreenData?.trending_hashtags]);
 
   // ─── Filter & Search State ─────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<FilterCategory>('all');
@@ -420,7 +408,7 @@ export default function PostsScreen() {
           refetch();
         },
         onError: (error: any) => {
-          alert('Error', error?.message || 'Failed to create post. Please try again.', [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
+          alert('Error', getUserFacingError(error, 'Failed to create post. Please try again.'), [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
         },
       }
     );
@@ -537,6 +525,15 @@ export default function PostsScreen() {
           </View>
 
           <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={styles.headerCreateButton}
+              onPress={() => openCreateModal('text')}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Create community post"
+            >
+              <Ionicons name="add" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
             <TouchableOpacity
               style={[
                 styles.searchIconButton,
@@ -738,48 +735,6 @@ export default function PostsScreen() {
           </TouchableOpacity>
         </Animated.View>
       )}
-
-      {/* ─── Floating Composer Button (Above Tab Bar, Out of Action Rail) ── */}
-      <Animated.View
-        style={[
-          styles.floatingComposerButton,
-          {
-            bottom: contentBottomOffset,
-            left: 18, // Placed on bottom-left, completely away from the right action rail!
-            opacity: headerOpacity,
-            transform: [
-              {
-                translateY: headerAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [60, 0],
-                }),
-              },
-              {
-                scale: headerAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0.6, 1],
-                }),
-              },
-            ],
-          },
-        ]}
-        pointerEvents={isChromeShown ? 'auto' : 'none'}
-      >
-        <TouchableOpacity
-          style={styles.floatingTouchable}
-          onPress={() => openCreateModal('text')}
-          activeOpacity={0.85}
-        >
-          <LinearGradient
-            colors={['#6366F1', '#4F46E5']}
-            style={styles.floatingGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <Ionicons name="add" size={28} color="#FFFFFF" />
-          </LinearGradient>
-        </TouchableOpacity>
-      </Animated.View>
 
       {/* ─── Comments Bottom Sheet ───────────────────────────────────────── */}
       <PostCommentsModal
@@ -1225,30 +1180,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // ─── Floating Action Button (FAB) ──────────────────────────────────────────
-  floatingComposerButton: {
-    position: 'absolute',
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    elevation: 6,
-    shadowColor: '#6366F1',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.45,
-    shadowRadius: 6,
-    zIndex: 90,
-  },
-  floatingTouchable: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 26,
-    overflow: 'hidden',
-  },
-  floatingGradient: {
-    width: '100%',
-    height: '100%',
+  headerCreateButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#6366F1',
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 8,
   },
 
   // ─── Create Post Modal ─────────────────────────────────────────────────────

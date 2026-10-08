@@ -113,10 +113,17 @@ test('screen queries use one aggregate and preserve failed comments and paginati
   const { screensApi } = load('services/api/screens.ts', {
     './routes': { API_ROUTES },
     './client': { request: async (config) => { calls.push(config); return detail; } },
+    './users': { usersApi: {} },
+    './auth': { authApi: {} },
+    './posts': { postsApi: {} },
+    './engagement': { engagementApi: {} },
+    './news': { newsApi: {} },
+    './categories': { categoriesApi: {} },
+    './polls': { pollsApi: {} },
   });
   let count;
   const hooks = load('hooks/useScreens.ts', {
-    react: { useEffect: () => {} },
+    react: { useEffect: () => {}, useRef: (value) => ({ current: value }) },
     '@tanstack/react-query': { useQuery: (options) => options, useQueryClient: () => client },
     '@react-navigation/native': { useIsFocused: () => true },
     '@/store/authStore': { useAuthStore: (select) => select({ user: { user_uid: 'reader' } }) },

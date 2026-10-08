@@ -14,7 +14,8 @@ export default function TabLayout() {
   const colors = Colors[colorScheme ?? 'light'];
   const pathname = usePathname();
   const router = useRouter();
-  const { isAuthenticated, isOnboarded } = useAuthStore();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const isOnboarded = useAuthStore((state) => state.isOnboarded);
 
   useEffect(() => {
     if (useAuthStore.persist.hasHydrated()) {

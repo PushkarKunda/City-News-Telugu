@@ -1,6 +1,6 @@
 // hooks/useScreens.ts
 import { useEffect, useRef, useMemo } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { screensApi, HomeScreenResponse, ProfileScreenResponse, CommunityScreenResponse, ShortsScreenResponse, DiscoverScreenResponse, LocalScreenResponse, NotificationsScreenResponse } from '@/services/api/screens';
 import { newsKeys } from '@/hooks/useNews';
 import { postKeys } from '@/hooks/usePosts';
@@ -230,12 +230,14 @@ export function useCommunityScreen(params?: {
   cursor?: string;
 }) {
   const queryClient = useQueryClient();
-  const paramsKey = JSON.stringify(params || {});
-  const memoizedParams = useMemo(() => params, [paramsKey]);
-
-  const query = useQuery({
-    queryKey: screenKeys.community(memoizedParams),
-    queryFn: () => screensApi.getCommunity(memoizedParams),
+  const userUid = useAuthStore((state) => state.user?.user_uid);
+  const query = useInfiniteQuery({
+    queryKey: [...screenKeys.community(params), userUid],
+    queryFn: ({ pageParam }) => screensApi.getCommunity({ ...params, cursor: pageParam }),
+    initialPageParam: params?.cursor,
+    getNextPageParam: (lastPage) => lastPage.feed?.has_more
+      ? lastPage.feed.next_cursor ?? undefined
+      : undefined,
     staleTime: SCREEN_STALE_TIME,
   });
 
@@ -245,11 +247,11 @@ export function useCommunityScreen(params?: {
     if (!query.data || lastSeededRef.current === query.data) return;
     lastSeededRef.current = query.data;
 
-    const { feed, trending_hashtags, bookmarks } = query.data;
+    const { feed, trending_hashtags, bookmarks } = query.data.pages[0];
 
     // Seed Posts Feed
     if (feed && feed.posts) {
-      queryClient.setQueryData(postKeys.feed(memoizedParams?.cursor || null), feed);
+      queryClient.setQueryData(postKeys.feed(params?.cursor || null), feed);
     }
 
     // Seed Trending Hashtags
@@ -261,7 +263,7 @@ export function useCommunityScreen(params?: {
     if (bookmarks && Array.isArray(bookmarks)) {
       queryClient.setQueryData(engagementKeys.bookmarks('post'), bookmarks);
     }
-  }, [query.data, queryClient, memoizedParams]);
+  }, [query.data, queryClient, params?.cursor]);
 
   return query;
 }

@@ -39,7 +39,7 @@ export const apiClient: AxiosInstance = axios.create({
 
 let onUnauthorizedCallback: (() => void) | null = null;
 
-export const setOnUnauthorizedCallback = (callback: () => void) => {
+export const setOnUnauthorizedCallback = (callback: (() => void) | null) => {
   onUnauthorizedCallback = callback;
 };
 
@@ -78,16 +78,27 @@ const processQueue = (error: unknown, token: string | null = null) => {
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    const originalRequest = error.config as AxiosRequestConfig & {
-      _retry?: boolean;
-    };
+    const originalRequest = error.config as (AxiosRequestConfig & { _retry?: boolean }) | undefined;
+    if (!originalRequest) return Promise.reject(error);
 
     const isAuthUrl =
       originalRequest.url?.includes(API_ROUTES.auth.logout) ||
       originalRequest.url?.includes(API_ROUTES.auth.refreshToken) ||
-      originalRequest.url?.includes(API_ROUTES.auth.firebaseLogin);
+      originalRequest.url?.includes(API_ROUTES.auth.firebaseLogin) ||
+      originalRequest.url?.includes(API_ROUTES.auth.google) ||
+      originalRequest.url?.includes(API_ROUTES.auth.syncProvider);
+
+    if (error.response?.status === 401 && originalRequest._retry && !isAuthUrl) {
+      try {
+        await clearTokens();
+      } finally {
+        onUnauthorizedCallback?.();
+      }
+      return Promise.reject(error);
+    }
 
     if (error.response?.status === 401 && !originalRequest._retry && !isAuthUrl) {
+      originalRequest._retry = true;
       if (isRefreshing) {
         // Queue requests while refreshing
         return new Promise((resolve, reject) => {
@@ -103,12 +114,12 @@ apiClient.interceptors.response.use(
           .catch((err) => Promise.reject(err));
       }
 
-      originalRequest._retry = true;
       isRefreshing = true;
 
       try {
         let newAccessToken: string | null = null;
         let newRefreshToken: string | null = null;
+        let recoveryError: unknown;
 
         const refreshToken = await getRefreshToken();
         if (refreshToken) {
@@ -120,11 +131,13 @@ apiClient.interceptors.response.use(
                 params: {
                   refresh_token: refreshToken,
                 },
+                timeout: API_CONFIG.timeoutMs,
               }
             );
             newAccessToken = response.data?.access_token;
             newRefreshToken = response.data?.refresh_token;
-          } catch (_) {
+          } catch (err) {
+            recoveryError = err;
             // refresh token call failed, fall back to Firebase re-auth below
           }
         }
@@ -138,20 +151,23 @@ apiClient.interceptors.response.use(
               if (fbToken) {
                 const fbRes = await axios.post(
                   `${API_CONFIG.baseUrl}${API_ROUTES.auth.firebaseLogin}`,
-                  { firebase_token: fbToken }
+                  { firebase_token: fbToken },
+                  { timeout: API_CONFIG.timeoutMs }
                 );
                 newAccessToken = fbRes.data?.access_token;
                 newRefreshToken = fbRes.data?.refresh_token;
               }
             }
-          } catch (_) {}
+          } catch (err) {
+            recoveryError = err;
+          }
         }
 
         if (!newAccessToken) {
-          throw new Error('No refresh token available');
+          throw recoveryError ?? new Error('No refresh token available');
         }
 
-        await saveTokens(newAccessToken, newRefreshToken || '');
+        await saveTokens(newAccessToken, newRefreshToken || refreshToken || '');
         processQueue(null, newAccessToken);
 
         originalRequest.headers = {
@@ -163,33 +179,12 @@ apiClient.interceptors.response.use(
       } catch (refreshError) {
         processQueue(refreshError, null);
 
-        // Check if the failing request is background telemetry/tracking
-        const requestUrl = originalRequest.url || '';
-        const isTelemetryOrNonCritical =
-          requestUrl.includes('/view') ||
-          requestUrl.includes('/share') ||
-          requestUrl.includes('/engagement') ||
-          requestUrl.includes('/analytics') ||
-          requestUrl.includes('/in-app') ||
-          requestUrl.includes('/notifications') ||
-          requestUrl.includes('/preferences') ||
-          requestUrl.includes('/bookmarks') ||
-          requestUrl.includes('/feed');
-
-        // Only log out if it is a critical authenticated route and not background tracking
-        if (!isTelemetryOrNonCritical) {
+        // Any failed recovery invalidates the local authenticated session,
+        // including sessions used by background requests.
+        try {
           await clearTokens();
-          if (onUnauthorizedCallback) {
-            const cb = onUnauthorizedCallback;
-            onUnauthorizedCallback = null;
-            try {
-              cb();
-            } finally {
-              setTimeout(() => {
-                onUnauthorizedCallback = cb;
-              }, 1000);
-            }
-          }
+        } finally {
+          onUnauthorizedCallback?.();
         }
         return Promise.reject(refreshError);
       } finally {
@@ -304,4 +299,16 @@ export const getApiError = (error: unknown): ApiError => {
   }
 
   return { code: 'UNKNOWN_ERROR', message: 'An unexpected error occurred' };
+};
+
+/** Convert transport/library errors into copy that is safe to show in UI. */
+export const getUserFacingError = (error: unknown, fallback: string): string => {
+  const normalized = getApiError(error);
+  const message = normalized.message?.trim();
+  if (!message) return fallback;
+
+  const technicalMessage = /^(network error|request failed|timeout|unknown error|error)$/i.test(message)
+    || /status code \d{3}/i.test(message)
+    || /\baxios\b/i.test(message);
+  return technicalMessage ? fallback : message;
 };

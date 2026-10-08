@@ -47,6 +47,8 @@ export interface NewsArticle {
   source: string;
   source_url?: string;
   source_name?: string;
+  user_liked?: boolean;
+  is_liked?: boolean;
   position?: number;
   ranking_score?: number;
   engagement?: NewsEngagementDetail;

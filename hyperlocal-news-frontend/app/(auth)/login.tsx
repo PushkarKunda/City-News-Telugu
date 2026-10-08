@@ -23,7 +23,7 @@ import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useGoogleFirebaseAuth } from '@/hooks/useGoogleFirebaseAuth';
 import { firebaseAuth } from '@/services/firebase';
-import { authApi } from '@/services/api';
+import { authApi, getUserFacingError } from '@/services/api';
 import { saveTokens } from '@/services/api/token';
 import { useAppAlert } from '@/components/AppAlert';
 
@@ -53,7 +53,7 @@ export default function LoginScreen() {
     },
     onError: (error: any) => {
       if (error.code === 'SIGN_IN_CANCELLED' || error.message?.includes('cancelled')) return; // silent cancel
-      alert('Google Sign-In', error.message || 'Please try again.', [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
+      alert('Google Sign-In', getUserFacingError(error, 'Please try again.'), [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
     },
   });
 
@@ -194,7 +194,7 @@ export default function LoginScreen() {
         params: { phone: fullPhone },
       });
     } catch (error: any) {
-      alert('Error', error.message || 'Failed to send OTP. Please try again.', [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
+      alert('Error', getUserFacingError(error, 'Failed to send OTP. Please try again.'), [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
     }
   };
 
