@@ -31,6 +31,7 @@ import { statusCodes } from '@react-native-google-signin/google-signin';
 import { usersApi, authApi, type UserMeResponse, type UpdateMePayload } from '@/services/api';
 import { compressImage } from '@/services/image';
 import { uploadImageToSupabaseProfile } from '@/services/supabase';
+import { getUserFacingError } from '@/services/api/client';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -56,16 +57,14 @@ export default function ProfileCompletionScreen() {
   const isDark = colorScheme === 'dark';
   const { width } = useWindowDimensions();
 
-  const {
-    user,
-    updateProfile,
-    isOnboarded,
-    sendPhoneOTP,
-    linkPhone,
-    isLoading,
-    updateProfileLocal,
-    fetchUser,
-  } = useAuthStore();
+  const user = useAuthStore((state) => state.user);
+  const updateProfile = useAuthStore((state) => state.updateProfile);
+  const isOnboarded = useAuthStore((state) => state.isOnboarded);
+  const sendPhoneOTP = useAuthStore((state) => state.sendPhoneOTP);
+  const linkPhone = useAuthStore((state) => state.linkPhone);
+  const isLoading = useAuthStore((state) => state.isLoading);
+  const updateProfileLocal = useAuthStore((state) => state.updateProfileLocal);
+  const fetchUser = useAuthStore((state) => state.fetchUser);
 
   // ─── Form State ─────────────────────────────────────────────────────────
 
@@ -226,7 +225,7 @@ export default function ProfileCompletionScreen() {
         if (error?.code === statusCodes.SIGN_IN_CANCELLED) return;
         showDialog(
           'Error',
-          error?.message ?? 'Failed to link Google account.',
+          getUserFacingError(error, 'Failed to link Google account.'),
           'error'
         );
       },
@@ -258,8 +257,7 @@ export default function ProfileCompletionScreen() {
       setShowPhoneVerification(true);
       showDialog('Code Sent', `Verification code sent to ${phone}.`, 'success');
     } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to send code.';
+      const message = getUserFacingError(error, 'Failed to send code.');
       showDialog('Error', message, 'error');
     } finally {
       setIsVerifyingPhone(false);
@@ -298,8 +296,7 @@ export default function ProfileCompletionScreen() {
 
       showDialog('Verified', 'Phone number verified successfully!', 'success');
     } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : 'OTP verification failed.';
+      const message = getUserFacingError(error, 'OTP verification failed.');
       showDialog('Error', message, 'error');
     } finally {
       setIsVerifyingPhone(false);
@@ -437,10 +434,7 @@ export default function ProfileCompletionScreen() {
         router.push('/(onboarding)/language');
       }
     } catch (err: unknown) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : 'Failed to save profile. Please try again.';
+      const message = getUserFacingError(err, 'Failed to save profile. Please try again.');
       showDialog('Error', message, 'error');
     } finally {
       setIsSaving(false);

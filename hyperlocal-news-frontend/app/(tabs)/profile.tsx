@@ -47,7 +47,6 @@ export default function ProfileScreen() {
   const updateProfile = useAuthStore((state) => state.updateProfile);
   const updateProfileLocal = useAuthStore((state) => state.updateProfileLocal);
   const switchToPublisher = useAuthStore((state) => state.switchToPublisher);
-  const fetchUser = useAuthStore((state) => state.fetchUser);
 
   // ─── Dashboard Data ──────────────────────────────────────────────────────
   const [dashboardData, setDashboardData] = useState<DashboardResponse | null>(null);
@@ -60,30 +59,7 @@ export default function ProfileScreen() {
     refetch: refetchProfileScreen,
   } = useProfileScreen();
 
-  const [isLoadingLocalDashboard, setIsLoadingLocalDashboard] = useState(false);
-  const isLoadingProfile = isLoadingProfileAggregate || (isLoadingLocalDashboard && !dashboardData);
-
-  // Direct dashboard loader as bulletproof fallback
-  const loadDashboard = React.useCallback(async () => {
-    try {
-      setIsLoadingLocalDashboard(true);
-      const [freshUser, dbResponse] = await Promise.allSettled([
-        fetchUser(),
-        usersApi.dashboard({ detailed: true, page: 1, limit: 20, recent_limit: 5 }),
-      ]);
-      if (dbResponse.status === 'fulfilled' && dbResponse.value) {
-        setDashboardData(dbResponse.value);
-      }
-    } catch (err) {
-      console.warn('[profile] Direct loadDashboard fallback error:', err);
-    } finally {
-      setIsLoadingLocalDashboard(false);
-    }
-  }, [fetchUser]);
-
-  useEffect(() => {
-    void loadDashboard();
-  }, [loadDashboard]);
+  const isLoadingProfile = isLoadingProfileAggregate;
 
   useEffect(() => {
     const t0 = Date.now();
@@ -107,7 +83,7 @@ export default function ProfileScreen() {
       if (profileScreenData.dashboard) {
         setDashboardData(profileScreenData.dashboard);
       }
-      if (profileScreenData.posts && profileScreenData.posts.length > 0) {
+      if (profileScreenData.posts) {
         setPosts(profileScreenData.posts);
       }
     }
@@ -323,9 +299,8 @@ export default function ProfileScreen() {
   useEffect(() => {
     if (activeTab === 'publisher') {
       void refetchProfileScreen();
-      void loadDashboard();
     }
-  }, [activeTab, loadDashboard, refetchProfileScreen]);
+  }, [activeTab, refetchProfileScreen]);
 
   // Fallback for user posts if not populated yet
   useEffect(() => {
@@ -492,7 +467,7 @@ export default function ProfileScreen() {
       await switchToPublisher();
 
       // Reload dashboard to get updated publisher status
-      await loadDashboard();
+      await refetchProfileScreen();
 
       alert('Congratulations!', 'You are now a Verified Publisher!', [{ text: 'OK' }], { icon: 'shield-checkmark', iconColor: '#10B981' });
       setActiveTab('posts');

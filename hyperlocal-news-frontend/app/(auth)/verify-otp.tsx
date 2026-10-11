@@ -20,6 +20,7 @@ import { useAuthStore } from '@/store/authStore';
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useAppAlert } from '@/components/AppAlert';
+import { getUserFacingError } from '@/services/api/client';
 
 export default function VerifyOTPScreen() {
   const router = useRouter();
@@ -29,7 +30,9 @@ export default function VerifyOTPScreen() {
   const isDark = colorScheme === 'dark';
 
   const { alert, AlertComponent } = useAppAlert();
-  const { verifyPhoneOTP, sendPhoneOTP, isLoading } = useAuthStore();
+  const verifyPhoneOTP = useAuthStore((state) => state.verifyPhoneOTP);
+  const sendPhoneOTP = useAuthStore((state) => state.sendPhoneOTP);
+  const isLoading = useAuthStore((state) => state.isLoading);
 
   const [otp, setOtp] = useState('');
   const [resending, setResending] = useState(false);
@@ -106,7 +109,7 @@ export default function VerifyOTPScreen() {
     } catch (error: any) {
       console.error('❌ OTP Verification Failed Details:', error);
 
-      let errorMsg = error.message || 'Invalid OTP. Please try again.';
+      let errorMsg = getUserFacingError(error, 'Invalid OTP. Please try again.');
 
       if (error.message?.includes('already been linked') || error.code === 'auth/provider-already-linked') {
         // Fallback UI safety if the firebase.ts fix didn't catch it smoothly
@@ -149,7 +152,7 @@ export default function VerifyOTPScreen() {
       setOtp('');
       alert('OTP Sent', 'A new code has been sent to ' + phone);
     } catch (error: any) {
-      alert('Error', error.message || 'Failed to resend OTP');
+       alert('Error', getUserFacingError(error, 'Failed to resend OTP.'));
     } finally {
       setResending(false);
     }

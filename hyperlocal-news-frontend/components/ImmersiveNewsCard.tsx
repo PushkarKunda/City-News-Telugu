@@ -35,7 +35,7 @@ import {
 } from '@/hooks/useEngagement';
 import { useLikePost, useSharePost } from '@/hooks/usePosts';
 import { useShallow } from 'zustand/react/shallow';
-import { formatTimeAgo, calculateTeluguReadTime, getArticleTimestamp } from '@/utils/formatters';
+import { getArticleTimestamp, formatDate } from '@/utils/formatters';
 import { useRecordView } from '@/hooks/useNews';
 import { useReaderFontStore } from '@/store/readerFontStore';
 import { useCommentCountStore } from '@/store/commentCountStore';
@@ -49,6 +49,7 @@ import {
   resolveSponsoredImageUrl,
   getCategoryFallbackImage,
   CURATED_FALLBACK_IMAGES,
+  isInvalidOrMockImageUrl,
 } from '@/utils/imageResolver';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -64,6 +65,33 @@ interface ImmersiveFeedCardProps {
   onOpenComments?: (uid: string) => void;
   onToggleUI?: () => void;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// WATERMARK
+// ═══════════════════════════════════════════════════════════════════════════
+
+const Watermark = React.memo(() => {
+  const { width: screenWidth } = useWindowDimensions();
+  const logoSize = Math.min(Math.max(screenWidth * 0.065, 22), 28);
+
+  return (
+    <View
+      pointerEvents="none"
+      accessible={false}
+      style={styles.watermark}
+    >
+      <Image
+        source={require('../assets/android-icon-monochrome.png')}
+        style={{ width: logoSize, height: logoSize }}
+        contentFit="contain"
+        cachePolicy="memory-disk"
+        accessible={false}
+      />
+    </View>
+  );
+});
+
+Watermark.displayName = 'Watermark';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // AD CARD
@@ -324,6 +352,13 @@ const NewsCard = React.memo(
     );
     const [liked, setLiked] = React.useState(serverLiked);
     const [likeCount, setLikeCount] = React.useState(item.likes ?? 0);
+    const likeRequestRef = React.useRef(false);
+
+    React.useEffect(() => {
+      if (likeRequestRef.current) return;
+      setLiked(serverLiked);
+      setLikeCount(item.likes ?? 0);
+    }, [serverLiked, item.likes, contentUid]);
 
     // Micro-animation spring values
     const likeScale = useRef(new Animated.Value(1)).current;
@@ -348,6 +383,8 @@ const NewsCard = React.memo(
 
     const handleToggleLike = () => {
       if (!contentUid) return;
+      if (likeRequestRef.current) return;
+      likeRequestRef.current = true;
       if (Platform.OS !== 'web') {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
@@ -358,7 +395,9 @@ const NewsCard = React.memo(
 
       if (itemType === 'post') {
         togglePostLike(contentUid, {
+          onSuccess: () => { likeRequestRef.current = false; },
           onError: () => {
+            likeRequestRef.current = false;
             setLiked(!nextLiked);
             setLikeCount((c) => (!nextLiked ? c + 1 : Math.max(0, c - 1)));
           },
@@ -366,14 +405,18 @@ const NewsCard = React.memo(
       } else {
         if (nextLiked) {
           like(contentUid, {
+            onSuccess: () => { likeRequestRef.current = false; },
             onError: () => {
+              likeRequestRef.current = false;
               setLiked(false);
               setLikeCount((c) => Math.max(0, c - 1));
             },
           });
         } else {
           unlike(contentUid, {
+            onSuccess: () => { likeRequestRef.current = false; },
             onError: () => {
+              likeRequestRef.current = false;
               setLiked(true);
               setLikeCount((c) => c + 1);
             },
@@ -504,7 +547,16 @@ const NewsCard = React.memo(
     const categoryName = item.category_names?.[0] || (itemType === 'post' ? 'Community' : 'News');
     const displayTitle = item.title || (item as any).content || 'Community Post';
     const displaySummary = item.summary || ((item as any).content && (item as any).content !== displayTitle ? (item as any).content : '') || '';
-    const rawImage = item.image_url || (item as any).images?.[0]?.image_url || (item as any).imageUrl;
+    const imageCandidates = [
+      item.image_url,
+      (item as any).images?.[0]?.image_url,
+      (item as any).imageUrl,
+      item.thumbnail_url,
+      item.original_image_url,
+    ];
+    const rawImage =
+      imageCandidates.find((source) => !isInvalidOrMockImageUrl(source)) ||
+      imageCandidates.find(Boolean);
 
     const resolvedImage = useMemo(() => {
       return resolveArticleImageUrl({
@@ -518,8 +570,11 @@ const NewsCard = React.memo(
     }, [rawImage, item.category_names, categoryName, displayTitle, item.is_breaking, itemType]);
 
     const [imgSrc, setImgSrc] = useState(resolvedImage);
+    const [isErrorFallback, setIsErrorFallback] = useState(false);
+
     useEffect(() => {
       setImgSrc(resolvedImage);
+      setIsErrorFallback(false);
     }, [resolvedImage]);
 
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -550,10 +605,6 @@ const NewsCard = React.memo(
       ? (fontSizeLevel === 'xlarge' ? 3 : 4)
       : (fontSizeLevel === 'xlarge' ? 3 : (fontSizeLevel === 'large' ? 4 : 5));
 
-    // Estimated read time (~150 words/min for Telugu, min 1 min)
-    const readTimeContent = (item as any).full_content || (item as any).content || `${displayTitle} ${displaySummary}`;
-    const readTime = useMemo(() => calculateTeluguReadTime(readTimeContent), [readTimeContent]);
-
     // View count formatting: compact numbers (63K, 1.2M) under 360px or > 5 digits. Add "views" only if there is room.
     const rawViews = item.engagement?.total_views ?? item.views ?? 0;
     const numViews = typeof rawViews === 'number' ? rawViews : parseInt(String(rawViews).replace(/,/g, ''), 10) || 0;
@@ -577,18 +628,21 @@ const NewsCard = React.memo(
     };
     const formattedViews = formatViewsCount(numViews, isUnder360);
 
-    // Relative time label placed directly above the bookmark button
+    // Relative time and date label placed directly above the bookmark button
     // Calculated strictly from the article's published timestamp (published_at, pubDate, created_at, etc.)
     const articleTimestamp = getArticleTimestamp(item);
     const relativeTime = useRelativeTime(articleTimestamp, { isActive });
+    const formattedDate = useMemo(() => formatDate(articleTimestamp), [articleTimestamp]);
     const timeLabelContent = useMemo(() => {
-      // If timestamp is missing or invalid, hide the time label completely (no gap, no NaN)
-      if (!relativeTime) return '';
-      // On screens under 360px, show only relativeTime (e.g. 2m ago) directly above bookmark button
-      if (isUnder360 || !readTime) return relativeTime;
-      // On screens >= 360px where it fits on one line:
-      return `${relativeTime} · ${readTime}`;
-    }, [relativeTime, readTime, isUnder360]);
+      if (!articleTimestamp) return '';
+      if (relativeTime && formattedDate) {
+        if (relativeTime.includes(formattedDate) || formattedDate.includes(relativeTime)) {
+          return formattedDate;
+        }
+        return `${relativeTime} · ${formattedDate}`;
+      }
+      return relativeTime || formattedDate || '';
+    }, [relativeTime, formattedDate, articleTimestamp]);
 
     // Action buttons sizing & touch targets (smaller buttons on screens under 360px)
     const btnSize = isUnder360 ? 36 : (isNarrow ? 40 : 44);
@@ -700,7 +754,14 @@ const NewsCard = React.memo(
               recyclingKey={imgSrc}
               priority={isActive ? 'high' : 'normal'}
               onError={() => {
-                if (imgSrc === resolvedImage && item.original_image_url && item.original_image_url !== imgSrc) {
+                setIsErrorFallback(true);
+                if (
+                  imgSrc === resolvedImage &&
+                  item.original_image_url &&
+                  item.original_image_url !== imgSrc &&
+                  !isInvalidOrMockImageUrl(item.original_image_url)
+                ) {
+                  setIsErrorFallback(false);
                   setImgSrc(item.original_image_url);
                   return;
                 }
@@ -711,10 +772,7 @@ const NewsCard = React.memo(
               }}
             />
 
-            {/* Category tag */}
-            <View style={[styles.categoryTag, { backgroundColor: colors.primary }]}>
-              <Text style={styles.categoryText}>{categoryName}</Text>
-            </View>
+            {Boolean(imgSrc) && !isErrorFallback && <Watermark />}
 
             {/* Aa Font Size Control button */}
             <TouchableOpacity
@@ -1269,13 +1327,11 @@ const styles = StyleSheet.create({
   },
 
   // ── News ────────────────────────────────────────────────────────────────
-  categoryTag: {
+  watermark: {
     position: 'absolute',
-    bottom: 10,
-    left: 14,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
+    bottom: 12,
+    left: 12,
+    opacity: 0.35,
   },
   fontToggleBtn: {
     position: 'absolute',
@@ -1292,16 +1348,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: 'Poppins_700Bold',
   },
-  categoryText: {
-    color: '#fff',
-    fontSize: 12,
-    fontFamily: 'Poppins_600SemiBold',
-    letterSpacing: 0.5,
-  },
   breakingBadge: {
     position: 'absolute',
     top: 36,
-    right: 14,
+    left: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,

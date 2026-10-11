@@ -25,15 +25,16 @@ export default function LocalScreen() {
   const scale = useAppTextScale();
   const scaledFontSize = (size: number) => ({ fontSize: size * scale });
 
-  const user = useAuthStore(state => state.user);
+  const userState = useAuthStore((state) => state.user?.state);
+  const userDistrict = useAuthStore((state) => state.user?.district);
 
   // Single aggregate endpoint for Local Screen
   const {
     data: localScreenData,
     isLoading: isLoadingLocalAggregate,
   } = useLocalScreen({
-    state: user?.state || '',
-    district: user?.district || '',
+    state: userState || '',
+    district: userDistrict || '',
     limit: 20,
   });
 
@@ -57,8 +58,8 @@ export default function LocalScreen() {
 
   // Fetch live local news - read from seeded React Query cache
   const { data: rawNews = [], isLoading: isLoadingRawNews } = useLocationNews({
-    state: user?.state || '',
-    district: user?.district || '',
+    state: userState || '',
+    district: userDistrict || '',
   });
 
   const isLoadingNews = isLoadingLocalAggregate && isLoadingRawNews;
@@ -143,8 +144,8 @@ export default function LocalScreen() {
     return { todayNews: today, yesterdayNews: yesterday };
   }, [filteredNews]);
 
-  const userLocationStr = user?.district
-    ? `${user.district}, ${user.state || ''}`
+  const userLocationStr = userDistrict
+    ? `${userDistrict}, ${userState || ''}`
     : 'Select Location';
 
   if (isLoadingNews) {
@@ -222,7 +223,7 @@ export default function LocalScreen() {
               </View>
               <Text style={[styles.emptyTitle, { color: colors.text }]}>No Local Stories</Text>
               <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-                There are no published news articles in your selected district: {user?.district || 'your area'}.
+                 There are no published news articles in your selected district: {userDistrict || 'your area'}.
               </Text>
             </View>
           ) : (

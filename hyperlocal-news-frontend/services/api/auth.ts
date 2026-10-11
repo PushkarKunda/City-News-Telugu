@@ -3,6 +3,7 @@ import { request } from './client';
 import { API_ROUTES } from './routes';
 import { API_CONFIG } from './config';
 import { saveTokens, clearTokens } from './token';
+import { assertCurrentSession, getSessionVersion } from '../session';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -74,17 +75,17 @@ export const authApi = {
   loginWithFirebase: async (
     firebaseToken: string
   ): Promise<BackendLoginResponse> => {
+    const sessionVersion = getSessionVersion();
     const response = await request<BackendLoginResponse>({
       url: API_ROUTES.auth.firebaseLogin,
       method: 'POST',
       data: { firebase_token: firebaseToken }, // Correct field name
     });
-    console.log("firebaseToken", firebaseToken);
-    console.log("response", response);
     // Save tokens securely
     await saveTokens(
       (response as any).access_token,
-      (response as any).refresh_token
+      (response as any).refresh_token,
+      sessionVersion
     );
 
     return response;
@@ -101,6 +102,7 @@ export const authApi = {
     const fullUrl = `${API_CONFIG.baseUrl}${API_ROUTES.auth.google}`;
     const method = 'POST';
     const hasAuthHeader = Boolean(firebaseToken);
+    const sessionVersion = getSessionVersion();
 
     // If server does not have /user/auth/google deployed yet, directly use firebaseLogin
     if (isGoogleAuthSupported === false) {
@@ -121,16 +123,19 @@ export const authApi = {
       });
 
       isGoogleAuthSupported = true;
+      assertCurrentSession(sessionVersion);
 
       if ((response as any)?.access_token && (response as any)?.refresh_token) {
         await saveTokens(
           (response as any).access_token,
-          (response as any).refresh_token
+          (response as any).refresh_token,
+          sessionVersion
         );
       }
 
       return response;
     } catch (err: any) {
+      assertCurrentSession(sessionVersion);
       const status = err?.response?.status ?? err?.status ?? 'UNKNOWN';
       const body = err?.response?.data ?? err?.message;
 
@@ -173,15 +178,12 @@ export const authApi = {
   /**
    * Logout - invalidates all tokens
    */
-  logout: async (): Promise<void> => {
-    try {
-      await request({
-        url: API_ROUTES.auth.logout,
-        method: 'POST',
-      });
-    } finally {
-      await clearTokens();
-    }
+  logout: async (token?: string): Promise<void> => {
+    await request({
+      url: API_ROUTES.auth.logout,
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
   },
 
   /**

@@ -20,6 +20,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useAuthStore } from '@/store/authStore';
 import { useAppAlert } from '@/components/AppAlert';
+import { getUserFacingError } from '@/services/api/client';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -147,8 +148,9 @@ export default function SettingsLanguageScreen() {
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
 
-  const { fetchPreferences, updateCachedPreferences, cachedPreferences } =
-    useAuthStore();
+  const fetchPreferences = useAuthStore((state) => state.fetchPreferences);
+  const updateCachedPreferences = useAuthStore((state) => state.updateCachedPreferences);
+  const cachedPreferences = useAuthStore((state) => state.cachedPreferences);
 
   const { data: languagesList = [], isLoading: isLoadingLanguages } =
     useLanguagesList();
@@ -232,7 +234,7 @@ export default function SettingsLanguageScreen() {
         { text: 'OK', onPress: () => router.push('/(tabs)/settings') },
       ]);
     } catch (error: any) {
-      alert('Error', error?.message || 'Failed to update language');
+      alert('Error', getUserFacingError(error, 'Failed to update language.'));
     } finally {
       setIsSaving(false);
     }

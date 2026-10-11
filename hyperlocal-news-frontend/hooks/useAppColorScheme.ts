@@ -14,11 +14,11 @@ export function useAppColorScheme() {
     return () => subscription.remove();
   }, []);
 
-  const { user } = useAuthStore();
+  const theme = useAuthStore((state) => state.user?.theme);
 
   const activeTheme = 
-    user?.theme === 'dark' ? 'dark' : 
-    user?.theme === 'light' ? 'light' : 
+    theme === 'dark' ? 'dark' : 
+    theme === 'light' ? 'light' : 
     systemColorScheme;
 
   return activeTheme || 'light';

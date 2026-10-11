@@ -23,6 +23,7 @@ import { usersApi } from '@/services/api/users';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useAuthStore } from '@/store/authStore';
 import { useAppAlert } from '@/components/AppAlert';
+import { getUserFacingError } from '@/services/api/client';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -205,8 +206,9 @@ export default function SettingsLocationScreen() {
   const { width: screenWidth } = useWindowDimensions();
   const { alert, AlertComponent } = useAppAlert();
 
-  const { fetchPreferences, updateCachedPreferences, cachedPreferences } =
-    useAuthStore();
+  const fetchPreferences = useAuthStore((state) => state.fetchPreferences);
+  const updateCachedPreferences = useAuthStore((state) => state.updateCachedPreferences);
+  const cachedPreferences = useAuthStore((state) => state.cachedPreferences);
 
   // ─── API Data ──────────────────────────────────────────────────────────
 
@@ -412,7 +414,7 @@ export default function SettingsLocationScreen() {
         { text: 'OK', onPress: () => router.push('/(tabs)/settings') },
       ]);
     } catch (error: any) {
-      alert('Error', error?.message || 'Failed to update location');
+      alert('Error', getUserFacingError(error, 'Failed to update location.'));
     } finally {
       setIsSaving(false);
     }

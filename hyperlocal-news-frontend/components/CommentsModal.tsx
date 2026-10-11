@@ -234,7 +234,8 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
   const router = useRouter();
   const isFocused = useIsFocused();
   const queryClient = useQueryClient();
-  const { user, isAuthenticated } = useAuthStore();
+  const user = useAuthStore((state) => state.user);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const { alert, AlertComponent } = useAppAlert();
 
   const [commentText, setCommentText] = useState('');

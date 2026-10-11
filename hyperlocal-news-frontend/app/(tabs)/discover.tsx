@@ -48,7 +48,7 @@ export default function DiscoverScreen() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = React.useState('');
 
-  const user = useAuthStore(state => state.user);
+  const userState = useAuthStore((state) => state.user?.state);
 
   // Single aggregate endpoint for Discover Screen (1 call vs 5 individual calls)
   const {
@@ -82,7 +82,7 @@ export default function DiscoverScreen() {
   const { data: trendingHashtags = [], isLoading: isLoadingTrendingHashtags } = useTrendingHashtags();
   const { data: categories = [], isLoading: isLoadingCategories } = useCategoriesAll();
   const { data: popularNews = [], isLoading: isLoadingPopular } = usePopularNews();
-  const { data: districts = [], isLoading: isLoadingDistricts } = useDistrictsList(user?.state ?? null);
+  const { data: districts = [], isLoading: isLoadingDistricts } = useDistrictsList(userState ?? null);
 
   // Search Hooks
   const { data: searchResults = [], isLoading: isSearching } = useDiscoverySearch(searchQuery);

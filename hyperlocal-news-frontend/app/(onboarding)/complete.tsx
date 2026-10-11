@@ -17,7 +17,7 @@ export default function CompleteScreen() {
   const isDark = colorScheme === 'dark';
   const router = useRouter();
   const navigation = useNavigation();
-  const { user } = useAuthStore();
+  const user = useAuthStore((state) => state.user);
 
   const [isNavigating, setIsNavigating] = useState(false);
 

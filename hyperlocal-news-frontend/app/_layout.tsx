@@ -22,7 +22,7 @@ import * as WebBrowser from 'expo-web-browser';
 WebBrowser.maybeCompleteAuthSession();
 
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { focusManager, QueryClientProvider } from '@tanstack/react-query';
 import NetInfo from '@react-native-community/netinfo';
 import {
   View,
@@ -50,24 +50,10 @@ import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { Colors } from '@/constants/Colors';
 import { useRealtimeReconciliation } from '@/hooks/useRealtimeReconciliation';
 import { bindQueryFocus } from '@/services/queryFocus';
+import { bindSessionCache, queryClient } from '@/services/queryClient';
 
 // ─── Splash Screen ────────────────────────────────────────────────────────────
 SplashScreen.preventAutoHideAsync();
-
-// ─── React Query Client ───────────────────────────────────────────────────────
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 2,
-      staleTime: 5 * 60 * 1000,
-      gcTime: 10 * 60 * 1000,
-      refetchIntervalInBackground: false,
-    },
-    mutations: {
-      retry: 1,
-    },
-  },
-});
 
 // ─── Global Text Interceptor ──────────────────────────────────────────────────
 const originalTextRender = (Text as any).render;
@@ -165,11 +151,14 @@ export default function RootLayout() {
 
   // ─── Token Refresh Failure Handler ───────────────────────────────────────
   useEffect(() => {
+    const unsubscribe = bindSessionCache(useAuthStore);
     setOnUnauthorizedCallback(() => {
-      void queryClient.cancelQueries().then(() => queryClient.clear());
       void useAuthStore.getState().expireSession();
     });
-    return () => setOnUnauthorizedCallback(null);
+    return () => {
+      unsubscribe();
+      setOnUnauthorizedCallback(null);
+    };
   }, []);
 
   // ─── Network Monitoring ──────────────────────────────────────────────────
@@ -184,14 +173,7 @@ export default function RootLayout() {
 
   // ─── Fetch Current User Profile & Sync Provider ──────────────────────────
   useEffect(() => {
-    void (async () => {
-      try {
-        await useAuthStore.getState().syncProvider();
-      } catch (e) {
-        console.warn('App startup syncProvider skipped:', e);
-      }
-      await useAuthStore.getState().fetchUser();
-    })();
+    void useAuthStore.getState().fetchUser();
   }, []);
 
   // ─── User Store Sync ─────────────────────────────────────────────────────

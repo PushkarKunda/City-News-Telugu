@@ -118,6 +118,7 @@ const PostCardInner: React.FC<PostCardProps> = ({
   const [shareCount, setShareCount] = useState(post.share_count || 0);
   const [bookmarked, setBookmarked] = useState(initialBookmarked);
   const [isFollowing, setIsFollowing] = useState(false);
+  const likeRequestRef = useRef(false);
   const [isCaptionExpanded, setIsCaptionExpanded] = useState(false);
   const [isTextExpanded, setIsTextExpanded] = useState(false);
 
@@ -237,6 +238,8 @@ const PostCardInner: React.FC<PostCardProps> = ({
     }
 
     const nextLiked = forceLike ? true : !liked;
+    if (likeRequestRef.current) return;
+    likeRequestRef.current = true;
     const countDiff = nextLiked ? 1 : -1;
 
     setLiked(nextLiked);
@@ -248,7 +251,13 @@ const PostCardInner: React.FC<PostCardProps> = ({
     }
 
     toggleLike(post.post_uid, {
+      onSuccess: (data: { liked?: boolean; like_count?: number }) => {
+        likeRequestRef.current = false;
+        if (typeof data?.liked === 'boolean') setLiked(data.liked);
+        if (typeof data?.like_count === 'number') setLikeCount(data.like_count);
+      },
       onError: () => {
+        likeRequestRef.current = false;
         // Rollback on failure
         setLiked(!nextLiked);
         setLikeCount((prev) => Math.max(0, prev - countDiff));

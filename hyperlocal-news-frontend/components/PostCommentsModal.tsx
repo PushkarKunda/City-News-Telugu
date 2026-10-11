@@ -63,7 +63,7 @@ export const PostCommentsModal = ({ visible, onClose, postUid, onCommentAdded }:
   const colorScheme = useAppColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const isDark = colorScheme === 'dark';
-  const { user } = useAuthStore();
+  const user = useAuthStore((state) => state.user);
   const { alert, AlertComponent } = useAppAlert();
 
   const [commentText, setCommentText] = useState('');

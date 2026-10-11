@@ -41,7 +41,8 @@ export default function LoginScreen() {
   const { alert, AlertComponent } = useAppAlert();
 
   // ✅ Only from store - no duplicate useState for isLoading
-  const { sendPhoneOTP, isLoading, fetchUser } = useAuthStore();
+  const sendPhoneOTP = useAuthStore((state) => state.sendPhoneOTP);
+  const isLoading = useAuthStore((state) => state.isLoading);
   const {
     signInWithGoogle,
     isGoogleReady,

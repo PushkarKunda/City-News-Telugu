@@ -23,6 +23,8 @@ import type { UserPreferences } from '@/services/api';
 import { clearTokens, getAuthToken } from '@/services/api/token';
 import { compressImage } from '@/services/image';
 import { uploadImageToSupabaseProfile } from '@/services/supabase';
+import { clearSessionCache } from '@/services/queryClient';
+import { assertCurrentSession, getSessionVersion, isCurrentSession } from '@/services/session';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -340,8 +342,10 @@ export const useAuthStore = create<AuthState>()(
 
       // ✅ NEW: Fetch and cache preferences
       fetchPreferences: async () => {
+        const sessionVersion = getSessionVersion();
         try {
           const prefs = await usersApi.getPreferences();
+          assertCurrentSession(sessionVersion);
           set({ cachedPreferences: prefs });
           return prefs;
         } catch (error: any) {
@@ -398,6 +402,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       fetchUser: async (): Promise<User | null> => {
+        const sessionVersion = getSessionVersion();
         try {
           let token = await getAuthToken();
           const currentUser = getAuth().currentUser;
@@ -406,7 +411,7 @@ export const useAuthStore = create<AuthState>()(
             try {
               const freshToken = await currentUser.getIdToken();
               if (freshToken) {
-                const loginRes = await authApi.loginWithGoogleAuth(freshToken).catch(() => null);
+                const loginRes = await authApi.loginWithFirebase(freshToken).catch(() => null);
                 if (loginRes?.access_token) {
                   token = loginRes.access_token;
                 }
@@ -417,12 +422,14 @@ export const useAuthStore = create<AuthState>()(
           }
 
           if (!token && !currentUser) {
+            assertCurrentSession(sessionVersion);
             await get().expireSession();
             return null;
           }
 
           // If Firebase user is active, run syncProvider to update provider state with fresh ID token
-          if (currentUser) {
+          const isGoogleProvider = currentUser?.providerData?.some((p) => p.providerId === 'google.com');
+          if (currentUser && isGoogleProvider) {
             try {
               const freshToken = await currentUser.getIdToken(true);
               if (freshToken) {
@@ -447,6 +454,7 @@ export const useAuthStore = create<AuthState>()(
             }
 
             const sanitized = sanitizeUser(rawUser);
+            assertCurrentSession(sessionVersion);
             set({
               user: sanitized,
               isAuthenticated: true,
@@ -737,6 +745,7 @@ export const useAuthStore = create<AuthState>()(
       // ─── Sync External Provider ───────────────────────────────────────────
 
       syncProvider: async (): Promise<User | null> => {
+        const sessionVersion = getSessionVersion();
         try {
           const currentUser = getAuth().currentUser;
           if (!currentUser) return null;
@@ -772,6 +781,7 @@ export const useAuthStore = create<AuthState>()(
             is_google_linked: sanitized.is_google_linked,
           });
 
+          assertCurrentSession(sessionVersion);
           set({ user: sanitized, isAuthenticated: true });
           return sanitized;
         } catch (err: any) {
@@ -844,20 +854,22 @@ export const useAuthStore = create<AuthState>()(
       // ─── Logout ────────────────────────────────────────────────────────────
 
       logout: async () => {
-        set({ isLoading: true });
+        const token = await getAuthToken();
+        // Clear locally before the network logout; a slow/offline API must not
+        // leave authenticated UI and caches visible.
+        await get().expireSession();
         try {
-          const token = await getAuthToken();
           if (token) {
-            await authApi.logout();
+            await authApi.logout(token);
           }
         } catch {
           // Continue even if API fails
-        } finally {
-          await get().expireSession();
         }
       },
 
       expireSession: async () => {
+        const tokenCleanup = clearTokens();
+        clearSessionCache();
         // Clear persisted UI state before awaiting native cleanup. Expiry must
         // work even while an authenticated operation is still loading.
         set({
@@ -873,7 +885,7 @@ export const useAuthStore = create<AuthState>()(
           onboardingData: {},
           cachedPreferences: null,
         });
-        await Promise.allSettled([firebaseSignOut(), clearTokens()]);
+        await Promise.allSettled([firebaseSignOut(), tokenCleanup]);
       },
 
       // ─── Switch to Publisher ───────────────────────────────────────────────

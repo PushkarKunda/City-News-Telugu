@@ -9,7 +9,8 @@ export default function OnboardingLayout() {
   const colors = Colors[colorScheme ?? 'light'];
   const router = useRouter();
   const pathname = usePathname();
-  const { isAuthenticated, isOnboarded, user } = useAuthStore();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const isOnboarded = useAuthStore((state) => state.isOnboarded);
 
   useEffect(() => {
     if (!isAuthenticated) {

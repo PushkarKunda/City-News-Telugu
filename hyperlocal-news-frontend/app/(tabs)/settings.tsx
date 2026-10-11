@@ -26,7 +26,9 @@ export default function SettingsScreen() {
   const { from } = useLocalSearchParams<{ from?: string }>();
   const { alert, AlertComponent } = useAppAlert();
 
-  const { user, logout, updateTheme } = useAuthStore();
+  const user = useAuthStore((state) => state.user);
+  const logout = useAuthStore((state) => state.logout);
+  const updateTheme = useAuthStore((state) => state.updateTheme);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const darkModeEnabled = colorScheme === 'dark';
 

@@ -20,6 +20,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useAuthStore } from '@/store/authStore';
 import { useAppAlert } from '@/components/AppAlert';
+import { getUserFacingError } from '@/services/api/client';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -193,8 +194,9 @@ export default function SettingsInterestsScreen() {
     const insets = useSafeAreaInsets();
     const { width: screenWidth } = useWindowDimensions();
 
-    const { fetchPreferences, updateCachedPreferences, cachedPreferences } =
-        useAuthStore();
+    const fetchPreferences = useAuthStore((state) => state.fetchPreferences);
+    const updateCachedPreferences = useAuthStore((state) => state.updateCachedPreferences);
+    const cachedPreferences = useAuthStore((state) => state.cachedPreferences);
 
     const { data: categoriesList = [], isLoading: isLoadingCategories } =
         useCategoriesAll();
@@ -286,7 +288,7 @@ export default function SettingsInterestsScreen() {
         } catch (error: any) {
             alert(
                 'Error',
-                error?.message || 'Failed to update interests. Please try again.'
+                getUserFacingError(error, 'Failed to update interests. Please try again.')
             );
         } finally {
             setIsSaving(false);

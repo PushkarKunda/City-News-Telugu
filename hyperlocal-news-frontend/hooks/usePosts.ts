@@ -193,6 +193,7 @@ export function useLikePost() {
   const queryClient = useQueryClient();
 
   return useMutation({
+    retry: false,
     mutationFn: (postUid: string) => postsApi.likePost(postUid),
     onSuccess: (data, postUid) => {
       queryClient.invalidateQueries({ queryKey: ['screens', 'community'] });

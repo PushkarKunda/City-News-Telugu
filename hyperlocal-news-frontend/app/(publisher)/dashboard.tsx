@@ -19,6 +19,7 @@ import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { CreateArticleModal } from '@/components/CreateArticleModal';
 import { useAppAlert } from '@/components/AppAlert';
+import { getUserFacingError } from '@/services/api/client';
 
 const TABS = ['all', 'pending', 'published', 'rejected'] as const;
 type TabKey = (typeof TABS)[number];
@@ -54,7 +55,7 @@ export default function PublisherDashboard() {
           setIsCreateModalVisible(false);
         },
         onError: (err: any) => {
-          alert('Error', err.message || 'Failed to publish article.');
+          alert('Error', getUserFacingError(err, 'Failed to publish article.'));
         },
       }
     );

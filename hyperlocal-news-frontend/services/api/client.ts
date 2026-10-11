@@ -9,6 +9,7 @@ import { API_CONFIG } from './config';
 import { getAuthToken, getRefreshToken, saveTokens, clearTokens } from './token';
 import { API_ROUTES } from './routes';
 import { firebaseAuth } from '../firebase';
+import { getSessionVersion, isCurrentSession } from '../session';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -47,8 +48,15 @@ export const setOnUnauthorizedCallback = (callback: (() => void) | null) => {
 
 apiClient.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
+    const scopedConfig = config as InternalAxiosRequestConfig & { _sessionVersion?: number };
+    scopedConfig._sessionVersion ??= getSessionVersion();
     const token = await getAuthToken();
-    if (token) {
+    if (!isCurrentSession(scopedConfig._sessionVersion)) {
+      throw new axios.CanceledError('Session changed');
+    }
+    // Provider exchanges explicitly supply a Firebase bearer token.
+    const explicitAuthorization = config.headers?.Authorization ?? (config.headers as any)?.authorization;
+    if (token && !explicitAuthorization) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
@@ -76,10 +84,18 @@ const processQueue = (error: unknown, token: string | null = null) => {
 };
 
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const version = (response.config as AxiosRequestConfig & { _sessionVersion?: number })._sessionVersion;
+    if (version !== undefined && !isCurrentSession(version)) {
+      throw new axios.CanceledError('Session changed');
+    }
+    return response;
+  },
   async (error: AxiosError) => {
-    const originalRequest = error.config as (AxiosRequestConfig & { _retry?: boolean }) | undefined;
+    const originalRequest = error.config as (AxiosRequestConfig & { _retry?: boolean; _sessionVersion?: number }) | undefined;
     if (!originalRequest) return Promise.reject(error);
+    const sessionVersion = originalRequest._sessionVersion ?? getSessionVersion();
+    if (!isCurrentSession(sessionVersion)) return Promise.reject(new axios.CanceledError('Session changed'));
 
     const isAuthUrl =
       originalRequest.url?.includes(API_ROUTES.auth.logout) ||
@@ -167,7 +183,7 @@ apiClient.interceptors.response.use(
           throw recoveryError ?? new Error('No refresh token available');
         }
 
-        await saveTokens(newAccessToken, newRefreshToken || refreshToken || '');
+        await saveTokens(newAccessToken, newRefreshToken || refreshToken || '', sessionVersion);
         processQueue(null, newAccessToken);
 
         originalRequest.headers = {
@@ -178,6 +194,8 @@ apiClient.interceptors.response.use(
         return apiClient(originalRequest);
       } catch (refreshError) {
         processQueue(refreshError, null);
+
+        if (!isCurrentSession(sessionVersion)) return Promise.reject(refreshError);
 
         // Any failed recovery invalidates the local authenticated session,
         // including sessions used by background requests.

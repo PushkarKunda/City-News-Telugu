@@ -8,6 +8,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "eslint .",
+    "test": "node --test tests/*.test.cjs",
     "clear": "expo start -c",
     "type-check": "tsc --noEmit"
   },

@@ -24,7 +24,8 @@ export default function MoreScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const { user, logout } = useAuthStore();
+  const user = useAuthStore((state) => state.user);
+  const logout = useAuthStore((state) => state.logout);
   const displayName = user?.name || 'User';
   const userHandle = user?.user_name
     ? '@' + user.user_name

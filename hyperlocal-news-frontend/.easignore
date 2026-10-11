@@ -20,6 +20,7 @@ obj/
 .vscode/
 .git/
 .git_disabled/
+/backend/
 
 *.jks
 *.keystore

@@ -15,7 +15,7 @@ import { useRouter, useNavigation, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useNewsFeed, useCategories, useCategoryNews } from '@/hooks/useNews';
+import { useCategoryNews } from '@/hooks/useNews';
 import { useBookmarks } from '@/hooks/useEngagement';
 import { FeedItem, NewsArticle } from '@/services/api/news';
 import { ImmersiveFeedCard } from '@/components/ImmersiveNewsCard';
@@ -31,7 +31,6 @@ import { CommentsModal } from '@/components/CommentsModal';
 import { DistrictPickerModal, SelectedDistrictPayload } from '@/components/DistrictPickerModal';
 import { CategoryExplorerModal } from '@/components/CategoryExplorerModal';
 import { FontSizeModal } from '@/components/FontSizeModal';
-import { useActivePolls } from '@/hooks/usePolls';
 import { useHomeScreen } from '@/hooks/useScreens';
 import { usersApi } from '@/services/api/users';
 
@@ -39,7 +38,6 @@ const FOR_YOU_ID = 'for-you' as const;
 type CategoryId = typeof FOR_YOU_ID | number;
 
 const HOME_SCREEN_PARAMS = { limit: 50 };
-const NEWS_FEED_PARAMS = { limit: 50 };
 
 export default function HomeScreen() {
   const colorScheme = useAppColorScheme();
@@ -56,7 +54,6 @@ export default function HomeScreen() {
   const prefStateId = useAuthStore((s) => s.cachedPreferences?.state_id ?? 1);
   const prefLanguageId = useAuthStore((s) => s.cachedPreferences?.language_id ?? 1);
   const prefCategoryIds = useAuthStore(useShallow((s) => s.cachedPreferences?.category_ids ?? null));
-  const fetchPreferences = useAuthStore((s) => s.fetchPreferences);
   const updateCachedPreferences = useAuthStore((s) => s.updateCachedPreferences);
 
   const currentDistrictName = prefDistrictName || userDistrict;
@@ -67,10 +64,6 @@ export default function HomeScreen() {
   const [isDistrictModalVisible, setIsDistrictModalVisible] = useState(false);
   const [isCategoryModalVisible, setIsCategoryModalVisible] = useState(false);
 
-  useEffect(() => {
-    // Fetch user preferences in the background to ensure header location is up-to-date
-    fetchPreferences().catch((err) => console.log('Failed to fetch preferences', err));
-  }, []);
   const insets = useSafeAreaInsets();
   const setTabBarVisible = useTabBarStore((s) => s.setVisible);
   const isFontModalOpen = useReaderFontStore((s) => s.isModalOpen);
@@ -108,6 +101,7 @@ export default function HomeScreen() {
   const {
     data: homeScreenData,
     isLoading: isLoadingHomeScreen,
+    isError: isErrorHomeScreen,
     refetch: refetchHomeScreen,
     isRefetching: isRefetchingHomeScreen,
   } = useHomeScreen(HOME_SCREEN_PARAMS);
@@ -134,21 +128,11 @@ export default function HomeScreen() {
     }
   }, [homeScreenData]);
 
-  // Dynamic categories from backend - read from seeded React Query cache
-  const { data: categoriesData = [], isLoading: isLoadingCategories } =
-    useCategories();
-
-  // Active public opinion polls - read from seeded React Query cache
-  const { data: activePolls = [] } = useActivePolls();
-
-  // "For You" = full mixed feed (news + ads + sponsored) - read from seeded React Query cache
-  const {
-    data: forYouFeed,
-    isLoading: isLoadingFeed,
-    isError: isErrorFeed,
-    refetch: refetchFeed,
-    isRefetching: isRefetchingFeed,
-  } = useNewsFeed(NEWS_FEED_PARAMS);
+  const categoriesData = useMemo(() => (homeScreenData?.categories ?? [])
+    .filter((category) => category.is_active)
+    .sort((a, b) => a.display_order - b.display_order), [homeScreenData?.categories]);
+  const activePolls = homeScreenData?.active_polls;
+  const forYouFeed = homeScreenData?.feed;
 
   // Category tab news (pure news only, no ads)
   const {
@@ -161,20 +145,19 @@ export default function HomeScreen() {
     typeof activeCategory === 'number' ? activeCategory : null
   );
 
-  const isRefreshing = isRefetchingHomeScreen || isRefetchingFeed || isRefetchingCategoryNews;
+  const isRefreshing = isRefetchingHomeScreen || isRefetchingCategoryNews;
 
   const handleRefresh = useCallback(() => {
     if (activeCategory === FOR_YOU_ID) {
       refetchHomeScreen();
-      refetchFeed();
     } else {
       refetchCategoryNews();
     }
-  }, [activeCategory, refetchHomeScreen, refetchFeed, refetchCategoryNews]);
+  }, [activeCategory, refetchHomeScreen, refetchCategoryNews]);
 
   // Bookmarks - used to show filled/outline bookmark icon
-  const { data: rawNewsBookmarks = [] } = useBookmarks('news');
-  const { data: rawPostBookmarks = [] } = useBookmarks('post');
+  const { data: rawNewsBookmarks = [] } = useBookmarks('news', false);
+  const { data: rawPostBookmarks = [] } = useBookmarks('post', false);
 
   // ─── Animation & Visibility (via shared useImmersiveChrome hook) ─────────
   const categoryTabRef = useRef<FlatList>(null);
@@ -189,7 +172,7 @@ export default function HomeScreen() {
   } = useImmersiveChrome({
     autoHideDelayMs: 2500,
     isModalOpen,
-    disabled: isLoadingCategories,
+    disabled: isLoadingHomeScreen,
   });
 
   const hideHeaderRef = useRef(hideHeader);
@@ -287,14 +270,14 @@ export default function HomeScreen() {
   }, [activeCategory, forYouFeed, categoryNewsData, activePolls]);
 
   const isLoading =
-    isLoadingCategories ||
+    isLoadingHomeScreen ||
     (activeCategory === FOR_YOU_ID
-      ? isLoadingFeed
+      ? isLoadingHomeScreen
       : isLoadingCategoryNews);
 
   const isError =
     activeCategory === FOR_YOU_ID
-      ? isErrorFeed
+      ? isErrorHomeScreen || Boolean(homeScreenData?.errors?.feed)
       : isErrorCategoryNews;
 
 
@@ -325,9 +308,9 @@ export default function HomeScreen() {
       }
 
       // 3. Refetch the feed to load local news for newly selected district
-      refetchFeed();
+      void refetchHomeScreen();
     },
-    [prefLanguageId, prefCategoryIds, updateCachedPreferences, refetchFeed]
+    [prefLanguageId, prefCategoryIds, updateCachedPreferences, refetchHomeScreen]
   );
 
   const handleOpenComments = useCallback((uid: string) => {

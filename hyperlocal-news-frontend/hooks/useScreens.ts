@@ -9,6 +9,7 @@ import { engagementKeys } from '@/hooks/useEngagement';
 import { useAuthStore } from '@/store/authStore';
 import { useIsFocused } from '@react-navigation/native';
 import { useCommentCountStore } from '@/store/commentCountStore';
+import { getSessionVersion, isCurrentSession } from '@/services/session';
 
 export const screenKeys = {
   home: (params?: any) => ['screens', 'home', params] as const,
@@ -35,13 +36,15 @@ export function useHomeScreen(params?: {
 }) {
   const queryClient = useQueryClient();
   const updateCachedPreferences = useAuthStore((s) => s.updateCachedPreferences);
+  const userUid = useAuthStore((s) => s.user?.user_uid);
 
   const paramsKey = JSON.stringify(params || {});
   const memoizedParams = useMemo(() => params, [paramsKey]);
 
   const query = useQuery({
-    queryKey: screenKeys.home(memoizedParams),
-    queryFn: () => screensApi.getHome(memoizedParams),
+    queryKey: [...screenKeys.home(memoizedParams), userUid],
+    queryFn: ({ signal }) => screensApi.getHome(memoizedParams, signal),
+    enabled: Boolean(userUid),
     staleTime: SCREEN_STALE_TIME,
   });
 
@@ -49,6 +52,7 @@ export function useHomeScreen(params?: {
 
   useEffect(() => {
     if (!query.data || lastSeededRef.current === query.data) return;
+    if (useAuthStore.getState().user?.user_uid !== userUid) return;
     lastSeededRef.current = query.data;
 
     const { categories, active_polls, feed, bookmarks, preferences } = query.data;
@@ -70,35 +74,17 @@ export function useHomeScreen(params?: {
 
     // Seed Bookmarks
     if (bookmarks?.news) {
-      queryClient.setQueryData(engagementKeys.bookmarks('news'), bookmarks.news);
+      queryClient.setQueryData(engagementKeys.bookmarks('news', userUid), bookmarks.news);
     }
     if (bookmarks?.posts) {
-      queryClient.setQueryData(engagementKeys.bookmarks('post'), bookmarks.posts);
+      queryClient.setQueryData(engagementKeys.bookmarks('post', userUid), bookmarks.posts);
     }
 
     // Seed Preferences in AuthStore only if different
     if (preferences) {
-      const currentPrefs = useAuthStore.getState().cachedPreferences;
-      const hasChanged =
-        !currentPrefs ||
-        currentPrefs.language !== preferences.language ||
-        currentPrefs.language_name !== preferences.language_name ||
-        currentPrefs.state_id !== preferences.state_id ||
-        currentPrefs.district_id !== preferences.district_id ||
-        currentPrefs.city_id !== preferences.city_id;
-
-      if (hasChanged) {
-        updateCachedPreferences({
-          language: preferences.language,
-          language_name: preferences.language_name,
-          state_id: preferences.state_id ?? undefined,
-          district_id: preferences.district_id ?? undefined,
-          city_id: preferences.city_id ?? undefined,
-          category_ids: preferences.category_ids ?? undefined,
-        });
-      }
+      updateCachedPreferences(preferences);
     }
-  }, [query.data, queryClient, memoizedParams, updateCachedPreferences]);
+  }, [query.data, queryClient, memoizedParams, updateCachedPreferences, userUid]);
 
   return query;
 }
@@ -112,8 +98,8 @@ export function useProfileScreen() {
 
   const query = useQuery({
     queryKey: [...screenKeys.profile, userUid || 'me'],
-    queryFn: () => screensApi.getProfile(),
-    enabled: isFocused,
+    queryFn: ({ signal }) => screensApi.getProfile(signal),
+    enabled: Boolean(userUid) && isFocused,
     staleTime: SCREEN_STALE_TIME,
   });
 
@@ -121,6 +107,7 @@ export function useProfileScreen() {
 
   useEffect(() => {
     if (!query.data || lastSeededRef.current === query.data) return;
+    if (useAuthStore.getState().user?.user_uid !== userUid) return;
     lastSeededRef.current = query.data;
 
     const { user: profileUser, dashboard, posts, bookmarks, rewards } = query.data;
@@ -156,7 +143,7 @@ export function useProfileScreen() {
 
     // Seed Dashboard
     if (dashboard) {
-      queryClient.setQueryData(['user', 'dashboard'], dashboard);
+      queryClient.setQueryData(['user', 'dashboard', userUid], dashboard);
     }
 
     // Seed User Posts
@@ -167,15 +154,15 @@ export function useProfileScreen() {
 
     // Seed Bookmarks
     if (bookmarks?.news) {
-      queryClient.setQueryData(engagementKeys.bookmarks('news'), bookmarks.news);
+      queryClient.setQueryData(engagementKeys.bookmarks('news', userUid), bookmarks.news);
     }
     if (bookmarks?.posts) {
-      queryClient.setQueryData(engagementKeys.bookmarks('post'), bookmarks.posts);
+      queryClient.setQueryData(engagementKeys.bookmarks('post', userUid), bookmarks.posts);
     }
 
     // Seed Rewards
     if (rewards) {
-      queryClient.setQueryData(['rewards', 'summary'], rewards);
+      queryClient.setQueryData(['rewards', 'summary', userUid], rewards);
     }
   }, [query.data, queryClient, updateProfileLocal, userUid]);
 
@@ -191,11 +178,12 @@ export function useNewsDetailScreen(uid: string | null) {
     enabled: Boolean(uid && userUid) && isFocused,
     staleTime: SCREEN_STALE_TIME,
     queryFn: async ({ signal }) => {
+      const version = getSessionVersion();
       const data = await screensApi.getNewsDetail(uid!, signal);
-      if (signal.aborted) throw new Error('Screen request cancelled');
+      if (signal.aborted || !isCurrentSession(version)) throw new Error('Screen request cancelled');
       if (data.article) queryClient.setQueryData(newsKeys.single(uid!), data.article);
       if (data.engagement) queryClient.setQueryData(newsKeys.engagement(uid!), data.engagement);
-      if (data.bookmark) queryClient.setQueryData(engagementKeys.checkBookmark(uid!, 'news'), data.bookmark);
+      if (data.bookmark) queryClient.setQueryData(engagementKeys.checkBookmark(uid!, 'news', userUid), data.bookmark);
       if (data.comments) {
         const firstPage = data.comments;
         const updated = queryClient.setQueryData<any>(newsKeys.comments(uid!), (old: any) => {
@@ -233,7 +221,8 @@ export function useCommunityScreen(params?: {
   const userUid = useAuthStore((state) => state.user?.user_uid);
   const query = useInfiniteQuery({
     queryKey: [...screenKeys.community(params), userUid],
-    queryFn: ({ pageParam }) => screensApi.getCommunity({ ...params, cursor: pageParam }),
+    queryFn: ({ pageParam, signal }) => screensApi.getCommunity({ ...params, cursor: pageParam }, signal),
+    enabled: Boolean(userUid),
     initialPageParam: params?.cursor,
     getNextPageParam: (lastPage) => lastPage.feed?.has_more
       ? lastPage.feed.next_cursor ?? undefined
@@ -245,6 +234,7 @@ export function useCommunityScreen(params?: {
 
   useEffect(() => {
     if (!query.data || lastSeededRef.current === query.data) return;
+    if (useAuthStore.getState().user?.user_uid !== userUid) return;
     lastSeededRef.current = query.data;
 
     const { feed, trending_hashtags, bookmarks } = query.data.pages[0];
@@ -261,9 +251,9 @@ export function useCommunityScreen(params?: {
 
     // Seed Bookmarks
     if (bookmarks && Array.isArray(bookmarks)) {
-      queryClient.setQueryData(engagementKeys.bookmarks('post'), bookmarks);
+      queryClient.setQueryData(engagementKeys.bookmarks('post', userUid), bookmarks);
     }
-  }, [query.data, queryClient, params?.cursor]);
+  }, [query.data, queryClient, params?.cursor, userUid]);
 
   return query;
 }

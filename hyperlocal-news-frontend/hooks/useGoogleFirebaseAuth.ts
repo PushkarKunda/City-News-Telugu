@@ -24,7 +24,9 @@ type UseGoogleFirebaseAuthOptions = {
 };
 
 export function useGoogleFirebaseAuth(options: UseGoogleFirebaseAuthOptions = {}) {
-  const { loginWithGoogle, linkGoogle, isAuthenticated, isLoading } = useAuthStore();
+  const loginWithGoogle = useAuthStore((state) => state.loginWithGoogle);
+  const linkGoogle = useAuthStore((state) => state.linkGoogle);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [isConfigured, setIsConfigured] = useState(false);
 

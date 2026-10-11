@@ -11,6 +11,7 @@ import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useAuthStore } from '@/store/authStore';
 import { useAppAlert } from '@/components/AppAlert';
+import { getUserFacingError } from '@/services/api/client';
 
 export default function SetupFeedScreen() {
   const router = useRouter();
@@ -19,7 +20,11 @@ export default function SetupFeedScreen() {
   const isDark = colorScheme === 'dark';
 
   const { alert, AlertComponent } = useAppAlert();
-  const { completeOnboarding, user } = useAuthStore();
+  const completeOnboarding = useAuthStore((state) => state.completeOnboarding);
+  const userLanguage = useAuthStore((state) => state.user?.language);
+  const userDistrict = useAuthStore((state) => state.user?.district);
+  const userState = useAuthStore((state) => state.user?.state);
+  const userInterests = useAuthStore((state) => state.user?.interests);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
@@ -62,7 +67,7 @@ export default function SetupFeedScreen() {
       console.error('[SetupFeed] completeOnboarding failed:', error);
       alert(
         'Setup Failed',
-        error.message || 'Could not complete setup. Please try again.',
+        getUserFacingError(error, 'Could not complete setup. Please try again.'),
         [{ text: 'Retry', onPress: () => setIsProcessing(false) }]
       );
     }
@@ -109,7 +114,7 @@ export default function SetupFeedScreen() {
               <View style={styles.cardContent}>
                 <Text style={[styles.cardTitle, { color: colors.text }]}>Language</Text>
                 <Text style={[styles.cardValue, { color: colors.textSecondary }]}>
-                  {user?.language || 'English'}
+                  {userLanguage || 'English'}
                 </Text>
               </View>
               <Ionicons name="checkmark-circle" size={24} color="#10B981" />
@@ -123,7 +128,7 @@ export default function SetupFeedScreen() {
               <View style={styles.cardContent}>
                 <Text style={[styles.cardTitle, { color: colors.text }]}>Location</Text>
                 <Text style={[styles.cardValue, { color: colors.textSecondary }]}>
-                  {[user?.district, user?.state].filter(Boolean).join(', ') || 'Not set'}
+                  {[userDistrict, userState].filter(Boolean).join(', ') || 'Not set'}
                 </Text>
               </View>
               <Ionicons name="checkmark-circle" size={24} color="#10B981" />
@@ -137,8 +142,8 @@ export default function SetupFeedScreen() {
               <View style={styles.cardContent}>
                 <Text style={[styles.cardTitle, { color: colors.text }]}>Interests</Text>
                 <Text style={[styles.cardValue, { color: colors.textSecondary }]}>
-                  {user?.interests?.length
-                    ? `${user.interests.length} topics selected`
+                  {userInterests?.length
+                    ? `${userInterests.length} topics selected`
                     : 'Not set'}
                 </Text>
               </View>

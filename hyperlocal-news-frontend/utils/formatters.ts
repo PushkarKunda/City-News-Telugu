@@ -135,16 +135,16 @@ export function formatTimeAgo(
 }
 
 /**
- * Format date to readable format (Mar 15, 2024)
+ * Format date to readable Day Month Year format (e.g. 12 Oct 2026)
  */
-export function formatDate(rawDate: any): string {
+export function formatDate(rawDate: any, options?: { language?: 'en' | 'te' }): string {
   const date = parseSafeDate(rawDate);
   if (!date) return '';
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  const day = date.getDate();
+  const isTelugu = options?.language === 'te';
+  const month = isTelugu ? MONTHS_TE[date.getMonth()] : MONTHS_EN[date.getMonth()];
+  const year = date.getFullYear();
+  return `${day} ${month} ${year}`;
 }
 
 /**
