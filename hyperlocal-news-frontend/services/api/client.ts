@@ -67,10 +67,10 @@ apiClient.interceptors.request.use(
 // ─── Response Interceptor (Token Refresh) ────────────────────────────────────
 
 let isRefreshing = false;
-let failedQueue: Array<{
+let failedQueue: {
   resolve: (token: string) => void;
   reject: (error: unknown) => void;
-}> = [];
+}[] = [];
 
 const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue.forEach((prom) => {

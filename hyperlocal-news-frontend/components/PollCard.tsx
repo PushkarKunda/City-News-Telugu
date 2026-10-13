@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   Share,
-  Animated,
   Platform,
   Linking,
 } from 'react-native';
@@ -38,7 +37,7 @@ export const PollCard = React.memo(
     const { mutate: castVote } = useCastVote();
 
     const options = Array.isArray(item?.options) ? item.options : [];
-    const votes = Array.isArray(item?.votes) ? item.votes : [];
+    const votes = useMemo(() => (Array.isArray(item?.votes) ? item.votes : []), [item?.votes]);
 
     // Local optimistic vote state
     const [selectedOption, setSelectedOption] = useState<number | null>(
@@ -112,7 +111,7 @@ export const PollCard = React.memo(
             await Linking.openURL(url);
             return;
           }
-        } catch (_) {}
+        } catch {}
       }
 
       try {
@@ -120,7 +119,7 @@ export const PollCard = React.memo(
           message,
           title: item.question,
         });
-      } catch (_) {}
+      } catch {}
     };
 
     return (

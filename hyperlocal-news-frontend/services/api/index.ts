@@ -11,21 +11,17 @@ export * from './news';
 export * from './notifications';
 // export * from './polls';
 export * from './users';
-export * from './engagement';
+// `./engagement` re-exports `NewsComment` / `CreateCommentPayload` from `./news`,
+// so it must be re-exported explicitly to avoid ambiguous duplicate star exports.
+export type {
+  ContentType,
+  Bookmark,
+  BookmarksListResponse,
+  BookmarkCheckResponse,
+} from './engagement';
+export { engagementApi } from './engagement';
 export * from './posts';
 export * from './follow';
 export * from './content';
 export * from './discovery';
 export * from './screens';
-
-// Re-export APIs for convenience
-export { categoriesApi } from './categories';
-export { locationApi } from './location';
-export { newsApi } from './news';
-export { engagementApi } from './engagement';
-export { notificationsApi } from './notifications';
-export { postsApi } from './posts';
-export { followApi } from './follow';
-export { contentApi } from './content';
-export { discoveryApi } from './discovery';
-export { screensApi } from './screens';

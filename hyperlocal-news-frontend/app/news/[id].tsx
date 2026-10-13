@@ -1,14 +1,14 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, FlatList } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons, Feather, Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
-import { Spacing, BorderRadius, Shadows } from '@/constants/Spacing';
-import { useNewsArticle, useNewsEngagement, useLikeArticle, useUnlikeArticle, useRecordView, useRecordShare, useNewsComments } from '@/hooks/useNews';
-import { usePostByUid, useLikePost, useSharePost } from '@/hooks/usePosts';
+import { Spacing, BorderRadius } from '@/constants/Spacing';
+import { useNewsArticle, useNewsEngagement, useRecordView, useRecordShare } from '@/hooks/useNews';
+import { usePostByUid, useSharePost } from '@/hooks/usePosts';
 import { useCheckBookmark, useAddBookmark, useRemoveBookmark } from '@/hooks/useEngagement';
 import { useQuery } from '@tanstack/react-query';
 import { contentApi, Advertisement } from '@/services/api/content';
@@ -111,15 +111,12 @@ export default function NewsDetailScreen() {
 
   // Engagement Mutations
   const { mutate: recordView } = useRecordView();
-  const { mutate: likeArticle } = useLikeArticle();
-  const { mutate: unlikeArticle } = useUnlikeArticle();
-  const { mutate: togglePostLike } = useLikePost();
   const { mutate: sharePostMutation } = useSharePost();
   const { mutate: addBookmark } = useAddBookmark();
   const { mutate: removeBookmark } = useRemoveBookmark();
   const { mutate: recordShare } = useRecordShare();
 
-  const [isLiked, setIsLiked] = useState(false);
+  const [, setIsLiked] = useState(false);
   const [isCommentsOpen, setIsCommentsOpen] = useState(false);
   useEffect(() => {
     setIsLiked(isPostType ? Boolean(postData?.is_liked) : Boolean(engagement?.user_liked));
@@ -145,20 +142,7 @@ export default function NewsDetailScreen() {
     if (id && !isPostType) {
       recordView(id as string);
     }
-  }, [id, isPostType]);
-
-  const handleToggleLike = () => {
-    if (!id) return;
-    if (isPostType) {
-      togglePostLike(id as string, { onSettled: () => setIsLiked(!isLiked) });
-    } else {
-      if (isLiked) {
-        unlikeArticle(id as string, { onSettled: () => setIsLiked(false) });
-      } else {
-        likeArticle(id as string, { onSettled: () => setIsLiked(true) });
-      }
-    }
-  };
+  }, [id, isPostType, recordView]);
 
   const handleToggleBookmark = () => {
     if (!id) return;
@@ -181,7 +165,7 @@ export default function NewsDetailScreen() {
         message: `${article?.title || article?.summary || ''}\n\nShared via City News Telugu`,
         title: article?.title || 'City News Telugu Story',
       });
-    } catch (_) {}
+    } catch {}
   };
 
   const handleOpenSource = () => {

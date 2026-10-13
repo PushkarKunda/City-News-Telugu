@@ -11,13 +11,13 @@ import {
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useNavigation, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useCategoryNews } from '@/hooks/useNews';
 import { useBookmarks } from '@/hooks/useEngagement';
-import { FeedItem, NewsArticle } from '@/services/api/news';
+import { FeedItem } from '@/services/api/news';
 import { ImmersiveFeedCard } from '@/components/ImmersiveNewsCard';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Colors } from '@/constants/Colors';
@@ -25,7 +25,6 @@ import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useImmersiveChrome } from '@/hooks/useImmersiveChrome';
 import { useAuthStore } from '@/store/authStore';
 import { useShallow } from 'zustand/react/shallow';
-import { useTabBarStore } from '@/store/tabBarStore';
 import { useReaderFontStore } from '@/store/readerFontStore';
 import { CommentsModal } from '@/components/CommentsModal';
 import { DistrictPickerModal, SelectedDistrictPayload } from '@/components/DistrictPickerModal';
@@ -44,7 +43,6 @@ export default function HomeScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const isDark = colorScheme === 'dark';
   const router = useRouter();
-  const navigation = useNavigation();
 
   // Fine-grained primitive & shallow selectors to prevent unnecessary re-renders
   const userDistrict = useAuthStore((s) => s.user?.district);
@@ -65,7 +63,6 @@ export default function HomeScreen() {
   const [isCategoryModalVisible, setIsCategoryModalVisible] = useState(false);
 
   const insets = useSafeAreaInsets();
-  const setTabBarVisible = useTabBarStore((s) => s.setVisible);
   const isFontModalOpen = useReaderFontStore((s) => s.isModalOpen);
   const closeFontModal = useReaderFontStore((s) => s.closeModal);
 
@@ -189,7 +186,7 @@ export default function HomeScreen() {
 
   // "For You" + dynamic categories (no Local)
   const categoryTabs = useMemo(() => {
-    const tabs: Array<{ id: CategoryId; name: string; color?: string }> = [
+    const tabs: { id: CategoryId; name: string; color?: string }[] = [
       { id: FOR_YOU_ID, name: 'For You' },
     ];
     categoriesData

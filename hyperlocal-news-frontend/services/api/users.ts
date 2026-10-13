@@ -1,7 +1,6 @@
 // services/api/users.ts
 import { API_ROUTES } from './routes';
 import { request } from './client';
-import type { User } from '@/store/authStore';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 

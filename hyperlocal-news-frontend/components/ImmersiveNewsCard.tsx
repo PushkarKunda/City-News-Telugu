@@ -7,15 +7,13 @@ import {
   TouchableWithoutFeedback,
   Share,
   Animated,
-  Linking,
   Platform,
-  Clipboard,
   useWindowDimensions,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import * as WebBrowser from 'expo-web-browser';
 import { Image } from 'expo-image';
-import { Ionicons, Feather, MaterialIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppAlert } from '@/components/AppAlert';
@@ -172,6 +170,8 @@ const AdCard = React.memo(
   }
 );
 
+AdCard.displayName = 'AdCard';
+
 // ═══════════════════════════════════════════════════════════════════════════
 // SPONSORED CARD
 // ═══════════════════════════════════════════════════════════════════════════
@@ -285,6 +285,8 @@ const SponsoredCard = React.memo(
   }
 );
 
+SponsoredCard.displayName = 'SponsoredCard';
+
 // ═══════════════════════════════════════════════════════════════════════════
 // NEWS CARD
 // ═══════════════════════════════════════════════════════════════════════════
@@ -313,7 +315,7 @@ const NewsCard = React.memo(
     onOpenComments?: (uid: string) => void;
     onToggleUI?: () => void;
   }) => {
-    const { alert, AlertComponent } = useAppAlert();
+    const { AlertComponent } = useAppAlert();
     const {
       fontSizeLevel,
       headlineSize,
@@ -351,7 +353,7 @@ const NewsCard = React.memo(
       item.engagement?.user_liked
     );
     const [liked, setLiked] = React.useState(serverLiked);
-    const [likeCount, setLikeCount] = React.useState(item.likes ?? 0);
+    const [, setLikeCount] = React.useState(item.likes ?? 0);
     const likeRequestRef = React.useRef(false);
 
     React.useEffect(() => {
@@ -460,89 +462,8 @@ const NewsCard = React.memo(
           title: displayTitle,
           url: newsLink || undefined,
         });
-      } catch (_) { }
+      } catch { }
     };
-
-    const handleCopyLink = () => {
-      const link = item.source_url || (contentUid ? `https://citynewstelugu.com/news/${contentUid}` : '');
-      if (!link) {
-        alert('No link', 'This story does not have a link to copy yet.');
-        return;
-      }
-      Clipboard.setString(link);
-      if (contentUid) {
-        if (itemType === 'post') {
-          sharePostMutation({ postUid: contentUid, platform: 'copy_link' });
-        } else {
-          recordShare({ newsUid: contentUid, platform: 'copy_link' });
-        }
-      }
-      if (Platform.OS !== 'web') {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-      alert('Link copied', 'The story link is on your clipboard.');
-    };
-
-    const handleWhatsAppShare = async () => {
-      try {
-        if (Platform.OS !== 'web') {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        }
-        if (contentUid) {
-          if (itemType === 'post') {
-            sharePostMutation({ postUid: contentUid, platform: 'whatsapp' });
-          } else {
-            recordShare({ newsUid: contentUid, platform: 'whatsapp' });
-          }
-        }
-        const link = item.source_url || (contentUid ? `https://citynewstelugu.com/news/${contentUid}` : '');
-        const message = [displayTitle, displaySummary, link, 'Shared via City News Telugu']
-          .filter(Boolean)
-          .join('\n\n');
-        const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
-        const canOpen = await Linking.canOpenURL(whatsappUrl);
-        if (canOpen) {
-          await Linking.openURL(whatsappUrl);
-        } else {
-          await Share.share({ message, title: displayTitle });
-        }
-      } catch (_) {
-        handleShare();
-      }
-    };
-
-    const handleWhatsAppStatusShare = async () => {
-      try {
-        if (Platform.OS !== 'web') {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        }
-        if (contentUid) {
-          if (itemType === 'post') {
-            sharePostMutation({ postUid: contentUid, platform: 'whatsapp_status' });
-          } else {
-            recordShare({ newsUid: contentUid, platform: 'whatsapp_status' });
-          }
-        }
-
-        const newsLink = item.source_url || (contentUid ? `https://citynewstelugu.com/news/${contentUid}` : '');
-        const statusMessage = `⚡ *ముఖ్యాంశాలు* (Key Highlights)\n\n📌 *${displayTitle}*\n\n${displaySummary}\n\n📱 *సిటీ న్యూస్ తెలుగు* (City News Telugu)\n👉 మరిన్ని తాజా వివరాలు: ${newsLink}\n\n#CityNewsTelugu #TeluguNews`.trim();
-
-        const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(statusMessage)}`;
-        const canOpen = await Linking.canOpenURL(whatsappUrl);
-
-        if (canOpen) {
-          await Linking.openURL(whatsappUrl);
-        } else {
-          await Share.share({
-            message: statusMessage,
-            title: displayTitle,
-          });
-        }
-      } catch (_) {
-        handleShare();
-      }
-    };
-
 
     const categoryName = item.category_names?.[0] || (itemType === 'post' ? 'Community' : 'News');
     const displayTitle = item.title || (item as any).content || 'Community Post';
@@ -691,48 +612,6 @@ const NewsCard = React.memo(
           presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
         });
       }
-    };
-
-    const handleMoreOptions = () => {
-      const options = [];
-      options.push({
-        text: 'Text Size Settings (Aa)',
-        onPress: () => {
-          if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-          openModal();
-        },
-      });
-      options.push({
-        text: 'Share on WhatsApp',
-        onPress: handleWhatsAppShare,
-      });
-      options.push({
-        text: 'Share to WhatsApp Status (ముఖ్యాంశాలు)',
-        onPress: handleWhatsAppStatusShare,
-      });
-      options.push({
-        text: 'Copy link',
-        onPress: handleCopyLink,
-      });
-      if (hasSource) {
-        options.push({
-          text: 'Open Source Website',
-          onPress: handleOpenSource,
-        });
-      }
-      options.push({
-        text: 'Share Article',
-        onPress: handleShare,
-      });
-      options.push({
-        text: 'Cancel',
-        style: 'cancel' as const,
-      });
-      alert(
-        displayTitle || 'Options',
-        'Choose an action',
-        options
-      );
     };
 
     return (
@@ -1110,6 +989,8 @@ const NewsCard = React.memo(
       (next.item.news_uid || (next.item as any).post_uid || (next.item as any).id)
 );
 
+NewsCard.displayName = 'NewsCard';
+
 // ═══════════════════════════════════════════════════════════════════════════
 // MAIN EXPORT - Routes to correct card based on type
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1127,6 +1008,11 @@ export const ImmersiveFeedCard = React.memo(
     const colorScheme = useAppColorScheme();
     const colors = Colors[colorScheme ?? 'light'];
     const isDark = colorScheme === 'dark';
+
+    // Hooks must run unconditionally (before any early return) — see rules-of-hooks.
+    const rawItemData = item.data as Partial<NewsArticle> & Record<string, any>;
+    const itemUid = rawItemData?.news_uid || rawItemData?.post_uid || rawItemData?.id;
+    const cardCommentCount = useCommentCountStore((s) => (itemUid ? s.counts[itemUid] : undefined));
 
     if (item.type === 'ad') {
       return (
@@ -1162,8 +1048,6 @@ export const ImmersiveFeedCard = React.memo(
     }
 
     const newsItem = item.data as NewsArticle;
-    const itemUid = newsItem?.news_uid || (newsItem as any)?.post_uid || (newsItem as any)?.id;
-    const cardCommentCount = useCommentCountStore((s) => (itemUid ? s.counts[itemUid] : undefined));
     const isBookmarked =
       explicitIsBookmarked !== undefined
         ? explicitIsBookmarked
@@ -1216,6 +1100,8 @@ export const ImmersiveFeedCard = React.memo(
     return prev.item.data === next.item.data;
   }
 );
+
+ImmersiveFeedCard.displayName = 'ImmersiveFeedCard';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // STYLES

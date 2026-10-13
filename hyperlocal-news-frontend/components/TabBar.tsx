@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Animated, Platform } from 'react-native';
+import { Text, TouchableOpacity, StyleSheet, Animated, Platform } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -29,7 +29,7 @@ const TabButton = React.memo(({ route, index, state, descriptors, navigation, co
                 Animated.spring(scaleAnim, { toValue: 1, speed: 40, bounciness: 8, useNativeDriver: true }),
             ]).start();
         }
-    }, [isFocused]);
+    }, [isFocused, scaleAnim]);
 
     const label =
         options.tabBarLabel !== null && options.tabBarLabel !== undefined
@@ -104,6 +104,8 @@ const TabButton = React.memo(({ route, index, state, descriptors, navigation, co
     );
 });
 
+TabButton.displayName = 'TabButton';
+
 export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
     const colorScheme = useAppColorScheme();
     const colors = Colors[colorScheme ?? 'light'];
@@ -118,7 +120,7 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
     // Publish our height so Shorts can size its pages correctly
     useEffect(() => {
         setHeight(tabHeight);
-    }, [tabHeight]);
+    }, [tabHeight, setHeight]);
 
     // Inspect route descriptors to check if tabBarStyle has display: 'none' (e.g. for secondary screens)
     const activeRoute = state.routes[state.index];
@@ -155,7 +157,7 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
             tension: 60,
             friction: 9,
         }).start();
-    }, [isTabBarVisible]);
+    }, [isTabBarVisible, translateY]);
 
     const isTabHiddenByScreen = activeOptions?.tabBarStyle &&
         (activeOptions.tabBarStyle as any).display === 'none';

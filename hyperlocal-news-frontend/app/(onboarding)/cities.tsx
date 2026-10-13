@@ -17,7 +17,6 @@ import { Colors } from '@/constants/Colors';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useCitiesList } from '@/hooks/useApi';
-import { usersApi } from '@/services/api';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { useAuthStore } from '@/store/authStore';
 import { useAppAlert } from '@/components/AppAlert';
@@ -138,7 +137,7 @@ export default function CitiesScreen() {
     const colorScheme = useAppColorScheme();
     const colors = Colors[colorScheme ?? 'light'];
     const router = useRouter();
-    const { state, district } = useLocalSearchParams<{
+    const { district } = useLocalSearchParams<{
         state?: string;
         district?: string;
     }>();
@@ -150,7 +149,7 @@ export default function CitiesScreen() {
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCity, setSelectedCity] = useState('');
     const [isSearchFocused, setIsSearchFocused] = useState(false);
-    const [isSaving, setIsSaving] = useState(false);
+    const [isSaving] = useState(false);
 
     const buttonScale = useRef(new Animated.Value(1)).current;
     const searchBorderAnim = useRef(new Animated.Value(0)).current;
@@ -161,7 +160,7 @@ export default function CitiesScreen() {
         if (cities.length > 0 && !selectedCity) {
             setSelectedCity(cities[0].id);
         }
-    }, [cities]);
+    }, [cities, selectedCity]);
 
     // ─── Search Animations ─────────────────────────────────────────────────────
 

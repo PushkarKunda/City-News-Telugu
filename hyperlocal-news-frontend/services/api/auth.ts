@@ -2,7 +2,7 @@
 import { request } from './client';
 import { API_ROUTES } from './routes';
 import { API_CONFIG } from './config';
-import { saveTokens, clearTokens } from './token';
+import { saveTokens } from './token';
 import { assertCurrentSession, getSessionVersion } from '../session';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -20,7 +20,7 @@ export interface BackendLoginResponse {
   is_new_user?: boolean;
   reporter_eligibility?: {
     can_become_reporter: boolean;
-    requirements: Array<{ field: string; status: string; message: string }>;
+    requirements: { field: string; status: string; message: string }[];
     switch_endpoint: string;
   };
   user: {

@@ -44,12 +44,12 @@ export function injectAdsIntoFeed<T>(
     items: T[],
     ads: Advertisement[],
     interval: number = 5
-): Array<T | { type: 'ad'; data: Advertisement; position: number }> {
+): (T | { type: 'ad'; data: Advertisement; position: number })[] {
     const activeAds = getActiveAds(ads);
 
     if (!activeAds.length) return items;
 
-    const result: Array<T | { type: 'ad'; data: Advertisement; position: number }> = [];
+    const result: (T | { type: 'ad'; data: Advertisement; position: number })[] = [];
     let adIndex = 0;
 
     items.forEach((item, index) => {
@@ -84,12 +84,12 @@ export function injectSponsoredIntoPosts<T>(
     posts: T[],
     sponsoredPosts: SponsoredPost[],
     interval: number = 4
-): Array<T | { type: 'sponsored'; data: SponsoredPost; position: number }> {
+): (T | { type: 'sponsored'; data: SponsoredPost; position: number })[] {
     const activePosts = getActiveSponsoredPosts(sponsoredPosts);
 
     if (!activePosts.length) return posts;
 
-    const result: Array<T | { type: 'sponsored'; data: SponsoredPost; position: number }> = [];
+    const result: (T | { type: 'sponsored'; data: SponsoredPost; position: number })[] = [];
     let sponsoredIndex = 0;
 
     posts.forEach((post, index) => {

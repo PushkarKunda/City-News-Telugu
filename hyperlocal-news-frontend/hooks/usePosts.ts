@@ -1,6 +1,6 @@
 // hooks/usePosts.ts
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
-import { postsApi, type Post, type PostComment } from '@/services/api/posts';
+import { postsApi } from '@/services/api/posts';
 
 export const postKeys = {
   all: ['posts'] as const,

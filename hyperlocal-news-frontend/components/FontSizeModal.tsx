@@ -275,6 +275,8 @@ export const FontSizeModal = React.memo(({ visible, onClose }: FontSizeModalProp
   );
 });
 
+FontSizeModal.displayName = 'FontSizeModal';
+
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,

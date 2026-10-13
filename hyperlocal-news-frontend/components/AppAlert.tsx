@@ -95,7 +95,6 @@ export const AppAlert = ({
             {buttons.map((btn, index) => {
               const isDestructive = btn.style === 'destructive';
               const isCancel = btn.style === 'cancel';
-              const isLast = index === buttons.length - 1;
 
               return (
                 <React.Fragment key={index}>

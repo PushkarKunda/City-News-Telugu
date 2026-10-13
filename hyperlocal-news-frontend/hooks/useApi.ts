@@ -1,8 +1,7 @@
 // hooks/useApi.ts
 import { useQuery } from '@tanstack/react-query';
 import { categoriesApi, locationApi } from '@/services/api';
-import type { Category, CategoryMenuItem } from '@/services/api/categories';
-import type { Language, State, District, City } from '@/services/api/location';
+import type { State, District, City } from '@/services/api/location';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // QUERY KEYS - Centralized key management

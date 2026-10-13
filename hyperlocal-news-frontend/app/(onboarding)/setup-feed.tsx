@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Animated,
   Platform, BackHandler,
@@ -53,11 +53,11 @@ export default function SetupFeedScreen() {
     );
     pulseLoop.start();
     return () => pulseLoop.stop();
-  }, []);
+  }, [fadeAnim, pulseAnim, slideAnim]);
 
   // ✅ This is where completeOnboarding is called
   // It syncs everything to backend and marks onboarding done
-  const handleFinishSetup = async () => {
+  const handleFinishSetup = useCallback(async () => {
     if (isProcessing) return;
     setIsProcessing(true);
     try {
@@ -71,7 +71,7 @@ export default function SetupFeedScreen() {
         [{ text: 'Retry', onPress: () => setIsProcessing(false) }]
       );
     }
-  };
+  }, [isProcessing, completeOnboarding, router, alert]);
 
   // ✅ Auto-trigger after animations settle
   useEffect(() => {
@@ -79,7 +79,7 @@ export default function SetupFeedScreen() {
       handleFinishSetup();
     }, 2500);
     return () => clearTimeout(timer);
-  }, []);
+  }, [handleFinishSetup]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>

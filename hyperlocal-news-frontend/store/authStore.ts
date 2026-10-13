@@ -24,7 +24,7 @@ import { clearTokens, getAuthToken } from '@/services/api/token';
 import { compressImage } from '@/services/image';
 import { uploadImageToSupabaseProfile } from '@/services/supabase';
 import { clearSessionCache } from '@/services/queryClient';
-import { assertCurrentSession, getSessionVersion, isCurrentSession } from '@/services/session';
+import { assertCurrentSession, getSessionVersion } from '@/services/session';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -72,7 +72,7 @@ type RawUser = Omit<User, 'is_suspended' | 'created_at' | 'profile_picture'> & {
   role_name?: string;
   is_new_user?: boolean;
   profile_picture?: string | null;
-  categories?: Array<{ id: number; name: string; slug?: string | null }>;
+  categories?: { id: number; name: string; slug?: string | null }[];
   google_id?: string | null;
   auth_provider?: string | null;
   providers?: string[] | null;
@@ -314,7 +314,7 @@ const checkNetwork = async (): Promise<void> => {
     if (state.isConnected === false) {
       console.warn('[NetInfo] Warning: NetInfo reports disconnected, proceeding with request...');
     }
-  } catch (e) {
+  } catch {
     // Ignore NetInfo check errors on hotspot/emulator
   }
 };

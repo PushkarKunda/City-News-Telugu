@@ -158,7 +158,7 @@ export default function LocationScreen() {
   const [selectedState, setSelectedState] = useState('ts'); // Default 'ts'
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [isSaving] = useState(false);
 
   const buttonScale = useRef(new Animated.Value(1)).current;
   const gpsScale = useRef(new Animated.Value(1)).current;

@@ -22,9 +22,7 @@ import { useAuthStore } from '@/store/authStore';
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useGoogleFirebaseAuth } from '@/hooks/useGoogleFirebaseAuth';
-import { firebaseAuth } from '@/services/firebase';
-import { authApi, getUserFacingError } from '@/services/api';
-import { saveTokens } from '@/services/api/token';
+import { getUserFacingError } from '@/services/api';
 import { useAppAlert } from '@/components/AppAlert';
 
 const COUNTRY_CODES = [
@@ -45,7 +43,6 @@ export default function LoginScreen() {
   const isLoading = useAuthStore((state) => state.isLoading);
   const {
     signInWithGoogle,
-    isGoogleReady,
     isGoogleLoading,
   } = useGoogleFirebaseAuth({
     onSuccess: (response) => {
@@ -109,7 +106,7 @@ export default function LoginScreen() {
     makePing(ping3, 1300);
     makePing(ping4, 2000);
     makePing(ping5, 2700);
-  }, []);
+  }, [centerPulse, ping1, ping2, ping3, ping4, ping5, ring1Rotation, ring2Rotation, sweepRotation]);
 
   const sweepDeg = sweepRotation.interpolate({
     inputRange: [0, 1],

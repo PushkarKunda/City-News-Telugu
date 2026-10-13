@@ -107,7 +107,7 @@ export const pollsApi = {
       const votedMap = stored ? JSON.parse(stored) : {};
       votedMap[payload.poll_uid] = payload.option_index;
       await AsyncStorage.setItem(VOTED_POLLS_KEY, JSON.stringify(votedMap));
-    } catch (_) {}
+    } catch {}
 
     // 2. Transmit to backend
     try {

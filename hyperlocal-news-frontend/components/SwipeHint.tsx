@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Platform,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -44,7 +43,7 @@ export const SwipeHint = React.memo(({ dismissTrigger, bottomOffset = 76 }: Swip
 
     try {
       await AsyncStorage.setItem(SWIPE_HINT_STORAGE_KEY, 'true');
-    } catch (_) {}
+    } catch {}
   }, [fadeAnim]);
 
   // Check storage on mount
@@ -134,6 +133,8 @@ export const SwipeHint = React.memo(({ dismissTrigger, bottomOffset = 76 }: Swip
     </Animated.View>
   );
 });
+
+SwipeHint.displayName = 'SwipeHint';
 
 const styles = StyleSheet.create({
   container: {

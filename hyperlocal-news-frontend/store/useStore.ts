@@ -31,7 +31,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   loadUser: async () => {
     try {
-      const serverUser = await usersApi.me();
+      await usersApi.me();
       // ✅ Sync with authStore user type
       const authUser = useAuthStore.getState().user;
       if (authUser) {

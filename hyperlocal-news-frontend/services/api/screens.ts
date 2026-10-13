@@ -10,11 +10,19 @@ import type { Advertisement } from './content';
 import axios from 'axios';
 import { assertCurrentSession, getSessionVersion } from '../session';
 
+import { usersApi } from './users';
+import { authApi } from './auth';
+import { postsApi } from './posts';
+import { engagementApi } from './engagement';
+import { newsApi } from './news';
+import { categoriesApi } from './categories';
+import { pollsApi } from './polls';
+
 export interface ActivePoll {
   id: number;
   poll_uid: string;
   question: string;
-  options: string[] | Array<{ text: string; votes?: number }>;
+  options: string[] | { text: string; votes?: number }[];
   total_votes: number;
   expires_at: string | null;
   created_at: string | null;
@@ -59,7 +67,7 @@ export interface CommunityScreenResponse {
     has_more: boolean;
     next_cursor: string | null;
   } | null;
-  trending_hashtags: Array<string | { tag: string; count?: number }> | null;
+  trending_hashtags: (string | { tag: string; count?: number })[] | null;
   bookmarks: any[] | null;
   errors: Record<string, string>;
 }
@@ -86,10 +94,10 @@ export interface ShortsScreenResponse {
 
 export interface DiscoverScreenResponse {
   trending_news: any[] | null;
-  trending_hashtags: Array<string | { tag: string; count?: number }> | null;
+  trending_hashtags: (string | { tag: string; count?: number })[] | null;
   categories: Category[] | null;
   popular_news: any[] | null;
-  districts: Array<{ id: number; name: string; state_id?: number }> | null;
+  districts: { id: number; name: string; state_id?: number }[] | null;
   errors: Record<string, string>;
 }
 
@@ -113,7 +121,7 @@ export interface LocalScreenResponse {
 
 export interface NotificationsScreenResponse {
   notifications: {
-    items: Array<{
+    items: {
       id: number | string;
       title: string;
       message: string;
@@ -121,21 +129,13 @@ export interface NotificationsScreenResponse {
       is_read: boolean;
       created_at: string | null;
       link_url?: string | null;
-    }>;
+    }[];
     total: number;
     has_next: boolean;
   } | null;
   unread_count: number | null;
   errors: Record<string, string>;
 }
-
-import { usersApi } from './users';
-import { authApi } from './auth';
-import { postsApi } from './posts';
-import { engagementApi } from './engagement';
-import { newsApi } from './news';
-import { categoriesApi } from './categories';
-import { pollsApi } from './polls';
 
 function allowFallback(error: unknown, signal: AbortSignal | undefined, version: number) {
   assertCurrentSession(version);

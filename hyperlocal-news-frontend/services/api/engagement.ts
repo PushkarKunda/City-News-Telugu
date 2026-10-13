@@ -2,7 +2,7 @@
 
 import { API_ROUTES } from './routes';
 import { request } from './client';
-import type { NewsArticle, NewsComment, CreateCommentPayload } from './news';
+import type { NewsArticle } from './news';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES

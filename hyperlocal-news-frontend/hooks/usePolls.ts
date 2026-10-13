@@ -1,6 +1,6 @@
 // hooks/usePolls.ts
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { pollsApi, PollItem, VotePayload } from '@/services/api/polls';
+import { pollsApi, VotePayload } from '@/services/api/polls';
 
 export const pollKeys = {
   active: ['polls', 'active'] as const,

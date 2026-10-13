@@ -196,7 +196,7 @@ export default function SettingsLanguageScreen() {
     if (!isLoadingLanguages) {
       loadPreferences();
     }
-  }, [isLoadingLanguages]);
+  }, [isLoadingLanguages, cachedPreferences, fetchPreferences, languagesList, alert]);
 
   // ─── Save Handler ──────────────────────────────────────────────────────
 

@@ -1,20 +1,13 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, Easing, Image } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/store/authStore';
-import { Spacing, BorderRadius, Shadows } from '@/constants/Spacing';
-import { Colors } from '@/constants/Colors';
-import { useAppColorScheme } from '@/hooks/useAppColorScheme';
+import { Spacing } from '@/constants/Spacing';
 import { firebaseAuth } from '@/services/firebase';
-import { authApi } from '@/services/api';
 
 export default function SplashScreen() {
-  const colorScheme = useAppColorScheme();
-  const colors = Colors[colorScheme ?? 'light'];
-  const isDark = colorScheme === 'dark';
   const router = useRouter();
 
   // Intro branding animations
@@ -98,7 +91,7 @@ export default function SplashScreen() {
             router.replace('/(tabs)');
             return;
           }
-        } catch (_) {}
+        } catch {}
       }
 
       if (authState.isAuthenticated) {
@@ -118,7 +111,7 @@ export default function SplashScreen() {
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, []);
+  }, [fadeAnim, pulseAnim, router, scaleAnim, spinAnim, textRevealAnim]);
 
   // Map 0-1 values to rotational degree
   const spin = spinAnim.interpolate({

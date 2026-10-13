@@ -44,7 +44,7 @@ export const notificationsApi = {
    * Get all engagement notifications
    */
   list: async (): Promise<Notification[]> => {
-    const response = await request<{ items: Array<Notification & { notification_type?: string }> }>({
+    const response = await request<{ items: (Notification & { notification_type?: string })[] }>({
       url: API_ROUTES.engagement.notifications,
       method: 'GET',
     });

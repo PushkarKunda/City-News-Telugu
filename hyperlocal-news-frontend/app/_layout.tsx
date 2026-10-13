@@ -19,7 +19,6 @@ import * as SplashScreen from 'expo-splash-screen';
 
 // CRITICAL: WebBrowser must be before any component
 import * as WebBrowser from 'expo-web-browser';
-WebBrowser.maybeCompleteAuthSession();
 
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { focusManager, QueryClientProvider } from '@tanstack/react-query';
@@ -29,7 +28,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   AppState,
   Platform,
 } from 'react-native';
@@ -51,6 +49,7 @@ import { Colors } from '@/constants/Colors';
 import { useRealtimeReconciliation } from '@/hooks/useRealtimeReconciliation';
 import { bindQueryFocus } from '@/services/queryFocus';
 import { bindSessionCache, queryClient } from '@/services/queryClient';
+WebBrowser.maybeCompleteAuthSession();
 
 // ─── Splash Screen ────────────────────────────────────────────────────────────
 SplashScreen.preventAutoHideAsync();
@@ -118,13 +117,11 @@ export default function RootLayout() {
 
   // ✅ Zustand selectors (avoid full store destructuring)
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
-  const isOnboarded = useAuthStore((state) => state.isOnboarded);
-  const authLoading = useAuthStore((state) => state.isLoading);
   const user = useAuthStore((state) => state.user);
 
   const [isConnected, setIsConnected] = useState(true);
   const [showNetworkError, setShowNetworkError] = useState(false);
-  const [appReady, setAppReady] = useState(false);
+  const [, setAppReady] = useState(false);
 
   // ─── Font Loading ─────────────────────────────────────────────────────────
   const [fontsLoaded, fontError] = useFonts({

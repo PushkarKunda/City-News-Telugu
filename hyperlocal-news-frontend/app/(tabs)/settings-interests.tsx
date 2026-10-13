@@ -231,7 +231,7 @@ export default function SettingsInterestsScreen() {
         if (!isLoadingCategories) {
             loadPreferences();
         }
-    }, [isLoadingCategories]);
+    }, [isLoadingCategories, cachedPreferences, fetchPreferences, alert]);
 
     // ─── Toggle ────────────────────────────────────────────────────────────
 

@@ -87,7 +87,7 @@ export const useReaderFontStore = create<ReaderFontState>((set) => ({
 
     try {
       await AsyncStorage.setItem(STORAGE_KEY, level);
-    } catch (_) {}
+    } catch {}
   },
 
   loadSavedFontSize: async () => {
@@ -110,7 +110,7 @@ export const useReaderFontStore = create<ReaderFontState>((set) => ({
           bodyLineHeight: config.bodyLineHeight,
         });
       }
-    } catch (_) {}
+    } catch {}
   },
 }));
 

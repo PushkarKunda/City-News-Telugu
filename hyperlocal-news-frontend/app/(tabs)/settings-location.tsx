@@ -283,7 +283,7 @@ export default function SettingsLocationScreen() {
     if (!isLoadingStates) {
       loadPreferences();
     }
-  }, [isLoadingStates]);
+  }, [isLoadingStates, cachedPreferences, fetchPreferences, alert]);
 
   // ─── Reset children when parent changes ──────────────────────────────
 
@@ -292,13 +292,13 @@ export default function SettingsLocationScreen() {
       setSelectedDistrictId(null);
       setSelectedCityId(null);
     }
-  }, [selectedStateId]);
+  }, [selectedStateId, initialStateId]);
 
   useEffect(() => {
     if (selectedDistrictId !== initialDistrictId) {
       setSelectedCityId(null);
     }
-  }, [selectedDistrictId]);
+  }, [selectedDistrictId, initialDistrictId]);
 
   // ─── Search border animation ──────────────────────────────────────────
 
@@ -359,7 +359,7 @@ export default function SettingsLocationScreen() {
           );
         }
       }
-    } catch (error) {
+    } catch {
       alert(
         'Location Error',
         'Could not fetch your location. Please select manually.'
@@ -434,7 +434,7 @@ export default function SettingsLocationScreen() {
   // ─── Render Rows Helper ───────────────────────────────────────────────
 
   const renderGridRows = (
-    items: Array<{ backendId: number; name: string; code?: string }>,
+    items: { backendId: number; name: string; code?: string }[],
     selectedId: number | null,
     onSelect: (id: number) => void
   ) => {

@@ -110,7 +110,6 @@ const PostCardInner: React.FC<PostCardProps> = ({
 }) => {
   const colorScheme = useAppColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const isDark = colorScheme === 'dark';
 
   // ─── Engagement States ──────────────────────────────────────────────────────
   const [liked, setLiked] = useState(Boolean(post.is_liked));
@@ -202,7 +201,7 @@ const PostCardInner: React.FC<PostCardProps> = ({
     ]).start();
   };
 
-  const fireHeartMicroAnimation = () => {
+  const fireHeartMicroAnimation = useCallback(() => {
     setShowDoubleTapHeart(true);
     doubleTapHeartAnim.setValue(0);
     Animated.sequence([
@@ -221,7 +220,7 @@ const PostCardInner: React.FC<PostCardProps> = ({
     ]).start(() => {
       setShowDoubleTapHeart(false);
     });
-  };
+  }, [doubleTapHeartAnim]);
 
   // ─── API Mutations ─────────────────────────────────────────────────────────
   const { mutate: toggleLike } = useLikePost();
@@ -352,7 +351,7 @@ const PostCardInner: React.FC<PostCardProps> = ({
       }, DOUBLE_TAP_DELAY);
     }
     lastTapRef.current = now;
-  }, [handleLike, onToggleUI]);
+  }, [handleLike, onToggleUI, fireHeartMicroAnimation]);
 
   // Clean up single tap timeout
   useEffect(() => {
@@ -392,7 +391,7 @@ const PostCardInner: React.FC<PostCardProps> = ({
       }
     }
     return Array.from(tagsSet).filter(Boolean);
-  }, [post.hashtags, post.content]);
+  }, [post]);
 
   // Strip trailing hashtags for display when tags are shown as chips; keep sentence-internal hashtags
   const displayCaption = useMemo(() => {

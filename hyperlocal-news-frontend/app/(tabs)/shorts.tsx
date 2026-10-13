@@ -34,7 +34,7 @@ function trackView(videoId: string) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
     }).catch(() => {});
-  } catch (_) {}
+  } catch {}
 }
 
 // ─── Ad Card ──────────────────────────────────────────────────────────────────
@@ -56,6 +56,7 @@ const ShortAdCard = React.memo(({ item, itemHeight }: {
     </LinearGradient>
   </View>
 ));
+ShortAdCard.displayName = 'ShortAdCard';
 
 // ─── YouTube Short Card ───────────────────────────────────────────────────────
 // Full-screen WebView. No app overlay on top — YouTube's own UI is the only
@@ -85,7 +86,7 @@ const YouTubeShortCard = React.memo(({ item, isActive, isFocused, appState, shou
     const js = playing
       ? `(function(){ var v=document.querySelector('video'); if(v){ v.play(); v.muted=false; } })(); true;`
       : `(function(){ var v=document.querySelector('video'); if(v){ v.pause(); v.muted=true; } })(); true;`;
-    try { webViewRef.current.injectJavaScript(js); } catch (_) {}
+    try { webViewRef.current.injectJavaScript(js); } catch {}
   }, [playing]);
 
   const shortsUrl = `https://www.youtube.com/shorts/${item.video_id}`;
@@ -173,6 +174,7 @@ const YouTubeShortCard = React.memo(({ item, isActive, isFocused, appState, shou
   prev.itemHeight === next.itemHeight &&
   (prev.item.video_id || prev.item.news_uid) === (next.item.video_id || next.item.news_uid)
 ));
+YouTubeShortCard.displayName = 'YouTubeShortCard';
 
 // ─── Native Video Short Card ──────────────────────────────────────────────────
 const NativeVideoItem = React.memo(({ item, isActive, isFocused, appState, shouldLoad, itemHeight }: {
@@ -205,7 +207,7 @@ const NativeVideoItem = React.memo(({ item, isActive, isFocused, appState, shoul
         if (player.duration > 0) {
           setProgress(Math.min(100, Math.max(0, (player.currentTime / player.duration) * 100)));
         }
-      } catch (e) {}
+      } catch {}
     }, 500);
     return () => clearInterval(interval);
   }, [playing, player]);
@@ -258,6 +260,7 @@ const NativeVideoItem = React.memo(({ item, isActive, isFocused, appState, shoul
   prev.itemHeight === next.itemHeight &&
   (prev.item.video_id || prev.item.news_uid) === (next.item.video_id || next.item.news_uid)
 ));
+NativeVideoItem.displayName = 'NativeVideoItem';
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 export default function ShortsScreen() {
@@ -303,9 +306,10 @@ export default function ShortsScreen() {
     }
   }, [shortsScreenData]);
 
-  const rawShorts = shortsScreenData?.shorts?.items ?? [];
-  const ads = shortsScreenData?.ads ?? [];
-  const shortsFeed = useMemo(() => injectAdsIntoFeed(rawShorts, ads, 5), [rawShorts, ads]);
+  const shortsFeed = useMemo(
+    () => injectAdsIntoFeed(shortsScreenData?.shorts?.items ?? [], shortsScreenData?.ads ?? [], 5),
+    [shortsScreenData]
+  );
   const isLoading = isLoadingShortsAggregate;
 
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {

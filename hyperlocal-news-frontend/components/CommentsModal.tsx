@@ -224,6 +224,8 @@ const CommentItem = React.memo(
   }
 );
 
+CommentItem.displayName = 'CommentItem';
+
 // ─── Modal ────────────────────────────────────────────────────────────────────
 
 export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps) => {
@@ -327,7 +329,7 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
     if (data?.pages && data.pages.length > 0) {
       useCommentCountStore.getState().setCount(newsUid, confirmedCount);
     }
-  }, [data, newsUid, comments.length]);
+  }, [data, newsUid, comments]);
 
   // Requirement 4: Sheet header Comments (N) derived from list length / shared count
   const serverTotal = data?.pages?.[0]?.total;
@@ -337,8 +339,9 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
   useEffect(() => {
     if (visible && newsUid) {
       const draft = useCommentCountStore.getState().drafts[newsUid];
-      if (draft && !commentText) {
-        setCommentText(draft);
+      if (draft) {
+        // Keep any text the user already has; only fill the empty input.
+        setCommentText((prev) => (prev ? prev : draft));
       }
     }
   }, [visible, newsUid]);
@@ -463,7 +466,7 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
         },
       ], { icon: 'trash-outline', iconColor: '#EF4444' });
     },
-    [deleteComment, newsUid]
+    [deleteComment, newsUid, alert]
   );
 
   const renderComment = useCallback(

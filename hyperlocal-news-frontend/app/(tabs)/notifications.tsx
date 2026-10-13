@@ -5,8 +5,8 @@ import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useRouter } from 'expo-router';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
-import { Spacing, BorderRadius } from '@/constants/Spacing';
-import { useNotifications, useUnreadCount, useMarkNotificationRead, useMarkAllNotificationsRead, useClearAllNotifications } from '@/hooks/useNotifications';
+import { BorderRadius } from '@/constants/Spacing';
+import { useNotifications, useUnreadCount, useMarkNotificationRead, useMarkAllNotificationsRead } from '@/hooks/useNotifications';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 
 interface NotificationItem {
@@ -28,11 +28,10 @@ export default function NotificationsScreen() {
   const router = useRouter();
 
   // Fetch the list on demand; only the lightweight count polls while focused.
-  const { data: rawNotifications = [], isLoading, refetch } = useNotifications();
+  const { data: rawNotifications = [], isLoading } = useNotifications();
   const { data: unread } = useUnreadCount();
   const { mutate: markRead } = useMarkNotificationRead();
   const { mutate: markAllRead } = useMarkAllNotificationsRead();
-  const { mutate: clearAll } = useClearAllNotifications();
 
   // Map backend notifications to UI format
   const notifications: NotificationItem[] = React.useMemo(() => {
@@ -53,7 +52,7 @@ export default function NotificationsScreen() {
           if (diffHr < 24) timeStr = `${diffHr}h ago`;
           else timeStr = `${Math.floor(diffHr / 24)}d ago`;
         }
-      } catch (e) {
+      } catch {
         timeStr = 'Recently';
       }
 

@@ -1,8 +1,7 @@
 import { Tabs, usePathname } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
-import { View, StyleSheet, BackHandler, Platform } from 'react-native';
+import { BackHandler, Platform } from 'react-native';
 import { Colors } from '@/constants/Colors';
-import { Spacing } from '@/constants/Spacing';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useEffect } from 'react';
 import { useRouter } from 'expo-router';
@@ -25,7 +24,7 @@ export default function TabLayout() {
         router.replace('/(onboarding)/language');
       }
     }
-  }, [isAuthenticated, isOnboarded]);
+  }, [isAuthenticated, isOnboarded, router]);
 
   useEffect(() => {
     const onBackPress = () => {
@@ -75,7 +74,7 @@ export default function TabLayout() {
 
     BackHandler.addEventListener('hardwareBackPress', onBackPress);
     return () => BackHandler.removeEventListener('hardwareBackPress', onBackPress);
-  }, [pathname]);
+  }, [pathname, router]);
 
   return (
     <Tabs

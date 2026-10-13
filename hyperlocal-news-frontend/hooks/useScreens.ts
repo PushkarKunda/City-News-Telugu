@@ -1,7 +1,7 @@
 // hooks/useScreens.ts
 import { useEffect, useRef, useMemo } from 'react';
 import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
-import { screensApi, HomeScreenResponse, ProfileScreenResponse, CommunityScreenResponse, ShortsScreenResponse, DiscoverScreenResponse, LocalScreenResponse, NotificationsScreenResponse } from '@/services/api/screens';
+import { screensApi } from '@/services/api/screens';
 import { newsKeys } from '@/hooks/useNews';
 import { postKeys } from '@/hooks/usePosts';
 import { pollKeys } from '@/hooks/usePolls';
@@ -38,8 +38,11 @@ export function useHomeScreen(params?: {
   const updateCachedPreferences = useAuthStore((s) => s.updateCachedPreferences);
   const userUid = useAuthStore((s) => s.user?.user_uid);
 
-  const paramsKey = JSON.stringify(params || {});
-  const memoizedParams = useMemo(() => params, [paramsKey]);
+  const paramsKey = JSON.stringify(params);
+  const memoizedParams = useMemo(
+    () => (paramsKey !== undefined ? JSON.parse(paramsKey) : undefined),
+    [paramsKey]
+  );
 
   const query = useQuery({
     queryKey: [...screenKeys.home(memoizedParams), userUid],
@@ -265,8 +268,11 @@ export function useShortsScreen(params?: {
   cursor?: string;
 }) {
   const queryClient = useQueryClient();
-  const paramsKey = JSON.stringify(params || {});
-  const memoizedParams = useMemo(() => params, [paramsKey]);
+  const paramsKey = JSON.stringify(params);
+  const memoizedParams = useMemo(
+    () => (paramsKey !== undefined ? JSON.parse(paramsKey) : undefined),
+    [paramsKey]
+  );
   const language = memoizedParams?.language || 'te';
 
   const query = useQuery({
@@ -303,8 +309,11 @@ export function useDiscoverScreen(params?: {
   limit?: number;
 }) {
   const queryClient = useQueryClient();
-  const paramsKey = JSON.stringify(params || {});
-  const memoizedParams = useMemo(() => params, [paramsKey]);
+  const paramsKey = JSON.stringify(params);
+  const memoizedParams = useMemo(
+    () => (paramsKey !== undefined ? JSON.parse(paramsKey) : undefined),
+    [paramsKey]
+  );
 
   const query = useQuery({
     queryKey: screenKeys.discover(memoizedParams),
@@ -363,8 +372,11 @@ export function useLocalScreen(params?: {
   cursor?: string;
 }) {
   const queryClient = useQueryClient();
-  const paramsKey = JSON.stringify(params || {});
-  const memoizedParams = useMemo(() => params, [paramsKey]);
+  const paramsKey = JSON.stringify(params);
+  const memoizedParams = useMemo(
+    () => (paramsKey !== undefined ? JSON.parse(paramsKey) : undefined),
+    [paramsKey]
+  );
 
   const query = useQuery({
     queryKey: screenKeys.local(memoizedParams),
@@ -401,8 +413,11 @@ export function useNotificationsScreen(params?: {
   const queryClient = useQueryClient();
   const userUid = useAuthStore((state) => state.user?.user_uid);
   const isFocused = useIsFocused();
-  const paramsKey = JSON.stringify(params || {});
-  const memoizedParams = useMemo(() => params, [paramsKey]);
+  const paramsKey = JSON.stringify(params);
+  const memoizedParams = useMemo(
+    () => (paramsKey !== undefined ? JSON.parse(paramsKey) : undefined),
+    [paramsKey]
+  );
 
   const query = useQuery({
     queryKey: [...screenKeys.notifications(memoizedParams), userUid],

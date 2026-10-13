@@ -4,7 +4,7 @@ import {
   BackHandler, ActivityIndicator,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { MaterialIcons, Ionicons } from '@expo/vector-icons';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter, useNavigation } from 'expo-router';
 import { Colors } from '@/constants/Colors';
 import { useAuthStore } from '@/store/authStore';
@@ -46,7 +46,7 @@ export default function CompleteScreen() {
         Animated.timing(slideAnim, { toValue: 0, duration: 400, useNativeDriver: true }),
       ]),
     ]).start();
-  }, []);
+  }, [fadeAnim, scaleAnim, slideAnim]);
 
   // Navigate to main app - reset navigation stack
   const handleStartReading = () => {

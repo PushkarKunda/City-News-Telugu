@@ -28,7 +28,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useGoogleFirebaseAuth } from '@/hooks/useGoogleFirebaseAuth';
 import { statusCodes } from '@react-native-google-signin/google-signin';
-import { usersApi, authApi, type UserMeResponse, type UpdateMePayload } from '@/services/api';
+import { usersApi, type UserMeResponse, type UpdateMePayload } from '@/services/api';
 import { compressImage } from '@/services/image';
 import { uploadImageToSupabaseProfile } from '@/services/supabase';
 import { getUserFacingError } from '@/services/api/client';
@@ -136,24 +136,29 @@ export default function ProfileCompletionScreen() {
     ]).start();
 
     return () => sub.remove();
-  }, [isOnboarded]);
+  }, [isOnboarded, fadeAnim, slideAnim]);
 
   // ─── Load Profile on Mount ───────────────────────────────────────────────
 
   useEffect(() => {
     const loadProfile = async () => {
+      // Read the user from the store at effect time instead of via the
+      // subscribed `user` value: this effect itself updates the store through
+      // updateProfileLocal, so depending on `user` would re-run it in a loop.
+      const storeUser = useAuthStore.getState().user;
+
       // 1. Immediately prefill from store so UI is instantly responsive
-      if (user) {
-        setName((prev) => prev || user.name || '');
-        setPhoneNumber((prev) => prev || user.phoneNumber || user.phone || '');
-        setEmail((prev) => prev || user.email || '');
-        setGender((prev) => prev || user.gender || '');
+      if (storeUser) {
+        setName((prev) => prev || storeUser.name || '');
+        setPhoneNumber((prev) => prev || storeUser.phoneNumber || storeUser.phone || '');
+        setEmail((prev) => prev || storeUser.email || '');
+        setGender((prev) => prev || storeUser.gender || '');
         setDob((prev) =>
-          prev || (user.date_of_birth
-            ? new Date(user.date_of_birth).toISOString().split('T')[0]
+          prev || (storeUser.date_of_birth
+            ? new Date(storeUser.date_of_birth).toISOString().split('T')[0]
             : '')
         );
-        setSelectedAvatar((prev) => prev || user.profile_picture || user.avatar || '');
+        setSelectedAvatar((prev) => prev || storeUser.profile_picture || storeUser.avatar || '');
       }
 
       // 2. Fetch fresh user profile from API to ensure backend data is synced
@@ -198,7 +203,7 @@ export default function ProfileCompletionScreen() {
     };
 
     loadProfile();
-  }, [isOnboarded]);
+  }, [isOnboarded, updateProfileLocal]);
 
   // ─── Google Sign-In ──────────────────────────────────────────────────────
 

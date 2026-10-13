@@ -165,7 +165,7 @@ export function useGoogleFirebaseAuth(options: UseGoogleFirebaseAuthOptions = {}
     } finally {
       setIsGoogleLoading(false);
     }
-  }, [isConfigured, isAuthenticated, loginWithGoogle, linkGoogle, options]);
+  }, [isConfigured, isGoogleLoading, isAuthenticated, loginWithGoogle, linkGoogle, options]);
 
   return {
     signInWithGoogle,

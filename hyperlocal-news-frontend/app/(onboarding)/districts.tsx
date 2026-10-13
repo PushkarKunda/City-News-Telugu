@@ -153,7 +153,7 @@ export default function DistrictsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDistrict, setSelectedDistrict] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [isSaving] = useState(false);
 
   const buttonScale = useRef(new Animated.Value(1)).current;
   const searchBorderAnim = useRef(new Animated.Value(0)).current;

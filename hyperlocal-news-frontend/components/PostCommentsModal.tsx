@@ -14,7 +14,6 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { usePostComments, useAddPostComment } from '@/hooks/usePosts';
-import { useAuthStore } from '@/store/authStore';
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { formatTimeAgo } from '@/utils/formatters';
@@ -59,11 +58,12 @@ const PostCommentItem = React.memo(({ item, colors }: any) => {
   );
 });
 
+PostCommentItem.displayName = 'PostCommentItem';
+
 export const PostCommentsModal = ({ visible, onClose, postUid, onCommentAdded }: PostCommentsModalProps) => {
   const colorScheme = useAppColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const isDark = colorScheme === 'dark';
-  const user = useAuthStore((state) => state.user);
   const { alert, AlertComponent } = useAppAlert();
 
   const [commentText, setCommentText] = useState('');

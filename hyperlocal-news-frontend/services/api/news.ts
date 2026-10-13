@@ -2,6 +2,11 @@ import { API_ROUTES } from './routes';
 import { request } from './client';
 import { usersApi } from './users';
 
+import { Advertisement, SponsoredPost } from './content';
+
+
+import { Category } from './categories';
+
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
 // ═══════════════════════════════════════════════════════════════════════════
@@ -53,11 +58,6 @@ export interface NewsArticle {
   ranking_score?: number;
   engagement?: NewsEngagementDetail;
 }
-
-import { Advertisement, SponsoredPost } from './content';
-
-
-import { Category } from './categories';
 
 export type FeedItemType = 'news' | 'ad' | 'sponsored' | 'event' | 'poll' | 'post';
 
@@ -415,7 +415,7 @@ export const newsApi = {
             news_uid: a.news_uid || String(a.id),
           }));
         }
-      } catch (_) {}
+      } catch {}
       return [];
     }
   },

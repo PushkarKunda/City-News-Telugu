@@ -158,7 +158,7 @@ export default function LanguageScreen() {
   const { data: languagesList = [], isLoading } = useLanguagesList();
 
   const [selectedLanguage, setSelectedLanguage] = useState<string>('en'); // ✅ Default 'en'
-  const [isSaving, setIsSaving] = useState(false);
+  const [isSaving] = useState(false);
 
   const buttonScale = useRef(new Animated.Value(1)).current;
 

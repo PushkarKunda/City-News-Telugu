@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { Colors } from '@/constants/Colors';
-import { MaterialIcons, Ionicons, FontAwesome5 } from '@expo/vector-icons';
+import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useAuthStore, isEmailVerified, isUserGoogleLinked } from '@/store/authStore';
@@ -25,13 +25,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { CreateArticleModal } from '@/components/CreateArticleModal';
 import { useAppAlert } from '@/components/AppAlert';
-import { useCreateNews, useDeleteNews } from '@/hooks/useNews';
+import { useCreateNews } from '@/hooks/useNews';
 import { useDeletePost } from '@/hooks/usePosts';
 import { useProfileScreen } from '@/hooks/useScreens';
 import { usersApi, postsApi, getUserFacingError, type DashboardResponse } from '@/services/api';
 import type { Post } from '@/services/api/posts';
 import { compressImage } from '@/services/image';
-import { uploadImageToSupabaseNews, uploadImageToSupabaseProfile } from '@/services/supabase';
+import { uploadImageToSupabaseProfile } from '@/services/supabase';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -43,8 +43,6 @@ export default function ProfileScreen() {
   const router = useRouter();
 
   const user = useAuthStore((state) => state.user);
-  const logout = useAuthStore((state) => state.logout);
-  const updateProfile = useAuthStore((state) => state.updateProfile);
   const updateProfileLocal = useAuthStore((state) => state.updateProfileLocal);
   const switchToPublisher = useAuthStore((state) => state.switchToPublisher);
 
@@ -90,14 +88,12 @@ export default function ProfileScreen() {
   }, [profileScreenData]);
 
   // ─── UI State ────────────────────────────────────────────────────────────
-  const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
   // ─── API Mutations ───────────────────────────────────────────────────────
   const { alert, AlertComponent } = useAppAlert();
 
   const { mutate: createArticleMutate } = useCreateNews();
-  const { mutate: deleteArticleMutate } = useDeleteNews();
   const { mutate: deletePostMutate } = useDeletePost();
 
   const handleDeleteUserPost = (postUid: string) => {
@@ -135,9 +131,6 @@ export default function ProfileScreen() {
 
   // ─── Tab State ───────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<'posts' | 'news' | 'saved' | 'publisher'>('posts');
-  const [newsFilter, setNewsFilter] = useState<'all' | 'approved' | 'pending' | 'rejected'>('all');
-  const [newsSort, setNewsSort] = useState<'date' | 'views' | 'likes'>('date');
-  const [showSortModal, setShowSortModal] = useState(false);
 
   // ─── FAB / Modal State ───────────────────────────────────────────────────
   const [showFabMenu, setShowFabMenu] = useState(false);
@@ -174,7 +167,7 @@ export default function ProfileScreen() {
   };
 
   useEffect(() => {
-    if (selectedPost) {
+    if (selectedPost?.post_uid) {
       loadComments(selectedPost.post_uid);
     } else {
       setComments([]);
@@ -504,17 +497,6 @@ export default function ProfileScreen() {
     );
   };
 
-  const handlePickPostImage = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      allowsEditing: true,
-      aspect: [16, 9],
-      quality: 0.8,
-    });
-    if (!result.canceled && result.assets.length > 0) {
-      setPostCoverImage(result.assets[0].uri);
-    }
-  };
-
   const handleCreatePost = async () => {
     if (!postCaption.trim()) {
       alert('Validation Error', 'Please write a caption.', [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#F59E0B' });
@@ -569,19 +551,6 @@ export default function ProfileScreen() {
     } finally {
       setIsPublishingPost(false);
     }
-  };
-
-  const handleDeleteArticle = (uid: string) => {
-    alert('Delete Article', 'Are you sure you want to delete this article?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => {
-          deleteArticleMutate(uid);
-        },
-      },
-    ], { icon: 'trash-outline', iconColor: '#EF4444' });
   };
 
   // ─── Render ───────────────────────────────────────────────────────────────

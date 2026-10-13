@@ -19,7 +19,7 @@ export default function AuthLayout() {
         router.replace('/(onboarding)/language');
       }
     }
-  }, [isAuthenticated, isOnboarded]);
+  }, [isAuthenticated, isOnboarded, router]);
 
 
 

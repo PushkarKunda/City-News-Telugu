@@ -17,7 +17,7 @@ import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { Colors } from '@/constants/Colors';
-import { Spacing, BorderRadius, Shadows } from '@/constants/Spacing';
+import { Shadows } from '@/constants/Spacing';
 
 // Article Cover Presets
 const COVER_PRESETS = [

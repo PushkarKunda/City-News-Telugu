@@ -21,7 +21,7 @@ export default function OnboardingLayout() {
       }
       router.replace('/(tabs)');
     }
-  }, [isAuthenticated, isOnboarded]);
+  }, [isAuthenticated, isOnboarded, pathname, router]);
 
   if (!isAuthenticated) {
     return null;

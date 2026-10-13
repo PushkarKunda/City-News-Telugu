@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -7,11 +7,10 @@ import {
   ScrollView,
   Switch,
   Image,
-  Pressable,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { useAuthStore, isEmailVerified } from '@/store/authStore';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -23,13 +22,11 @@ export default function SettingsScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { from } = useLocalSearchParams<{ from?: string }>();
-  const { alert, AlertComponent } = useAppAlert();
+  const { alert } = useAppAlert();
 
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const updateTheme = useAuthStore((state) => state.updateTheme);
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const darkModeEnabled = colorScheme === 'dark';
 
   const emailVerified = isEmailVerified(user);
