@@ -1,0 +1,59 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+android/
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.keystore
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+# generated native folders
+/ios
+/android
+
+# Keep a separately checked-out backend out of the frontend repository.
+/backend
+
+.env
+
+# IDE
+.idea/
+.vscode/
+
+# Generated API audit output (regenerate with `npm run api-audit`; keep reports/.gitkeep)
+/reports/api-audit-report.md
+/reports/api-audit-results.json
+
+# Nested/renamed git metadata must never be committed
+.git_disabled/
