@@ -394,9 +394,11 @@ export function useAddComment() {
       const confirmedId = res.id ?? (res as any)?.comment_id ?? tempId;
       const confirmedComment: NewsComment = {
         id: confirmedId,
-        user_uid: res.user_id,
-        user_name: res.user_name,
-        user_avatar: res.user_avatar,
+        user_uid: res.user_id || res.user_uid || '',
+        // Fall back to the locally-known user so the name never disappears
+        // if an older backend omits user_name from the POST response.
+        user_name: res.user_name || res.user_display_name || vars.userName,
+        user_avatar: res.user_avatar || vars.userAvatar,
         // Server may return `text` or `comment_text` depending on endpoint version
         comment_text: res.text || res.comment_text || vars.comment_text,
         created_at: res.created_at,

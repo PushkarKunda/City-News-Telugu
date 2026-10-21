@@ -11,7 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
-import { useNewsFeed, useCreateNews } from '@/hooks/useNews';
+import { useNewsFeed, useCreateNews, useCategories } from '@/hooks/useNews';
 import { NewsArticle } from '@/services/api/news';
 import { useAuthStore } from '@/store/authStore';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
@@ -38,15 +38,27 @@ export default function PublisherDashboard() {
   const user = useAuthStore((state) => state.user);
 
   const { mutate: createArticleMutate } = useCreateNews();
+  const { data: categories } = useCategories();
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
 
   const handleCreateNewsArticle = (data: any) => {
+    // The modal sends a category NAME (e.g. "BUSINESS"). Map it to the real
+    // category ID; parseInt("BUSINESS") would be NaN and break the request.
+    const categoryName = String(data.category || '').trim().toLowerCase();
+    const matchedCategory = categories?.find(
+      (cat) => cat.name.trim().toLowerCase() === categoryName
+    );
+
+    // Backend requires language_id; fall back to the user's stored preference.
+    const languageId = (user as any)?.language_id ?? 1;
+
     createArticleMutate(
       {
         title: data.headline,
         summary: data.summary || '',
-        category_ids: [parseInt(data.category, 10)],
-        image_url: data.imageUrl || '',
+        language_id: languageId,
+        ...(matchedCategory ? { category_ids: [matchedCategory.id] } : {}),
+        image_url: data.imageUrl || undefined,
       },
       {
         onSuccess: () => {

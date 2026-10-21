@@ -210,7 +210,10 @@ export interface CreatedCommentResponse {
   id: number;
   article_id: string;
   user_id: string;
+  user_uid?: string;
   user_name: string;
+  user_display_name?: string;
+  username?: string;
   text?: string;
   comment_text?: string;
   created_at: string;
@@ -571,7 +574,15 @@ export const newsApi = {
         : undefined,
       data: payload,
     });
-    return (res?.data || res?.comment || res) as CreatedCommentResponse;
+    // Unwrap only if `data`/`comment` is an OBJECT envelope.
+    // NOTE: the backend also returns a `comment` key holding the comment TEXT
+    // (a string) — unwrapping that would discard the whole response and lose
+    // user_name / user_avatar / id.
+    if (res && typeof res === 'object') {
+      if (res.data && typeof res.data === 'object') return res.data as CreatedCommentResponse;
+      if (res.comment && typeof res.comment === 'object') return res.comment as CreatedCommentResponse;
+    }
+    return res as CreatedCommentResponse;
   },
 
   /**

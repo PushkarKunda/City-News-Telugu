@@ -18,6 +18,7 @@ import {
   AppStateStatus,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useIsFocused } from '@react-navigation/native';
@@ -38,6 +39,8 @@ import { useAuthStore } from '@/store/authStore';
 import { useTabBarStore } from '@/store/tabBarStore';
 import { useImmersiveChrome } from '@/hooks/useImmersiveChrome';
 import { isInvalidOrMockImageUrl } from '@/utils/imageResolver';
+import { compressImage } from '@/services/image';
+import { uploadImageToSupabaseNews } from '@/services/supabase';
 import { type Post } from '@/services/api/posts';
 import { getUserFacingError } from '@/services/api';
 import { useAppAlert } from '@/components/AppAlert';
@@ -240,6 +243,39 @@ export default function PostsScreen() {
   const [newPostContent, setNewPostContent] = useState('');
   const [newPostImageUrl, setNewPostImageUrl] = useState('');
   const [newPostHashtags, setNewPostHashtags] = useState('');
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+
+  // ─── Real image upload (gallery → compress → Supabase → public URL) ──────
+  const handlePickPostImage = async () => {
+    if (isUploadingImage) return;
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        alert('Permission Denied', 'Please allow photo access to upload an image.', [{ text: 'OK' }], { icon: 'lock-closed-outline', iconColor: '#F59E0B' });
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: 'images',
+        quality: 0.8,
+      });
+
+      if (result.canceled || !result.assets?.length) return;
+
+      setIsUploadingImage(true);
+      const compressed = await compressImage(result.assets[0].uri, {
+        width: 1280,
+        compress: 0.8,
+      });
+      const publicUrl = await uploadImageToSupabaseNews(compressed.uri, 'posts');
+      setNewPostImageUrl(publicUrl);
+    } catch (err) {
+      console.warn('[posts] Image upload failed:', err);
+      alert('Upload Failed', getUserFacingError(err, 'Could not upload image. Please try again.'), [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
 
   // ─── Animation & Visibility (via shared useImmersiveChrome hook) ───────────
   const isModalOpen = isCommentsVisible || isCreateModalOpen || isSearchActive;
@@ -875,21 +911,63 @@ export default function PostsScreen() {
               </Text>
 
               {composerType === 'photo' && (
-                <TextInput
-                  style={[
-                    styles.imageInput,
-                    {
-                      color: colors.text,
-                      backgroundColor: colors.surface,
-                      borderColor: colors.border,
-                      marginBottom: 10,
-                    },
-                  ]}
-                  placeholder="Image URL (https://...)"
-                  placeholderTextColor={colors.textTertiary}
-                  value={newPostImageUrl}
-                  onChangeText={setNewPostImageUrl}
-                />
+                <View style={{ marginBottom: 10 }}>
+                  <TouchableOpacity
+                    style={[
+                      styles.imageUploadBtn,
+                      { borderColor: colors.border, backgroundColor: colors.surface },
+                    ]}
+                    onPress={handlePickPostImage}
+                    disabled={isUploadingImage}
+                    activeOpacity={0.7}
+                  >
+                    {isUploadingImage ? (
+                      <ActivityIndicator size="small" color={colors.primary} />
+                    ) : (
+                      <Ionicons name="cloud-upload-outline" size={18} color={colors.primary} />
+                    )}
+                    <Text style={[styles.imageUploadBtnText, { color: colors.primary }]}>
+                      {isUploadingImage
+                        ? 'Uploading image...'
+                        : newPostImageUrl
+                        ? 'Change uploaded photo'
+                        : 'Upload image from gallery'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {newPostImageUrl.trim().length > 0 && (
+                    <View style={styles.uploadedImageWrap}>
+                      <Image
+                        source={{ uri: newPostImageUrl.trim() }}
+                        style={styles.uploadedImagePreview}
+                        contentFit="cover"
+                      />
+                      <TouchableOpacity
+                        style={styles.removeImageBtn}
+                        onPress={() => setNewPostImageUrl('')}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="close-circle" size={22} color="#FFFFFF" />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  <TextInput
+                    style={[
+                      styles.imageInput,
+                      {
+                        color: colors.text,
+                        backgroundColor: colors.surface,
+                        borderColor: colors.border,
+                        marginTop: 8,
+                      },
+                    ]}
+                    placeholder="…or paste an Image URL (https://...)"
+                    placeholderTextColor={colors.textTertiary}
+                    value={newPostImageUrl}
+                    onChangeText={setNewPostImageUrl}
+                  />
+                </View>
               )}
 
               <TextInput
@@ -1302,6 +1380,39 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 10,
     fontSize: 14,
+  },
+  imageUploadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+  },
+  imageUploadBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    fontFamily: 'Poppins_600SemiBold',
+  },
+  uploadedImageWrap: {
+    marginTop: 10,
+    borderRadius: 12,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  uploadedImagePreview: {
+    width: '100%',
+    height: 180,
+  },
+  removeImageBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    borderRadius: 14,
   },
   tagSuggestionsRow: {
     marginTop: 10,

@@ -11,13 +11,17 @@ import {
   Platform,
   useWindowDimensions,
   Keyboard,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as ImagePicker from 'expo-image-picker';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { Colors } from '@/constants/Colors';
 import { Shadows } from '@/constants/Spacing';
+import { compressImage } from '@/services/image';
+import { uploadImageToSupabaseNews } from '@/services/supabase';
 
 // Article Cover Presets
 const COVER_PRESETS = [
@@ -72,6 +76,41 @@ export function CreateArticleModal({ isVisible, onClose, onSubmit }: CreateArtic
   // Dropdown Picker Overlay States
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [validationError, setValidationError] = useState('');
+  const [isUploadingCover, setIsUploadingCover] = useState(false);
+
+  // ─── Real cover upload (gallery → compress → Supabase → public URL) ──────
+  const handleUploadCover = async () => {
+    if (isUploadingCover) return;
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        setValidationError('Please allow photo access to upload a cover image.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: 'images',
+        quality: 0.8,
+      });
+
+      if (result.canceled || !result.assets?.length) return;
+
+      setIsUploadingCover(true);
+      setValidationError('');
+      const compressed = await compressImage(result.assets[0].uri, {
+        width: 1280,
+        compress: 0.8,
+      });
+      const publicUrl = await uploadImageToSupabaseNews(compressed.uri, 'news');
+      setCoverImage(publicUrl);
+      setShowImagePicker(false);
+    } catch (err) {
+      console.warn('[CreateArticleModal] Cover upload failed:', err);
+      setValidationError('Could not upload image. Please try again.');
+    } finally {
+      setIsUploadingCover(false);
+    }
+  };
 
   const resetForm = () => {
     setHeadline('');
@@ -193,14 +232,29 @@ export function CreateArticleModal({ isVisible, onClose, onSubmit }: CreateArtic
                       <Ionicons name="image-outline" size={24} color={colors.primary} />
                     </View>
                     <Text style={[styles.uploadCardMainText, { color: colors.primary }]}>Tap to upload image</Text>
-                    <Text style={styles.uploadCardSubText}>Select a cover theme from our presets</Text>
+                    <Text style={styles.uploadCardSubText}>Upload your own photo or pick a preset cover</Text>
                   </TouchableOpacity>
                 )}
 
-                {/* Horizontal Cover Picker presets */}
+                {/* Upload from device + Horizontal Cover Picker presets */}
                 {showImagePicker && (
                   <View style={[styles.coverPresetContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                    <Text style={[styles.presetHeading, { color: colors.primary }]}>Select a Preset Theme Cover:</Text>
+                    <Text style={[styles.presetHeading, { color: colors.primary }]}>Upload or select a preset cover:</Text>
+                    <TouchableOpacity
+                      style={[styles.uploadFromDeviceBtn, { borderColor: colors.primary, backgroundColor: colors.primaryLight }]}
+                      onPress={handleUploadCover}
+                      disabled={isUploadingCover}
+                      activeOpacity={0.7}
+                    >
+                      {isUploadingCover ? (
+                        <ActivityIndicator size="small" color={colors.primary} />
+                      ) : (
+                        <Ionicons name="cloud-upload-outline" size={18} color={colors.primary} />
+                      )}
+                      <Text style={[styles.uploadFromDeviceText, { color: colors.primary }]}>
+                        {isUploadingCover ? 'Uploading image...' : 'Upload image from gallery'}
+                      </Text>
+                    </TouchableOpacity>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presetsScroll}>
                       {COVER_PRESETS.map((preset) => (
                         <TouchableOpacity
@@ -511,6 +565,22 @@ const styles = StyleSheet.create({
   },
   presetHeading: {
     fontSize: 12,
+    fontWeight: '600',
+    fontFamily: 'Poppins_600SemiBold',
+  },
+  uploadFromDeviceBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  uploadFromDeviceText: {
+    fontSize: 13,
     fontWeight: '600',
     fontFamily: 'Poppins_600SemiBold',
   },

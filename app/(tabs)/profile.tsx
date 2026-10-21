@@ -25,13 +25,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { CreateArticleModal } from '@/components/CreateArticleModal';
 import { useAppAlert } from '@/components/AppAlert';
-import { useCreateNews } from '@/hooks/useNews';
+import { useCreateNews, useCategories } from '@/hooks/useNews';
 import { useDeletePost } from '@/hooks/usePosts';
 import { useProfileScreen } from '@/hooks/useScreens';
 import { usersApi, postsApi, getUserFacingError, type DashboardResponse } from '@/services/api';
 import type { Post } from '@/services/api/posts';
 import { compressImage } from '@/services/image';
-import { uploadImageToSupabaseProfile } from '@/services/supabase';
+import { uploadImageToSupabaseProfile, uploadImageToSupabaseNews } from '@/services/supabase';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -94,6 +94,7 @@ export default function ProfileScreen() {
   const { alert, AlertComponent } = useAppAlert();
 
   const { mutate: createArticleMutate } = useCreateNews();
+  const { data: categories } = useCategories();
   const { mutate: deletePostMutate } = useDeletePost();
 
   const handleDeleteUserPost = (postUid: string) => {
@@ -140,6 +141,7 @@ export default function ProfileScreen() {
   // ─── Post State ──────────────────────────────────────────────────────────
   const [postCaption, setPostCaption] = useState('');
   const [postCoverImage, setPostCoverImage] = useState('');
+  const [isUploadingPostImage, setIsUploadingPostImage] = useState(false);
   const [posts, setPosts] = useState<Post[]>([]);
   const isLoadingPosts = isLoadingProfileAggregate;
   const [isPublishingPost, setIsPublishingPost] = useState(false);
@@ -479,12 +481,20 @@ export default function ProfileScreen() {
   // ─── Article / Post Handlers ──────────────────────────────────────────────
 
   const handleCreateNewsArticle = (data: any) => {
+    // The modal sends a category NAME (e.g. "BUSINESS"). Map it to the real
+    // category ID; parseInt("BUSINESS") would be NaN and break the request.
+    const categoryName = String(data.category || '').trim().toLowerCase();
+    const matchedCategory = categories?.find(
+      (cat) => cat.name.trim().toLowerCase() === categoryName
+    );
+
     createArticleMutate(
       {
         title: data.headline,
         summary: data.summary || '',
-        category_ids: [parseInt(data.category, 10)],
-        image_url: data.imageUrl || '',
+        language_id: (user as any)?.language_id ?? 1,
+        ...(matchedCategory ? { category_ids: [matchedCategory.id] } : {}),
+        image_url: data.imageUrl || undefined,
       },
       {
         onSuccess: () => {
@@ -495,6 +505,38 @@ export default function ProfileScreen() {
         },
       }
     );
+  };
+
+  // ─── Post image upload (gallery → compress → Supabase → public URL) ──────
+  const handlePickPostImage = async () => {
+    if (isUploadingPostImage) return;
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        alert('Permission Denied', 'Please allow photo access to upload an image.', [{ text: 'OK' }], { icon: 'lock-closed-outline', iconColor: '#F59E0B' });
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: 'images',
+        quality: 0.8,
+      });
+
+      if (result.canceled || !result.assets?.length) return;
+
+      setIsUploadingPostImage(true);
+      const compressed = await compressImage(result.assets[0].uri, {
+        width: 1280,
+        compress: 0.8,
+      });
+      const publicUrl = await uploadImageToSupabaseNews(compressed.uri, 'posts');
+      setPostCoverImage(publicUrl);
+    } catch (error: any) {
+      console.warn('[profile] Post image upload failed:', error);
+      alert('Upload Failed', getUserFacingError(error, 'Could not upload image. Please try again.'), [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
+    } finally {
+      setIsUploadingPostImage(false);
+    }
   };
 
   const handleCreatePost = async () => {
@@ -1516,7 +1558,29 @@ export default function ProfileScreen() {
               </View>
 
               <View style={styles.formGroup}>
-                <Text style={[styles.formLabel, { color: colors.text }]}>Image URL (optional)</Text>
+                <Text style={[styles.formLabel, { color: colors.text }]}>Image (optional)</Text>
+                <TouchableOpacity
+                  style={[
+                    styles.postImageUploadBtn,
+                    { borderColor: colors.border, backgroundColor: colors.surface },
+                  ]}
+                  onPress={handlePickPostImage}
+                  disabled={isUploadingPostImage}
+                  activeOpacity={0.7}
+                >
+                  {isUploadingPostImage ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : (
+                    <Ionicons name="cloud-upload-outline" size={18} color={colors.primary} />
+                  )}
+                  <Text style={[styles.postImageUploadBtnText, { color: colors.primary }]}>
+                    {isUploadingPostImage
+                      ? 'Uploading image...'
+                      : postCoverImage.trim().length > 0
+                      ? 'Change uploaded photo'
+                      : 'Upload image from gallery'}
+                  </Text>
+                </TouchableOpacity>
                 <TextInput
                   style={[
                     styles.modalTextInput,
@@ -1524,9 +1588,10 @@ export default function ProfileScreen() {
                       backgroundColor: colors.surface,
                       color: colors.text,
                       borderColor: colors.border,
+                      marginTop: 8,
                     },
                   ]}
-                  placeholder="https://example.com/image.jpg"
+                  placeholder="…or paste an Image URL (https://...)"
                   placeholderTextColor={colors.textTertiary}
                   value={postCoverImage}
                   onChangeText={setPostCoverImage}
@@ -1534,11 +1599,20 @@ export default function ProfileScreen() {
                   keyboardType="url"
                 />
                 {postCoverImage.trim().length > 0 && (
-                  <Image
-                    source={{ uri: postCoverImage.trim() }}
-                    style={styles.postCoverImg}
-                    resizeMode="cover"
-                  />
+                  <View style={styles.postCoverContainer}>
+                    <Image
+                      source={{ uri: postCoverImage.trim() }}
+                      style={styles.postCoverImg}
+                      resizeMode="cover"
+                    />
+                    <TouchableOpacity
+                      style={styles.postCoverRemoveBtn}
+                      onPress={() => setPostCoverImage('')}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="close-circle" size={22} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  </View>
                 )}
               </View>
 
@@ -2447,6 +2521,22 @@ const styles = StyleSheet.create({
   postCoverImg: {
     width: '100%',
     height: '100%',
+  },
+  postImageUploadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+  },
+  postImageUploadBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    fontFamily: 'Poppins_600SemiBold',
   },
   postCoverRemoveBtn: {
     position: 'absolute',
