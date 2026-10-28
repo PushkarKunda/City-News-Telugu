@@ -32,6 +32,7 @@ import { usersApi, postsApi, getUserFacingError, type DashboardResponse } from '
 import type { Post } from '@/services/api/posts';
 import { compressImage } from '@/services/image';
 import { uploadImageToSupabaseProfile, uploadImageToSupabaseNews } from '@/services/supabase';
+import InitialsAvatar from '@/components/InitialsAvatar';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -284,11 +285,16 @@ export default function ProfileScreen() {
 
   // ─── Avatar ───────────────────────────────────────────────────────────────
 
+  // No more placeholder URL: InitialsAvatar shows the user's initials
+  // ("John Doe" → "JD") whenever the picture is missing/invalid.
+  // Store-first so this screen always matches the More tab (both read the
+  // auth store). dashboardData is only a fallback for the rare case where the
+  // store hasn't been seeded yet.
   const avatarUri =
-    dashboardData?.user?.profile_picture ||
     user?.profile_picture ||
     user?.avatar ||
-    'https://placehold.co/200x200/E2E8F0/E2E8F0?text=U';
+    dashboardData?.user?.profile_picture ||
+    null;
 
   // ✅ Refresh user & publisher status whenever Publisher tab opens
   useEffect(() => {
@@ -663,8 +669,12 @@ export default function ProfileScreen() {
                     <ActivityIndicator size="small" color={colors.primary} />
                   </View>
                 ) : (
-                  <Image
-                    source={{ uri: avatarUri }}
+                  <InitialsAvatar
+                    uri={avatarUri}
+                    name={displayName}
+                    size={80}
+                    backgroundColor={colors.primary}
+                    textColor="#FFFFFF"
                     style={styles.avatarImage}
                   />
                 )}
@@ -1670,10 +1680,12 @@ export default function ProfileScreen() {
               >
                 {/* Author Info */}
                 <View style={styles.postDetailAuthorRow}>
-                  <Image
-                    source={{
-                      uri: selectedPost.user_profile_picture || 'https://placehold.co/100x100/E2E8F0/A0AEC0?text=U',
-                    }}
+                  <InitialsAvatar
+                    uri={selectedPost.user_profile_picture}
+                    name={selectedPost.user_display_name || selectedPost.user_name}
+                    size={44}
+                    backgroundColor={colors.primary}
+                    textColor="#FFFFFF"
                     style={styles.postDetailAvatar}
                   />
                   <View style={styles.postDetailAuthorInfo}>
@@ -1759,8 +1771,12 @@ export default function ProfileScreen() {
                   <View style={styles.commentsList}>
                     {comments.map((comment) => (
                       <View key={comment.id} style={[styles.commentCard, { borderBottomColor: colors.border }]}>
-                        <Image
-                          source={{ uri: comment.user_avatar || 'https://placehold.co/100x100/E2E8F0/A0AEC0?text=U' }}
+                        <InitialsAvatar
+                          uri={comment.user_avatar}
+                          name={comment.user_name}
+                          size={32}
+                          backgroundColor={colors.primary}
+                          textColor="#FFFFFF"
                           style={styles.commentAvatar}
                         />
                         <View style={comment.id.toString().startsWith('temp_') ? { marginLeft: 10, flex: 1, opacity: 0.7 } : { marginLeft: 10, flex: 1 }}>

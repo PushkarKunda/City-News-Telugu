@@ -16,6 +16,7 @@ import { useAuthStore, isEmailVerified } from '@/store/authStore';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useAppAlert } from '@/components/AppAlert';
+import { getInitials } from '@/utils/initials';
 
 export default function SettingsScreen() {
   const colorScheme = useAppColorScheme();
@@ -99,7 +100,7 @@ export default function SettingsScreen() {
                     {user?.avatar ? (
                       <Image source={{ uri: user.avatar }} style={styles.avatarImage} />
                     ) : (
-                      <Ionicons name="person" size={32} color={colors.primary} />
+                      <Text style={{ fontSize: 24, fontWeight: '700', color: colors.primary }}>{getInitials(user?.name || user?.user_name)}</Text>
                     )}
                   </View>
                 </LinearGradient>

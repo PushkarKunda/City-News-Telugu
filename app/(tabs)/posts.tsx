@@ -41,6 +41,7 @@ import { useImmersiveChrome } from '@/hooks/useImmersiveChrome';
 import { isInvalidOrMockImageUrl } from '@/utils/imageResolver';
 import { compressImage } from '@/services/image';
 import { uploadImageToSupabaseNews } from '@/services/supabase';
+import InitialsAvatar from '@/components/InitialsAvatar';
 import { type Post } from '@/services/api/posts';
 import { getUserFacingError } from '@/services/api';
 import { useAppAlert } from '@/components/AppAlert';
@@ -85,7 +86,11 @@ export default function PostsScreen() {
   const bottomInset = Math.max(insets.bottom, Platform.OS === 'ios' ? 24 : (Platform.OS === 'android' ? 16 : 0));
   const fallbackTabBarHeight = 58 + bottomInset;
   const effectiveTabBarHeight = measuredTabBarHeight > 0 ? measuredTabBarHeight : fallbackTabBarHeight;
-  const contentBottomOffset = effectiveTabBarHeight + 16;
+  // Resting position for the PostCard overlays (author meta + action rail):
+  // just clear of the home indicator / nav-bar inset. The tab-bar clearance is
+  // added on top as an ANIMATED lift (see contentBottomLift) so the overlays
+  // glide down with the chrome instead of leaving a blank strip when it hides.
+  const contentBottomOffset = bottomInset + 16;
   const [containerHeight, setContainerHeight] = useState(0);
   const pageHeight = Math.max(1, containerHeight);
 
@@ -296,6 +301,19 @@ export default function PostsScreen() {
   const showChromeRef = useRef(showChrome);
   showChromeRef.current = showChrome;
 
+  // Lift the PostCard overlays up by exactly the tab-bar clearance while the
+  // chrome is visible. headerAnim is 0 when hidden → 1 when shown, and it is
+  // driven with useNativeDriver, so a translateY transform (not `bottom`) is
+  // the only way to follow it on the native thread.
+  const contentBottomLift = useMemo(
+    () =>
+      headerAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, -(effectiveTabBarHeight - bottomInset)],
+      }),
+    [headerAnim, effectiveTabBarHeight, bottomInset],
+  );
+
   // ─── One-Time Hint for Hidden Menu ─────────────────────────────────────────
   const [showMenuHint, setShowMenuHint] = useState(false);
   const hintOpacity = useRef(new Animated.Value(0)).current;
@@ -492,6 +510,7 @@ export default function PostsScreen() {
           currentUserId={currentUserId}
           commentCountOverride={countOverride}
           bottomOffset={contentBottomOffset}
+          bottomLift={contentBottomLift}
         />
       );
     },
@@ -507,10 +526,9 @@ export default function PostsScreen() {
       handleToggleUI,
       currentUserId,
       contentBottomOffset,
+      contentBottomLift,
     ]
   );
-
-  const userInitial = userName.charAt(0).toUpperCase();
 
   // ─── Header Overlay Interpolations ─────────────────────────────────────────
   const headerTranslateY = headerAnim.interpolate({
@@ -753,6 +771,7 @@ export default function PostsScreen() {
             {
               bottom: contentBottomOffset + 140,
               opacity: hintOpacity,
+              transform: [{ translateY: contentBottomLift }],
             },
           ]}
           pointerEvents="box-none"
@@ -867,13 +886,15 @@ export default function PostsScreen() {
 
             {/* Author Preview */}
             <View style={styles.modalAuthorRow}>
-              {userAvatar && !isInvalidOrMockImageUrl(userAvatar) ? (
-                <Image source={{ uri: userAvatar }} style={styles.modalAvatar} contentFit="cover" />
-              ) : (
-                <View style={[styles.modalAvatarFallback, { backgroundColor: colors.primaryLight }]}>
-                  <Text style={[styles.modalAvatarText, { color: colors.primary }]}>{userInitial}</Text>
-                </View>
-              )}
+              <InitialsAvatar
+                uri={userAvatar && !isInvalidOrMockImageUrl(userAvatar) ? userAvatar : null}
+                name={userName}
+                size={36}
+                backgroundColor={colors.primaryLight}
+                textColor={colors.primary}
+                textStyle={{ fontWeight: '700' }}
+                style={styles.modalAvatar}
+              />
               <View>
                 <Text style={[styles.modalAuthorName, { color: colors.text }]}>{userName}</Text>
                 <Text style={[styles.modalLocation, { color: colors.primary }]}>📍 {userDistrict}</Text>
@@ -1338,18 +1359,6 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
     marginRight: 10,
-  },
-  modalAvatarFallback: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-  modalAvatarText: {
-    fontSize: 15,
-    fontWeight: '700',
   },
   modalAuthorName: {
     fontSize: 14,

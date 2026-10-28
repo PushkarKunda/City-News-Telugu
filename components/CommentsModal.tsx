@@ -26,6 +26,7 @@ import { useCommentCountStore } from '@/store/commentCountStore';
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { formatTimeAgo } from '@/utils/formatters';
+import { getInitials } from '@/utils/initials';
 
 interface CommentsModalProps {
   visible: boolean;
@@ -90,15 +91,8 @@ const CommentItem = React.memo(
       item.user?.profile_picture ||
       item.user?.user_avatar;
 
-    const cleanName = (authorName || 'User').replace(/[^a-zA-Z0-9 ]/g, ' ').trim();
-    const initials =
-      cleanName
-        .split(/\s+/)
-        .map((w: string) => w[0])
-        .filter(Boolean)
-        .slice(0, 2)
-        .join('')
-        .toUpperCase() || 'U';
+    // Shared util handles multi-word names AND non-Latin scripts (Telugu etc.)
+    const initials = getInitials(authorName);
 
     const timeText = isSending
       ? 'Sending...'

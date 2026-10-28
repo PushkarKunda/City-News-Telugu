@@ -118,6 +118,10 @@ export function useProfileScreen() {
     // Update local profile store from user profile or dashboard
     const u = profileUser || dashboard?.user;
     if (u) {
+      // Prefer the primary user payload, but fall back to the dashboard's
+      // copy so the auth store (which the More tab + Profile header read)
+      // never ends up empty when the dashboard has a picture.
+      const seededProfilePicture = u.profile_picture ?? dashboard?.user?.profile_picture ?? null;
       updateProfileLocal({
         user_uid: u.user_uid,
         name: u.name,
@@ -127,8 +131,8 @@ export function useProfileScreen() {
         phoneNumber: u.phone,
         gender: u.gender,
         date_of_birth: u.date_of_birth,
-        avatar: u.profile_picture,
-        profile_picture: u.profile_picture,
+        avatar: seededProfilePicture,
+        profile_picture: seededProfilePicture,
         isPublisher: (u.role ?? 0) >= 2 || Boolean(u.is_publisher),
         role: u.role,
         email_verified: u.email_verified,

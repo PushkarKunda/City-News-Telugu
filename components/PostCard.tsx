@@ -23,6 +23,7 @@ import { useLikePost, useSharePost } from '@/hooks/usePosts';
 import { useAddBookmark, useRemoveBookmark } from '@/hooks/useEngagement';
 import { useRelativeTime } from '@/hooks/useRelativeTime';
 import { isInvalidOrMockImageUrl } from '@/utils/imageResolver';
+import InitialsAvatar from '@/components/InitialsAvatar';
 
 export interface PostCardProps {
   post: Post;
@@ -37,6 +38,12 @@ export interface PostCardProps {
   currentUserId?: string | null;
   commentCountOverride?: number;
   bottomOffset?: number;
+  /**
+   * Animated lift (translateY) applied to the bottom overlays. Driven by the
+   * immersive-chrome animation so the author overlay + action rail glide down
+   * when the tab bar hides instead of leaving a blank strip behind.
+   */
+  bottomLift?: Animated.AnimatedInterpolation<number>;
 }
 
 /**
@@ -107,6 +114,7 @@ const PostCardInner: React.FC<PostCardProps> = ({
   currentUserId,
   commentCountOverride,
   bottomOffset = 22,
+  bottomLift,
 }) => {
   const colorScheme = useAppColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
@@ -364,7 +372,6 @@ const PostCardInner: React.FC<PostCardProps> = ({
   const userDisplayName = post.user_display_name || post.user_name || 'Community Member';
   const userHandle = post.user_name ? `@${post.user_name}` : '';
   const formattedTime = useRelativeTime(post.created_at, { isActive, language: 'en' });
-  const initialLetter = userDisplayName.charAt(0).toUpperCase() || 'U';
   const avatarHasValidUrl = post.user_profile_picture && !isInvalidOrMockImageUrl(post.user_profile_picture);
   const canFollow = Boolean(post.user_uid && currentUserId && post.user_uid !== currentUserId);
 
@@ -540,21 +547,25 @@ const PostCardInner: React.FC<PostCardProps> = ({
       )}
 
       {/* ─── Bottom-Left Overlay (Author Meta, Caption, Tags) ─────────────── */}
-      <View style={[styles.bottomLeftOverlay, { bottom: bottomOffset }]} pointerEvents="box-none">
+      <Animated.View
+        style={[
+          styles.bottomLeftOverlay,
+          { bottom: bottomOffset, transform: [{ translateY: bottomLift ?? 0 }] },
+        ]}
+        pointerEvents="box-none"
+      >
         {/* Author Avatar & Handle */}
         <View style={styles.authorRow}>
           <View style={styles.avatarWrapper}>
-            {avatarHasValidUrl ? (
-              <Image
-                source={{ uri: post.user_profile_picture! }}
-                style={styles.avatarImage}
-                contentFit="cover"
-              />
-            ) : (
-              <View style={[styles.avatarFallback, { backgroundColor: colors.primary }]}>
-                <Text style={styles.avatarInitial}>{initialLetter}</Text>
-              </View>
-            )}
+            <InitialsAvatar
+              uri={post.user_profile_picture}
+              name={userDisplayName}
+              size={42}
+              backgroundColor={colors.primary}
+              textColor="#FFFFFF"
+              style={[avatarHasValidUrl ? styles.avatarImage : styles.avatarFallback]}
+              textStyle={styles.avatarInitial}
+            />
 
             {/* Follow "+" Badge */}
             {canFollow && (
@@ -644,10 +655,16 @@ const PostCardInner: React.FC<PostCardProps> = ({
             )}
           </View>
         )}
-      </View>
+      </Animated.View>
 
       {/* ─── Right-Side Action Rail (44px Targets, 16px Gap) ───────────────── */}
-      <View style={[styles.rightActionRail, { bottom: bottomOffset }]} pointerEvents="box-none">
+      <Animated.View
+        style={[
+          styles.rightActionRail,
+          { bottom: bottomOffset, transform: [{ translateY: bottomLift ?? 0 }] },
+        ]}
+        pointerEvents="box-none"
+      >
         {/* 1. Like */}
         <TouchableOpacity
           style={styles.actionButtonContainer}
@@ -724,7 +741,7 @@ const PostCardInner: React.FC<PostCardProps> = ({
             </Animated.View>
           </View>
         </TouchableOpacity>
-      </View>
+      </Animated.View>
     </View>
   );
 };
@@ -741,7 +758,8 @@ export const PostCard = React.memo(PostCardInner, (prev, next) => {
     prev.appState === next.appState &&
     prev.itemHeight === next.itemHeight &&
     prev.commentCountOverride === next.commentCountOverride &&
-    prev.bottomOffset === next.bottomOffset
+    prev.bottomOffset === next.bottomOffset &&
+    prev.bottomLift === next.bottomLift
   );
 });
 

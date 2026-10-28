@@ -12,12 +12,12 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { usePostComments, useAddPostComment } from '@/hooks/usePosts';
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { formatTimeAgo } from '@/utils/formatters';
 import { useAppAlert } from '@/components/AppAlert';
+import InitialsAvatar from '@/components/InitialsAvatar';
 
 interface PostCommentsModalProps {
   visible: boolean;
@@ -27,17 +27,20 @@ interface PostCommentsModalProps {
 }
 
 const PostCommentItem = React.memo(({ item, colors }: any) => {
-  const avatarUri = item.user_avatar || item.user_profile_picture || item.avatar || 'https://placehold.co/100x100/E2E8F0/1E293B?text=User';
+  const avatarUri = item.user_avatar || item.user_profile_picture || item.avatar || null;
   const authorName = item.user_display_name || item.user_name || item.username || item.author_name || 'Community Member';
   const timeText = item.time_ago || (item.created_at ? formatTimeAgo(item.created_at) : '');
   const contentText = item.comment_text || item.content || item.text || '';
 
   return (
     <View style={[styles.commentContainer, { borderBottomColor: colors.border }]}>
-      <Image
-        source={{ uri: avatarUri }}
+      <InitialsAvatar
+        uri={avatarUri}
+        name={authorName}
+        size={36}
+        backgroundColor={colors.primary}
+        textColor="#FFFFFF"
         style={styles.avatar}
-        contentFit="cover"
       />
       <View style={styles.commentContent}>
         <View style={styles.commentHeader}>

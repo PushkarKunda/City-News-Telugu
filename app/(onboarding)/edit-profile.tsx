@@ -32,6 +32,9 @@ import { usersApi, type UserMeResponse, type UpdateMePayload } from '@/services/
 import { compressImage } from '@/services/image';
 import { uploadImageToSupabaseProfile } from '@/services/supabase';
 import { getUserFacingError } from '@/services/api/client';
+import { getInitials } from '@/utils/initials';
+import { useQueryClient } from '@tanstack/react-query';
+import { screenKeys } from '@/hooks/useScreens';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -56,6 +59,7 @@ export default function ProfileCompletionScreen() {
   const colors = Colors[colorScheme ?? 'light'];
   const isDark = colorScheme === 'dark';
   const { width } = useWindowDimensions();
+  const queryClient = useQueryClient();
 
   const user = useAuthStore((state) => state.user);
   const updateProfile = useAuthStore((state) => state.updateProfile);
@@ -423,6 +427,12 @@ export default function ProfileCompletionScreen() {
           mobile_verified: response.mobile_verified,
         });
 
+        // ✅ Invalidate the cached profile aggregate so the Profile screen
+        // refetches after we return (otherwise it can briefly show the OLD
+        // picture/name from the cached dashboard payload while the More tab
+        // already shows the new one from the store).
+        queryClient.invalidateQueries({ queryKey: screenKeys.profile });
+
         showDialog('Saved', 'Profile updated successfully!', 'success');
         setTimeout(() => router.replace('/(tabs)/profile'), 1200);
       } else {
@@ -655,7 +665,15 @@ export default function ProfileCompletionScreen() {
                         ]}
                       />
                     ) : (
-                      <Feather name="camera" size={32} color={colors.primary} />
+                      <Text
+                        style={{
+                          fontSize: avatarSize * 0.3,
+                          fontWeight: '700',
+                          color: colors.primary,
+                        }}
+                      >
+                        {getInitials(name)}
+                      </Text>
                     )}
                     <View
                       style={[

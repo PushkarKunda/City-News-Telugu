@@ -10,11 +10,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { Colors } from '@/constants/Colors';
 import { useAuthStore } from '@/store/authStore';
 import { StatusBar } from 'expo-status-bar';
 import { useAppAlert } from '@/components/AppAlert';
+import InitialsAvatar from '@/components/InitialsAvatar';
 
 export default function MoreScreen() {
   const { alert, AlertComponent } = useAppAlert();
@@ -110,8 +110,12 @@ export default function MoreScreen() {
           activeOpacity={0.85}
           onPress={() => router.push('/(tabs)/profile')}
         >
-          <Image
-            source={{ uri: user?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150' }}
+          <InitialsAvatar
+            uri={user?.avatar || user?.profile_picture || null}
+            name={displayName}
+            size={50}
+            backgroundColor={colors.primary}
+            textColor="#FFFFFF"
             style={styles.userAvatar}
           />
           <View style={styles.userInfo}>

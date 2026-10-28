@@ -13,6 +13,7 @@ import { useDiscoverySearch, useTrendingHashtags, useHashtagSuggestions } from '
 import { useDiscoverScreen } from '@/hooks/useScreens';
 import { useAuthStore } from '@/store/authStore';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { getInitials } from '@/utils/initials';
 import { useRouter } from 'expo-router';
 
 const TOPIC_STYLES: Record<string, {
@@ -316,7 +317,7 @@ export default function DiscoverScreen() {
               {sources.map((source) => (
                 <TouchableOpacity key={source.id} style={styles.sourceItem}>
                   <View style={[styles.avatar, { backgroundColor: colors.border }]}>
-                    <Text style={[styles.avatarText, { color: colors.textSecondary }]}>{source.name.charAt(0)}</Text>
+                    <Text style={[styles.avatarText, { color: colors.textSecondary }]}>{getInitials(source.name)}</Text>
                   </View>
                   <Text style={[styles.sourceText, { color: colors.textSecondary }]}>{source.name}</Text>
                 </TouchableOpacity>
