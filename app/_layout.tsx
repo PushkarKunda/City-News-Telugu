@@ -31,7 +31,12 @@ import {
   AppState,
   Platform,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import {
+  Ionicons,
+  MaterialIcons,
+  Feather,
+  MaterialCommunityIcons,
+} from '@expo/vector-icons';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 // ✅ CRITICAL: Firebase imports before usage
@@ -55,46 +60,56 @@ WebBrowser.maybeCompleteAuthSession();
 SplashScreen.preventAutoHideAsync();
 
 // ─── Global Text Interceptor ──────────────────────────────────────────────────
+// Fast path: most <Text> nodes in the app explicitly set Poppins/Telugu in
+// their style. For those we skip ALL work (previously every Text render paid
+// a StyleSheet.flatten + object allocation on the JS thread — expensive on
+// low-end Android). Only nodes with an unset/system fontFamily are patched.
 const originalTextRender = (Text as any).render;
 if (originalTextRender) {
   (Text as any).render = function (props: any, ref: any) {
     let newProps = props;
     try {
-      const flatStyle = props?.style ? StyleSheet.flatten(props.style) : null;
-      const injectedStyle: Record<string, string> = {};
-
-      const family = flatStyle?.fontFamily;
-      if (
-        !family ||
-        family === 'System' ||
-        family === 'sans-serif' ||
-        family === 'normal'
-      ) {
-        const weightStr = flatStyle?.fontWeight
-          ? String(flatStyle.fontWeight)
-          : '';
-
-        if (
-          weightStr === 'bold' ||
-          weightStr === '700' ||
-          weightStr === '800' ||
-          weightStr === '900'
-        ) {
-          injectedStyle.fontFamily = 'Poppins_700Bold';
-        } else if (weightStr === '600') {
-          injectedStyle.fontFamily = 'Poppins_600SemiBold';
-        } else if (weightStr === '500') {
-          injectedStyle.fontFamily = 'Poppins_500Medium';
-        } else {
-          injectedStyle.fontFamily = 'Poppins_400Regular';
+      const style = props?.style;
+      if (style) {
+        // Scan the (possibly nested) style array WITHOUT StyleSheet.flatten,
+        // which merges styles into a new object on every render.
+        const list = Array.isArray(style) ? style.flat(Infinity) : [style];
+        let family: string | undefined;
+        let weight: string | undefined;
+        for (let i = list.length - 1; i >= 0; i--) {
+          const s = list[i];
+          if (s == null || typeof s !== 'object') continue;
+          if (family === undefined && s.fontFamily !== undefined) family = s.fontFamily;
+          if (weight === undefined && s.fontWeight !== undefined) weight = String(s.fontWeight);
+          if (family !== undefined && weight !== undefined) break;
         }
-      }
 
-      if (Object.keys(injectedStyle).length > 0) {
-        newProps = {
-          ...props,
-          style: [props.style, injectedStyle],
-        };
+        // Only patch when the effective font family is unset/system, i.e.
+        // nodes that deliberately set Poppins or Telugu escape for free.
+        const needsFamily =
+          !family ||
+          family === 'System' ||
+          family === 'sans-serif' ||
+          family === 'normal';
+        if (needsFamily) {
+          const injectedStyle: Record<string, string> = {
+            fontFamily:
+              weight === 'bold' ||
+              weight === '700' ||
+              weight === '800' ||
+              weight === '900'
+                ? 'Poppins_700Bold'
+                : weight === '600'
+                  ? 'Poppins_600SemiBold'
+                  : weight === '500'
+                    ? 'Poppins_500Medium'
+                    : 'Poppins_400Regular',
+          };
+          newProps = {
+            ...props,
+            style: [props.style, injectedStyle],
+          };
+        }
       }
     } catch (e) {
       console.warn('⚠️ Text interceptor error:', e);
@@ -124,6 +139,11 @@ export default function RootLayout() {
   const [, setAppReady] = useState(false);
 
   // ─── Font Loading ─────────────────────────────────────────────────────────
+  // Icon fonts are preloaded here (each set's `.font` map is keyed exactly as
+  // the icon components expect) so glyphs render on first paint. Without this
+  // each <Ionicons>/<MaterialIcons> mounts with an empty Text placeholder and
+  // waits for its own async Font.loadAsync — if that stalls, icons render
+  // blank while labels still show.
   const [fontsLoaded, fontError] = useFonts({
     Poppins_400Regular,
     Poppins_500Medium,
@@ -132,6 +152,20 @@ export default function RootLayout() {
     NotoSansTelugu_400Regular,
     NotoSansTelugu_600SemiBold,
     NotoSansTelugu_700Bold,
+    ...Ionicons.font,
+    ...MaterialIcons.font,
+    ...Feather.font,
+    ...MaterialCommunityIcons.font,
+    // FontAwesome5Free registers per-style families
+    'FontAwesome5Free-Regular': require(
+      '@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/FontAwesome5_Regular.ttf'
+    ),
+    'FontAwesome5Free-Solid': require(
+      '@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/FontAwesome5_Solid.ttf'
+    ),
+    'FontAwesome5Free-Brand': require(
+      '@expo/vector-icons/build/vendor/react-native-vector-icons/Fonts/FontAwesome5_Brands.ttf'
+    ),
   });
 
   // ─── Firebase Init ────────────────────────────────────────────────────────

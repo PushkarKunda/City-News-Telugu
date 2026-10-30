@@ -1,5 +1,8 @@
-import { ZodSchema } from 'zod';
 import { getApiError } from './client';
+
+export interface ZodSchema<T = any> {
+  parse(data: unknown): T;
+}
 
 // Define ApiError type here (no external import needed)
 export interface ApiError {

@@ -7,7 +7,7 @@ import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { BorderRadius } from '@/constants/Spacing';
 import { useNotifications, useUnreadCount, useMarkNotificationRead, useMarkAllNotificationsRead } from '@/hooks/useNotifications';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { NotificationsSkeleton } from '@/components/ui/SkeletonScreens';
 
 interface NotificationItem {
   id: string;
@@ -168,8 +168,8 @@ export default function NotificationsScreen() {
 
   if (isLoading) {
     return (
-      <View style={[styles.container, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }]}>
-        <LoadingSpinner fullScreen text="Loading notifications..." colorScheme={colorScheme ?? 'light'} />
+      <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
+        <NotificationsSkeleton colorScheme={colorScheme ?? 'light'} />
       </View>
     );
   }

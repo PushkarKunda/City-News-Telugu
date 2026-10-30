@@ -113,6 +113,9 @@ const CommentItem = React.memo(
             source={{ uri: avatarUri }}
             style={[styles.avatar, isSending && styles.avatarDimmed]}
             contentFit="cover"
+            cachePolicy="disk"
+            recyclingKey={avatarUri}
+            transition={100}
           />
         ) : (
           <View
@@ -555,12 +558,16 @@ export const CommentsModal = ({ visible, onClose, newsUid }: CommentsModalProps)
             <FlatList
               ref={flatListRef}
               data={comments}
-              keyExtractor={(item, index) => String(item.id ?? `temp-${index}`)}
+              keyExtractor={(item, index) => String(item.id ?? `temp-${item.created_at ?? index}`)}
               renderItem={renderComment}
               contentContainerStyle={styles.listContainer}
               keyboardShouldPersistTaps="handled"
               onEndReached={handleLoadMore}
               onEndReachedThreshold={0.5}
+              initialNumToRender={8}
+              maxToRenderPerBatch={8}
+              windowSize={5}
+              removeClippedSubviews={Platform.OS === 'android'}
               refreshControl={
                 <RefreshControl
                   refreshing={isRefreshing}

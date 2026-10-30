@@ -8,6 +8,7 @@ import { BorderRadius } from '@/constants/Spacing';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { SettingsListSkeleton } from '@/components/ui/SkeletonScreens';
 import { scheduleTestNotification, openNotificationSettings } from '@/services/notifications';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -131,7 +132,7 @@ export default function NotificationSettingsScreen() {
   if (isLoadingPreferences || !localPreferences) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }]}>
-        <LoadingSpinner fullScreen text="Loading settings..." colorScheme={colorScheme ?? 'light'} />
+        <SettingsListSkeleton colorScheme={colorScheme ?? 'light'} />
       </View>
     );
   }

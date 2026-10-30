@@ -149,6 +149,47 @@ export interface DashboardPublisherCTA {
   apply_endpoint: string;
 }
 
+/** Publisher section of GET /user/dashboardnew (only present for Role >= 2) */
+export interface DashboardNewsStats {
+  total: number;
+  approved: number;
+  pending: number;
+  rejected: number;
+  approval_rate: number;
+  engagement: {
+    views: number;
+    likes: number;
+    comments: number;
+    shares: number;
+  };
+}
+
+/** One of the publisher's own news articles ({"status": approved|pending|rejected}) */
+export interface DashboardRecentNews {
+  news_uid: string;
+  title: string;
+  summary: string | null;
+  image_url: string | null;
+  created_at: string;
+  time_ago: string;
+  status: 'approved' | 'pending' | 'rejected';
+  views: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  rejection_reason: string | null;
+}
+
+/**
+ * GET /user/dashboardnew returns recent_news as a WRAPPER OBJECT:
+ * { items: DashboardRecentNews[], total, has_more }
+ */
+export interface DashboardRecentNewsPage {
+  items: DashboardRecentNews[];
+  total: number;
+  has_more: boolean;
+}
+
 /**
  * GET /user/dashboardnew response
  * Complete dashboard data structure
@@ -160,6 +201,10 @@ export interface DashboardResponse {
   quick_actions: DashboardQuickAction[];
   publisher_cta: DashboardPublisherCTA;
   detailed_posts: DashboardDetailedPosts;
+  /** Present for users who can publish news (Role >= 2) */
+  news_stats?: DashboardNewsStats | null;
+  /** Wrapper object around the publisher's own news items — see DashboardRecentNewsPage */
+  recent_news?: DashboardRecentNewsPage | null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

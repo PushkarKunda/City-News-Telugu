@@ -27,6 +27,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '@/constants/Colors';
+import { PostsSkeleton } from '@/components/ui/SkeletonScreens';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import {
   useCreatePost,
@@ -683,10 +684,9 @@ export default function PostsScreen() {
 
       {/* ─── Main Paged FlatList Feed ─────────────────────────────────────── */}
       {isLoading ? (
-        // Full-Screen Skeleton Loading State
+        // Skeleton Loading State
         <View style={[styles.skeletonContainer, { height: pageHeight || '100%' }]}>
-          <ActivityIndicator size="large" color="#6366F1" />
-          <Text style={styles.skeletonText}>Loading community feed...</Text>
+          <PostsSkeleton style={{ alignSelf: 'stretch' }} />
         </View>
       ) : isFeedError && filteredPosts.length === 0 ? (
         // Error State with Retry

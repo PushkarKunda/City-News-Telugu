@@ -12,7 +12,7 @@ import { useTrendingNews, usePopularNews } from '@/hooks/useNews';
 import { useDiscoverySearch, useTrendingHashtags, useHashtagSuggestions } from '@/hooks/useDiscovery';
 import { useDiscoverScreen } from '@/hooks/useScreens';
 import { useAuthStore } from '@/store/authStore';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { DiscoverSkeleton, SearchResultsSkeleton } from '@/components/ui/SkeletonScreens';
 import { getInitials } from '@/utils/initials';
 import { useRouter } from 'expo-router';
 
@@ -48,6 +48,14 @@ export default function DiscoverScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [searchQuery, setSearchQuery] = React.useState('');
+  // 300 ms debounce so typing doesn't fire /search + /hashtags twice per
+  // keystroke on slow networks. Live `searchQuery` drives the input; the
+  // debounced value drives the network queries.
+  const [debouncedQuery, setDebouncedQuery] = React.useState('');
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(searchQuery.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
 
   const userState = useAuthStore((state) => state.user?.state);
 
@@ -85,9 +93,10 @@ export default function DiscoverScreen() {
   const { data: popularNews = [], isLoading: isLoadingPopular } = usePopularNews();
   const { data: districts = [], isLoading: isLoadingDistricts } = useDistrictsList(userState ?? null);
 
-  // Search Hooks
-  const { data: searchResults = [], isLoading: isSearching } = useDiscoverySearch(searchQuery);
-  const { data: hashtagSuggestions = [] } = useHashtagSuggestions(searchQuery);
+  // Search Hooks — receive the debounced query (network fires at most once
+  // per 300 ms of settled typing, and empty string disables both queries).
+  const { data: searchResults = [], isLoading: isSearching } = useDiscoverySearch(debouncedQuery);
+  const { data: hashtagSuggestions = [] } = useHashtagSuggestions(debouncedQuery);
 
   const isLoading = (isLoadingDiscoverAggregate && (isLoadingTrending || isLoadingCategories || isLoadingPopular)) || isLoadingDistricts || isLoadingTrendingHashtags;
 
@@ -111,8 +120,8 @@ export default function DiscoverScreen() {
     }));
   }, [districts]);
 
-  // Map Categories to Topic Grid
-  const mappedTopics = categories.map((cat) => {
+  // Map Categories to Topic Grid (memoized — was recreated on every render)
+  const mappedTopics = React.useMemo(() => categories.map((cat) => {
     const style = TOPIC_STYLES[cat.slug] || {
       iconName: 'star-outline',
       iconType: 'ionicons',
@@ -126,12 +135,12 @@ export default function DiscoverScreen() {
       slug: cat.slug,
       ...style,
     };
-  });
+  }), [categories]);
 
   if (isLoading) {
     return (
-      <View style={[styles.container, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center' }]}>
-        <LoadingSpinner fullScreen text="Discovering local channels..." colorScheme={colorScheme ?? 'light'} />
+      <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
+        <DiscoverSkeleton colorScheme={colorScheme ?? 'light'} />
       </View>
     );
   }
@@ -165,10 +174,10 @@ export default function DiscoverScreen() {
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* If searching, show search results and suggestions */}
-        {searchQuery.trim().length > 0 ? (
+        {debouncedQuery.length > 0 ? (
           <View>
             {isSearching ? (
-              <LoadingSpinner text="Searching..." colorScheme={colorScheme ?? 'light'} />
+              <SearchResultsSkeleton colorScheme={colorScheme ?? 'light'} />
             ) : (
               <>
                 {/* Hashtag Suggestions */}

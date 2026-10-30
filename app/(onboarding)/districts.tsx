@@ -19,6 +19,7 @@ import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useDistrictsList } from '@/hooks/useApi';
 import { usersApi } from '@/services/api';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { SelectListSkeleton } from '@/components/ui/SkeletonScreens';
 import { useAuthStore } from '@/store/authStore';
 import { useAppAlert } from '@/components/AppAlert';
 
@@ -282,11 +283,7 @@ export default function DistrictsScreen() {
           alignItems: 'center',
         }}
       >
-        <LoadingSpinner
-          fullScreen
-          text="Loading districts..."
-          colorScheme={colorScheme ?? 'light'}
-        />
+        <SelectListSkeleton colorScheme={colorScheme ?? 'light'} />
       </View>
     );
   }

@@ -58,6 +58,15 @@
         }
       ],
       "expo-build-properties",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableProguardInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ],
       "@react-native-community/datetimepicker",
       [
         "expo-notifications",

@@ -19,7 +19,7 @@ import { useCategoryNews } from '@/hooks/useNews';
 import { useBookmarks } from '@/hooks/useEngagement';
 import { FeedItem } from '@/services/api/news';
 import { ImmersiveFeedCard } from '@/components/ImmersiveNewsCard';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { FeedSkeleton } from '@/components/ui/SkeletonScreens';
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useImmersiveChrome } from '@/hooks/useImmersiveChrome';
@@ -382,7 +382,7 @@ export default function HomeScreen() {
       (item.data as any)?.poll_uid ||
       (item.data as any)?.id ||
       (item.data as any)?.ad_id;
-    return uid ? `${item.type}-${uid}-${index}` : `${item.type}-${index}`;
+    return uid ? `${item.type}-${uid}` : `${item.type}-${index}`;
   }, []);
 
   const getItemLayout = useCallback(
@@ -392,6 +392,50 @@ export default function HomeScreen() {
       index,
     }),
     [scrollHeight]
+  );
+
+  // Stable renderItem for the header category tabs (was an inline arrow,
+  // recreated on every HomeScreen render).
+  const renderCategoryTab = useCallback(
+    ({ item: tab, index }: { item: { id: CategoryId; name: string; color?: string }; index: number }) => {
+      const isActive = activeCategory === tab.id;
+      const activeColor = tab.color || colors.primary;
+      return (
+        <TouchableOpacity
+          style={styles.tab}
+          onPress={() => {
+            setActiveCategory(tab.id);
+            categoryTabRef.current?.scrollToIndex({
+              index,
+              animated: true,
+              viewPosition: 0.5,
+            });
+          }}
+          activeOpacity={0.8}
+        >
+          <Text
+            style={[
+              styles.tabText,
+              {
+                color: isActive ? activeColor : colors.textSecondary,
+                fontWeight: isActive ? '700' : '500',
+              },
+            ]}
+          >
+            {tab.name}
+          </Text>
+          {isActive && (
+            <View
+              style={[
+                styles.tabIndicator,
+                { backgroundColor: activeColor },
+              ]}
+            />
+          )}
+        </TouchableOpacity>
+      );
+    },
+    [activeCategory, colors]
   );
 
   // ─── Render ───────────────────────────────────────────────────────────
@@ -501,44 +545,7 @@ export default function HomeScreen() {
               contentContainerStyle={styles.tabsContent}
               keyExtractor={(t) => String(t.id)}
               onScrollToIndexFailed={() => { }}
-              renderItem={({ item: tab, index }) => {
-                const isActive = activeCategory === tab.id;
-                const activeColor = tab.color || colors.primary;
-                return (
-                  <TouchableOpacity
-                    style={styles.tab}
-                    onPress={() => {
-                      setActiveCategory(tab.id);
-                      categoryTabRef.current?.scrollToIndex({
-                        index,
-                        animated: true,
-                        viewPosition: 0.5,
-                      });
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <Text
-                      style={[
-                        styles.tabText,
-                        {
-                          color: isActive ? activeColor : colors.textSecondary,
-                          fontWeight: isActive ? '700' : '500',
-                        },
-                      ]}
-                    >
-                      {tab.name}
-                    </Text>
-                    {isActive && (
-                      <View
-                        style={[
-                          styles.tabIndicator,
-                          { backgroundColor: activeColor },
-                        ]}
-                      />
-                    )}
-                  </TouchableOpacity>
-                );
-              }}
+              renderItem={renderCategoryTab}
             />
 
             {/* Grid Topic Explorer Button (Way2News style) */}
@@ -573,13 +580,7 @@ export default function HomeScreen() {
         }}
       >
         {isLoading ? (
-          <View style={styles.centered}>
-            <LoadingSpinner
-              text="Curating your local news..."
-              color={colors.primary}
-              colorScheme={colorScheme ?? 'light'}
-            />
-          </View>
+          <FeedSkeleton colorScheme={colorScheme ?? 'light'} />
         ) : isError ? (
           <View style={styles.centered}>
             <Ionicons

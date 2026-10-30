@@ -33,6 +33,10 @@ const COVER_PRESETS = [
   { id: 'politics', label: 'News & Media', url: 'https://images.unsplash.com/photo-1495020689067-958852a7765e?w=800' },
 ];
 
+// Fallback only — real categories are passed in from the live backend
+// (GET /categories/all). Hardcoded names that don't exist on the backend get
+// silently dropped during category mapping and the article is published
+// without any category, so the live list must always win.
 const CATEGORIES = [
   'Business',
   'Environment',
@@ -44,6 +48,24 @@ const CATEGORIES = [
   'Local',
 ];
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Backend-enforced content length rules (InShorts style).
+// The publisher API validates title/summary length BY LANGUAGE and rejects
+// the request with HTTP 400 otherwise (validate_content_by_language).
+// Mirroring those rules here keeps submissions from failing server-side.
+// ═══════════════════════════════════════════════════════════════════════════
+const LENGTH_RULES: Record<
+  string,
+  { titleMin: number; titleMax: number; summaryMin: number; summaryMax: number }
+> = {
+  en: { titleMin: 30, titleMax: 100, summaryMin: 250, summaryMax: 500 },
+  hi: { titleMin: 25, titleMax: 80, summaryMin: 150, summaryMax: 300 },
+  ta: { titleMin: 20, titleMax: 70, summaryMin: 150, summaryMax: 300 },
+  ml: { titleMin: 20, titleMax: 70, summaryMin: 150, summaryMax: 300 },
+  kn: { titleMin: 20, titleMax: 70, summaryMin: 150, summaryMax: 300 },
+  te: { titleMin: 20, titleMax: 70, summaryMin: 150, summaryMax: 300 },
+};
+
 interface CreateArticleModalProps {
   isVisible: boolean;
   onClose: () => void;
@@ -51,18 +73,39 @@ interface CreateArticleModalProps {
     headline: string;
     summary: string;
     category: string;
+    categoryId?: number;
     sourceName: string;
     readingTime: string;
     imageUrl: string;
   }) => void;
+  /** Live backend categories (GET /categories/all) */
+  categories?: { id: number; name: string }[];
+  /** Language code the article will be published in (e.g. 'te', 'en') */
+  languageCode?: string;
 }
 
-export function CreateArticleModal({ isVisible, onClose, onSubmit }: CreateArticleModalProps) {
+export function CreateArticleModal({
+  isVisible,
+  onClose,
+  onSubmit,
+  categories,
+  languageCode = 'te',
+}: CreateArticleModalProps) {
   const insets = useSafeAreaInsets();
   const colorScheme = useAppColorScheme();
   const theme = colorScheme === 'dark' ? 'dark' : 'light';
   const colors = Colors[theme];
   const { height: screenHeight } = useWindowDimensions();
+
+  const rules = LENGTH_RULES[(languageCode ?? '').toLowerCase()] ?? LENGTH_RULES.te;
+  const categoryList = categories?.length
+    ? categories.map((cat) => cat.name)
+    : CATEGORIES;
+  // name → id map for the real backend categories; undefined when the
+  // hardcoded fallback list is used (callers then match by name).
+  const categoryIdByName = categories?.length
+    ? new Map(categories.map((cat) => [cat.name, cat.id]))
+    : undefined;
 
   // Form State
   const [headline, setHeadline] = useState('');
@@ -72,6 +115,7 @@ export function CreateArticleModal({ isVisible, onClose, onSubmit }: CreateArtic
   const [sourceName, setSourceName] = useState('');
   const [readingTime, setReadingTime] = useState('');
   const [category, setCategory] = useState('');
+  const [categoryId, setCategoryId] = useState<number | undefined>(undefined);
 
   // Dropdown Picker Overlay States
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
@@ -120,6 +164,7 @@ export function CreateArticleModal({ isVisible, onClose, onSubmit }: CreateArtic
     setSourceName('');
     setReadingTime('');
     setCategory('');
+    setCategoryId(undefined);
     setValidationError('');
   };
 
@@ -151,12 +196,33 @@ export function CreateArticleModal({ isVisible, onClose, onSubmit }: CreateArtic
       return;
     }
 
+    // ─── Backend-enforced length rules (per publishing language) ────────────
+    // The publisher API returns HTTP 400 when title/summary length falls
+    // outside the language's InShorts-style range. Validate here so the
+    // publisher gets actionable feedback instead of a failed submission.
+    const titleLen = headline.trim().length;
+    const summaryLen = summary.trim().length;
+
+    if (titleLen < rules.titleMin || titleLen > rules.titleMax) {
+      setValidationError(
+        `Title must be ${rules.titleMin}–${rules.titleMax} characters (currently ${titleLen}).`
+      );
+      return;
+    }
+    if (summaryLen < rules.summaryMin || summaryLen > rules.summaryMax) {
+      setValidationError(
+        `Body must be ${rules.summaryMin}–${rules.summaryMax} characters (currently ${summaryLen}).`
+      );
+      return;
+    }
+
     setValidationError('');
 
     onSubmit({
       headline,
       summary,
-      category: category.toUpperCase(),
+      category,
+      categoryId: categoryId ?? categoryIdByName?.get(category),
       sourceName: sourceName.trim() || 'Local Reporter',
       readingTime: readingTime.trim() || '3 min read',
       imageUrl: coverImage,
@@ -279,7 +345,23 @@ export function CreateArticleModal({ isVisible, onClose, onSubmit }: CreateArtic
 
               {/* Headline */}
               <View style={styles.formGroup}>
-                <Text style={[styles.fieldLabel, { color: colors.text }]}>Headline / Title</Text>
+                <View style={styles.labelRow}>
+                  <Text style={[styles.fieldLabel, { color: colors.text }]}>Headline / Title</Text>
+                  <Text
+                    style={[
+                      styles.charCount,
+                      {
+                        color:
+                          headline.trim().length >= rules.titleMin &&
+                          headline.trim().length <= rules.titleMax
+                            ? colors.textTertiary
+                            : '#BA1A1A',
+                      },
+                    ]}
+                  >
+                    {headline.trim().length} / {rules.titleMin}–{rules.titleMax}
+                  </Text>
+                </View>
                 <TextInput
                   style={[styles.textInput, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border }]}
                   placeholder="What's the news headline?"
@@ -294,7 +376,23 @@ export function CreateArticleModal({ isVisible, onClose, onSubmit }: CreateArtic
 
               {/* Summary */}
               <View style={styles.formGroup}>
-                <Text style={[styles.fieldLabel, { color: colors.text }]}>Article Body / Summary</Text>
+                <View style={styles.labelRow}>
+                  <Text style={[styles.fieldLabel, { color: colors.text }]}>Article Body / Summary</Text>
+                  <Text
+                    style={[
+                      styles.charCount,
+                      {
+                        color:
+                          summary.trim().length >= rules.summaryMin &&
+                          summary.trim().length <= rules.summaryMax
+                            ? colors.textTertiary
+                            : '#BA1A1A',
+                      },
+                    ]}
+                  >
+                    {summary.trim().length} / {rules.summaryMin}–{rules.summaryMax}
+                  </Text>
+                </View>
                 <TextInput
                   style={[styles.textInput, styles.textArea, { backgroundColor: colors.surface, color: colors.text, borderColor: colors.border }]}
                   placeholder="Describe what happened in detail for the local community..."
@@ -386,7 +484,7 @@ export function CreateArticleModal({ isVisible, onClose, onSubmit }: CreateArtic
                   </TouchableOpacity>
                 </View>
                 <ScrollView contentContainerStyle={styles.pickerOptionsList}>
-                  {CATEGORIES.map((item) => (
+                  {categoryList.map((item) => (
                     <TouchableOpacity
                       key={item}
                       style={[
@@ -395,6 +493,9 @@ export function CreateArticleModal({ isVisible, onClose, onSubmit }: CreateArtic
                       ]}
                       onPress={() => {
                         setCategory(item);
+                        setCategoryId(
+                          categories?.find((cat) => cat.name === item)?.id
+                        );
                         setShowCategoryPicker(false);
                         if (validationError) setValidationError('');
                       }}
@@ -497,6 +598,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontFamily: 'Poppins_600SemiBold',
     paddingLeft: 4,
+  },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+  },
+  charCount: {
+    fontSize: 11,
+    fontWeight: '600',
+    fontFamily: 'Poppins_600SemiBold',
   },
   dashedUploadCard: {
     aspectRatio: 16 / 9,

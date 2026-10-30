@@ -16,7 +16,7 @@ import { Colors } from '@/constants/Colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLanguagesList } from '@/hooks/useApi';
 import { usersApi } from '@/services/api/users';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { SelectListSkeleton } from '@/components/ui/SkeletonScreens';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useAuthStore } from '@/store/authStore';
 import { useAppAlert } from '@/components/AppAlert';
@@ -252,11 +252,7 @@ export default function SettingsLanguageScreen() {
           alignItems: 'center',
         }}
       >
-        <LoadingSpinner
-          fullScreen
-          text="Loading languages..."
-          colorScheme={colorScheme ?? 'light'}
-        />
+        <SelectListSkeleton colorScheme={colorScheme ?? 'light'} />
       </View>
     );
   }

@@ -27,6 +27,7 @@ import { CreateArticleModal } from '@/components/CreateArticleModal';
 import { useAppAlert } from '@/components/AppAlert';
 import { useCreateNews, useCategories } from '@/hooks/useNews';
 import { useDeletePost } from '@/hooks/usePosts';
+import { useLanguagesList } from '@/hooks/useApi';
 import { useProfileScreen } from '@/hooks/useScreens';
 import { usersApi, postsApi, getUserFacingError, type DashboardResponse } from '@/services/api';
 import type { Post } from '@/services/api/posts';
@@ -44,6 +45,7 @@ export default function ProfileScreen() {
   const router = useRouter();
 
   const user = useAuthStore((state) => state.user);
+  const cachedPreferences = useAuthStore((state) => state.cachedPreferences);
   const updateProfileLocal = useAuthStore((state) => state.updateProfileLocal);
   const switchToPublisher = useAuthStore((state) => state.switchToPublisher);
 
@@ -96,6 +98,7 @@ export default function ProfileScreen() {
 
   const { mutate: createArticleMutate } = useCreateNews();
   const { data: categories } = useCategories();
+  const { data: publishingLanguages } = useLanguagesList();
   const { mutate: deletePostMutate } = useDeletePost();
 
   const handleDeleteUserPost = (postUid: string) => {
@@ -487,19 +490,29 @@ export default function ProfileScreen() {
   // ─── Article / Post Handlers ──────────────────────────────────────────────
 
   const handleCreateNewsArticle = (data: any) => {
-    // The modal sends a category NAME (e.g. "BUSINESS"). Map it to the real
-    // category ID; parseInt("BUSINESS") would be NaN and break the request.
-    const categoryName = String(data.category || '').trim().toLowerCase();
-    const matchedCategory = categories?.find(
-      (cat) => cat.name.trim().toLowerCase() === categoryName
-    );
+    // Prefer the category ID selected from the live backend list; fall back
+    // to name matching for the legacy hardcoded flow.
+    const categoryId =
+      typeof data.categoryId === 'number' && data.categoryId > 0
+        ? data.categoryId
+        : (() => {
+            const categoryName = String(data.category || '').trim().toLowerCase();
+            return categories?.find(
+              (cat) => cat.name.trim().toLowerCase() === categoryName
+            )?.id;
+          })();
+
+    // The backend only lets a publisher publish in their preferred language —
+    // resolve it from cached preferences instead of a hardcoded fallback.
+    const publishingLanguageId =
+      cachedPreferences?.language_id ?? (user as any)?.language_id ?? 1;
 
     createArticleMutate(
       {
         title: data.headline,
         summary: data.summary || '',
-        language_id: (user as any)?.language_id ?? 1,
-        ...(matchedCategory ? { category_ids: [matchedCategory.id] } : {}),
+        language_id: publishingLanguageId,
+        ...(categoryId ? { category_ids: [categoryId] } : {}),
         image_url: data.imageUrl || undefined,
       },
       {
@@ -1518,6 +1531,14 @@ export default function ProfileScreen() {
         isVisible={showCreateArticleModal}
         onClose={() => setShowCreateArticleModal(false)}
         onSubmit={handleCreateNewsArticle}
+        categories={categories?.map((cat) => ({ id: cat.id, name: cat.name }))}
+        languageCode={
+          publishingLanguages?.find(
+            (lang) =>
+              lang.backendId ===
+              (cachedPreferences?.language_id ?? (user as any)?.language_id ?? 1)
+          )?.id ?? 'te'
+        }
       />
 
       {AlertComponent}

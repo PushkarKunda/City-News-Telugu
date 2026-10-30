@@ -15,7 +15,7 @@ import { contentApi, Advertisement } from '@/services/api/content';
 import { formatDate, formatTimeAgo, getArticleTimestamp } from '@/utils/formatters';
 import { StatusBar } from 'expo-status-bar';
 import { BlurView } from 'expo-blur';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { ArticleDetailSkeleton } from '@/components/ui/SkeletonScreens';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useCommentCountStore } from '@/store/commentCountStore';
 import { CommentsModal } from '@/components/CommentsModal';
@@ -191,9 +191,9 @@ export default function NewsDetailScreen() {
 
   if (isLoading) {
     return (
-      <View style={[styles.container, styles.centered, { backgroundColor: colors.background }]}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <StatusBar style={isDark ? 'light' : 'dark'} translucent backgroundColor="transparent" />
-        <LoadingSpinner fullScreen text="Loading story details..." colorScheme={colorScheme ?? 'light'} />
+        <ArticleDetailSkeleton colorScheme={colorScheme ?? 'light'} />
       </View>
     );
   }

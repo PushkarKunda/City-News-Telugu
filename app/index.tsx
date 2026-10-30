@@ -2,13 +2,19 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, Easing, Image } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useRouter, useRootNavigationState } from 'expo-router';
 import { useAuthStore } from '@/store/authStore';
 import { Spacing } from '@/constants/Spacing';
 import { firebaseAuth } from '@/services/firebase';
 
 export default function SplashScreen() {
   const router = useRouter();
+  // expo-router's root navigator is NOT ready on the very first mount.
+  // Calling router.replace() before `rootNavigationState.key` exists is a
+  // silent no-op — this previously went unnoticed because a 1000ms
+  // setTimeout masked the race. We now wait for the router to be ready
+  // instead of using a fixed delay.
+  const rootNavigationState = useRootNavigationState();
 
   // Intro branding animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -106,12 +112,12 @@ export default function SplashScreen() {
       }
     };
 
-    const timer = setTimeout(() => {
-      void checkAuthAndRoute();
-    }, 1000);
-
-    return () => clearTimeout(timer);
-  }, [fadeAnim, pulseAnim, router, scaleAnim, spinAnim, textRevealAnim]);
+    // Auth/routing check: fire as soon as the router is ready — no artificial
+    // delay. If the root navigator hasn't mounted yet, wait for it (the
+    // effect re-runs when rootNavigationState.key appears).
+    if (!rootNavigationState?.key) return;
+    void checkAuthAndRoute();
+  }, [rootNavigationState?.key, fadeAnim, pulseAnim, router, scaleAnim, spinAnim, textRevealAnim]);
 
   // Map 0-1 values to rotational degree
   const spin = spinAnim.interpolate({

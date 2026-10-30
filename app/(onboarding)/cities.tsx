@@ -18,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useCitiesList } from '@/hooks/useApi';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { SelectListSkeleton } from '@/components/ui/SkeletonScreens';
 import { useAuthStore } from '@/store/authStore';
 import { useAppAlert } from '@/components/AppAlert';
 
@@ -152,7 +153,6 @@ export default function CitiesScreen() {
     const [isSaving] = useState(false);
 
     const buttonScale = useRef(new Animated.Value(1)).current;
-    const searchBorderAnim = useRef(new Animated.Value(0)).current;
 
     // ─── Auto-select First City ────────────────────────────────────────────────
 
@@ -166,20 +166,10 @@ export default function CitiesScreen() {
 
     const handleSearchFocus = () => {
         setIsSearchFocused(true);
-        Animated.timing(searchBorderAnim, {
-            toValue: 1,
-            duration: 200,
-            useNativeDriver: false,
-        }).start();
     };
 
     const handleSearchBlur = () => {
         setIsSearchFocused(false);
-        Animated.timing(searchBorderAnim, {
-            toValue: 0,
-            duration: 200,
-            useNativeDriver: false,
-        }).start();
     };
 
     // ─── Button Animations ─────────────────────────────────────────────────────
@@ -231,10 +221,7 @@ export default function CitiesScreen() {
         city.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    const searchBorderColor = searchBorderAnim.interpolate({
-        inputRange: [0, 1],
-        outputRange: [colors.border, colors.primary],
-    });
+
 
     // ─── Loading State ─────────────────────────────────────────────────────────
 
@@ -248,11 +235,7 @@ export default function CitiesScreen() {
                     alignItems: 'center',
                 }}
             >
-                <LoadingSpinner
-                    fullScreen
-                    text="Loading cities..."
-                    colorScheme={colorScheme ?? 'light'}
-                />
+                <SelectListSkeleton colorScheme={colorScheme ?? 'light'} />
             </View>
         );
     }
@@ -373,12 +356,12 @@ export default function CitiesScreen() {
 
                 {/* Search Input */}
                 <View style={styles.searchContainer}>
-                    <Animated.View
+                    <View
                         style={[
                             styles.searchBar,
                             {
                                 backgroundColor: colors.card,
-                                borderColor: searchBorderColor,
+                                borderColor: isSearchFocused ? colors.primary : colors.border,
                                 shadowOpacity: isSearchFocused ? 0.15 : 0.05,
                             },
                         ]}
@@ -398,7 +381,7 @@ export default function CitiesScreen() {
                             onFocus={handleSearchFocus}
                             onBlur={handleSearchBlur}
                         />
-                    </Animated.View>
+                    </View>
                 </View>
 
                 {/* Cities Grid */}

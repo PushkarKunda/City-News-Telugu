@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useState, useMemo, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SectionList, Platform } from 'react-native';
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useAppTextScale } from '@/hooks/useAppTextScale';
@@ -10,7 +10,7 @@ import { LocalNewsCard, LocalNewsItem } from '@/components/LocalNewsCard';
 import { useAuthStore } from '@/store/authStore';
 import { useLocationNews } from '@/hooks/useNews';
 import { useLocalScreen } from '@/hooks/useScreens';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { LocalNewsSkeleton } from '@/components/ui/SkeletonScreens';
 import { formatTimeAgo, formatNumber } from '@/utils/formatters';
 
 const FILTERS = ['All Time', 'Today', 'This Week', 'Newest', 'Nearest'];
@@ -23,38 +23,19 @@ export default function LocalScreen() {
   const [activeFilter, setActiveFilter] = useState('All Time');
 
   const scale = useAppTextScale();
-  const scaledFontSize = (size: number) => ({ fontSize: size * scale });
+  const scaledFontSize = useCallback((size: number) => ({ fontSize: size * scale }), [scale]);
 
   const userState = useAuthStore((state) => state.user?.state);
   const userDistrict = useAuthStore((state) => state.user?.district);
 
   // Single aggregate endpoint for Local Screen
   const {
-    data: localScreenData,
     isLoading: isLoadingLocalAggregate,
   } = useLocalScreen({
     state: userState || '',
     district: userDistrict || '',
     limit: 20,
   });
-
-  useEffect(() => {
-    const t0 = Date.now();
-    console.log('[PERF][Screen:Local] Initializing with aggregate endpoint GET /screens/local');
-    return () => {
-      console.log(`[PERF][Screen:Local] Screen active duration: ${Date.now() - t0}ms`);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (localScreenData) {
-      console.log('[PERF][Screen:Local] Aggregate payload hydrated successfully:', {
-        news_count: localScreenData.news?.items?.length ?? 0,
-        location: localScreenData.location,
-        errors: localScreenData.errors,
-      });
-    }
-  }, [localScreenData]);
 
   // Fetch live local news - read from seeded React Query cache
   const { data: rawNews = [], isLoading: isLoadingRawNews } = useLocationNews({
@@ -148,22 +129,36 @@ export default function LocalScreen() {
     ? `${userDistrict}, ${userState || ''}`
     : 'Select Location';
 
-  if (isLoadingNews) {
-    return (
-      <View style={[styles.container, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center', paddingTop: insets.top }]}>
-        <LoadingSpinner fullScreen text="Loading local stories..." colorScheme={colorScheme ?? 'light'} />
-      </View>
-    );
-  }
+  const sections = useMemo(() => {
+    const list: { title: string; data: LocalNewsItem[] }[] = [];
+    if (todayNews.length > 0) list.push({ title: 'TODAY', data: todayNews });
+    if (yesterdayNews.length > 0) list.push({ title: 'YESTERDAY', data: yesterdayNews });
+    return list;
+  }, [todayNews, yesterdayNews]);
 
-  return (
-    <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
+  const handleCardPress = useCallback((id: string) => {
+    router.push({ pathname: `/news/[id]`, params: { id, type: 'news' } });
+  }, [router]);
 
-      {/* Header Section */}
-      <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Local News</Text>
-      </View>
+  const renderSectionItem = useCallback(({ item }: { item: LocalNewsItem }) => (
+    <View style={styles.cardItemWrapper}>
+      <LocalNewsCard
+        item={item}
+        onPress={() => handleCardPress(item.id)}
+      />
+    </View>
+  ), [handleCardPress]);
 
+  const renderSectionHeader = useCallback(({ section: { title } }: { section: { title: string } }) => (
+    <View style={styles.sectionHeaderWrapper}>
+      <Text style={[styles.sectionTitle, { color: colors.textTertiary }, scaledFontSize(12)]}>
+        {title}
+      </Text>
+    </View>
+  ), [colors.textTertiary, scaledFontSize]);
+
+  const listHeader = useMemo(() => (
+    <View>
       <View style={styles.headerLocationContainer}>
         <TouchableOpacity
           style={[styles.locationPicker, { backgroundColor: colors.surface, borderColor: colors.border }]}
@@ -175,98 +170,85 @@ export default function LocalScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      {/* Filters Section */}
+      <View style={styles.filtersWrapper}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersContainer}>
+          {FILTERS.map((filter) => {
+            const isActive = activeFilter === filter;
+            return (
+              <TouchableOpacity
+                key={filter}
+                style={[
+                  styles.filterPill,
+                  {
+                    backgroundColor: isActive ? colors.primary : colors.surface,
+                    borderColor: isActive ? colors.primary : colors.border
+                  }
+                ]}
+                onPress={() => setActiveFilter(filter)}
+                activeOpacity={0.8}
+              >
+                <Text style={[
+                  styles.filterText,
+                  { color: isActive ? '#FFF' : colors.textSecondary },
+                  scaledFontSize(12)
+                ]}>
+                  {filter}
+                </Text>
+                {filter === 'Newest' && (
+                  <MaterialIcons name="arrow-downward" size={12} color={isActive ? '#FFF' : colors.textSecondary} style={{ marginLeft: 4 }} />
+                )}
+                {filter === 'Nearest' && (
+                  <MaterialIcons name="near-me" size={12} color={isActive ? '#FFF' : colors.textSecondary} style={{ marginLeft: 4 }} />
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+    </View>
+  ), [colors, activeFilter, userLocationStr, scaledFontSize, router]);
 
-        {/* Filters Section */}
-        <View style={styles.filtersWrapper}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersContainer}>
-            {FILTERS.map((filter) => {
-              const isActive = activeFilter === filter;
-              return (
-                <TouchableOpacity
-                  key={filter}
-                  style={[
-                    styles.filterPill,
-                    {
-                      backgroundColor: isActive ? colors.primary : colors.surface,
-                      borderColor: isActive ? colors.primary : colors.border
-                    }
-                  ]}
-                  onPress={() => setActiveFilter(filter)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={[
-                    styles.filterText,
-                    { color: isActive ? '#FFF' : colors.textSecondary },
-                    scaledFontSize(12)
-                  ]}>
-                    {filter}
-                  </Text>
-                  {filter === 'Newest' && (
-                    <MaterialIcons name="arrow-downward" size={12} color={isActive ? '#FFF' : colors.textSecondary} style={{ marginLeft: 4 }} />
-                  )}
-                  {filter === 'Nearest' && (
-                    <MaterialIcons name="near-me" size={12} color={isActive ? '#FFF' : colors.textSecondary} style={{ marginLeft: 4 }} />
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
+  if (isLoadingNews) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
+        <LocalNewsSkeleton colorScheme={colorScheme ?? 'light'} />
+      </View>
+    );
+  }
 
-        {/* Feed Content */}
-        <View style={styles.feedContent}>
-          {todayNews.length === 0 && yesterdayNews.length === 0 ? (
-            <View style={styles.emptyStateContainer}>
-              <View style={[styles.emptyIconCircle, { backgroundColor: colors.primaryLight }]}>
-                <Ionicons name="map-outline" size={48} color={colors.primary} />
-              </View>
-              <Text style={[styles.emptyTitle, { color: colors.text }]}>No Local Stories</Text>
-              <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-                 There are no published news articles in your selected district: {userDistrict || 'your area'}.
-              </Text>
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
+      {/* Header Section */}
+      <View style={[styles.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>Local News</Text>
+      </View>
+
+      <SectionList
+        sections={sections}
+        keyExtractor={(item) => item.id}
+        renderItem={renderSectionItem}
+        renderSectionHeader={renderSectionHeader}
+        ListHeaderComponent={listHeader}
+        ItemSeparatorComponent={() => <View style={styles.cardSeparator} />}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        initialNumToRender={5}
+        maxToRenderPerBatch={5}
+        windowSize={5}
+        removeClippedSubviews={Platform.OS === 'android'}
+        ListEmptyComponent={
+          <View style={styles.emptyStateContainer}>
+            <View style={[styles.emptyIconCircle, { backgroundColor: colors.primaryLight }]}>
+              <Ionicons name="map-outline" size={48} color={colors.primary} />
             </View>
-          ) : (
-            <>
-              {/* TODAY Section */}
-              {todayNews.length > 0 && (
-                <View style={styles.section}>
-                  <Text style={[styles.sectionTitle, { color: colors.textTertiary }, scaledFontSize(12)]}>TODAY</Text>
-                  <View style={styles.cardsContainer}>
-                    {todayNews.map(item => (
-                      <LocalNewsCard
-                        key={item.id}
-                        item={item}
-                        onPress={() => {
-                          router.push({ pathname: `/news/[id]`, params: { id: item.id, type: 'news' } });
-                        }}
-                      />
-                    ))}
-                  </View>
-                </View>
-              )}
-
-              {/* YESTERDAY Section */}
-              {yesterdayNews.length > 0 && (
-                <View style={styles.section}>
-                  <Text style={[styles.sectionTitle, { color: colors.textTertiary }, scaledFontSize(12)]}>YESTERDAY</Text>
-                  <View style={styles.cardsContainer}>
-                    {yesterdayNews.map(item => (
-                      <LocalNewsCard
-                        key={item.id}
-                        item={item}
-                        onPress={() => {
-                          router.push({ pathname: `/news/[id]`, params: { id: item.id, type: 'news' } });
-                        }}
-                      />
-                    ))}
-                  </View>
-                </View>
-              )}
-            </>
-          )}
-        </View>
-      </ScrollView>
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>No Local Stories</Text>
+            <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+              There are no published news articles in your selected district: {userDistrict || 'your area'}.
+            </Text>
+          </View>
+        }
+      />
     </View>
   );
 }
@@ -283,14 +265,6 @@ const styles = StyleSheet.create({
     height: 64,
     borderBottomWidth: 1,
     position: 'relative',
-  },
-  headerLeftButton: {
-    position: 'absolute',
-    left: 16,
-    padding: 8,
-    borderRadius: 9999,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   headerTitle: {
     fontSize: 18,
@@ -327,7 +301,7 @@ const styles = StyleSheet.create({
     paddingBottom: 120, // Leave space for bottom tab bar
   },
   filtersWrapper: {
-    marginBottom: 24,
+    marginBottom: 16,
   },
   filtersContainer: {
     paddingHorizontal: 16,
@@ -345,20 +319,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  feedContent: {
+  sectionHeaderWrapper: {
     paddingHorizontal: 16,
-    gap: 24,
-  },
-  section: {
-    gap: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
   },
   sectionTitle: {
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 1.2,
   },
-  cardsContainer: {
-    gap: 16,
+  cardItemWrapper: {
+    paddingHorizontal: 16,
+  },
+  cardSeparator: {
+    height: 16,
   },
   emptyStateContainer: {
     flex: 1,

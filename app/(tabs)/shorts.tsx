@@ -20,7 +20,7 @@ import { Spacing } from '@/constants/Spacing';
 import { useShortsScreen } from '@/hooks/useScreens';
 import { Advertisement } from '@/services/api/content';
 import { injectAdsIntoFeed, isAdvertisement } from '@/hooks/feedInjection';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { ShortsSkeleton } from '@/components/ui/SkeletonScreens';
 import { Ionicons } from '@expo/vector-icons';
 
 type ShortFeedItem = any;
@@ -364,7 +364,7 @@ export default function ShortsScreen() {
   if (isLoading) {
     return (
       <View style={styles.darkLoaderContainer}>
-        <LoadingSpinner fullScreen text="Loading shorts..." colorScheme="dark" color="#4648D4" />
+        <ShortsSkeleton />
       </View>
     );
   }

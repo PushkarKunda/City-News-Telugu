@@ -20,7 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useStatesList, useDistrictsList, useCitiesList } from '@/hooks/useApi';
 import { usersApi } from '@/services/api/users';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { SelectListSkeleton } from '@/components/ui/SkeletonScreens';
 import { useAuthStore } from '@/store/authStore';
 import { useAppAlert } from '@/components/AppAlert';
 import { getUserFacingError } from '@/services/api/client';
@@ -480,11 +480,7 @@ export default function SettingsLocationScreen() {
           alignItems: 'center',
         }}
       >
-        <LoadingSpinner
-          fullScreen
-          text="Loading locations..."
-          colorScheme={colorScheme ?? 'light'}
-        />
+        <SelectListSkeleton colorScheme={colorScheme ?? 'light'} />
       </View>
     );
   }

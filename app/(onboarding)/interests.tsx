@@ -19,7 +19,7 @@ import { usersApi } from '@/services/api';
 import { useAuthStore } from '@/store/authStore'; // ✅ Added
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { SelectListSkeleton } from '@/components/ui/SkeletonScreens';
 import { useAppAlert } from '@/components/AppAlert';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -231,11 +231,7 @@ export default function InterestsScreen() {
           alignItems: 'center',
         }}
       >
-        <LoadingSpinner
-          fullScreen
-          text="Loading interests..."
-          colorScheme={colorScheme ?? 'light'}
-        />
+        <SelectListSkeleton colorScheme={colorScheme ?? 'light'} />
       </View>
     );
   }

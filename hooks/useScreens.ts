@@ -181,8 +181,8 @@ export function useNewsDetailScreen(uid: string | null) {
   const userUid = useAuthStore((s) => s.user?.user_uid);
   const isFocused = useIsFocused();
   return useQuery({
-    queryKey: [...screenKeys.newsDetail(uid), userUid],
-    enabled: Boolean(uid && userUid) && isFocused,
+    queryKey: [...screenKeys.newsDetail(uid), userUid ?? 'guest'],
+    enabled: Boolean(uid) && isFocused,
     staleTime: SCREEN_STALE_TIME,
     queryFn: async ({ signal }) => {
       const version = getSessionVersion();
@@ -398,10 +398,8 @@ export function useLocalScreen(params?: {
 
     if (news?.items && Array.isArray(news.items)) {
       queryClient.setQueryData(newsKeys.locationNews({
-        state: memoizedParams?.state,
-        district: memoizedParams?.district,
-        city: memoizedParams?.city,
-        limit: memoizedParams?.limit,
+        state: memoizedParams?.state || '',
+        district: memoizedParams?.district || '',
       }), news.items);
     }
   }, [query.data, queryClient, memoizedParams]);

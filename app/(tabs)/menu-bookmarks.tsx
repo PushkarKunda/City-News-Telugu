@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 
 import { useBookmarks, useRemoveBookmark } from '@/hooks/useEngagement';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { BookmarksSkeleton } from '@/components/ui/SkeletonScreens';
 import { formatTimeAgo, formatNumber } from '@/utils/formatters';
 import { resolveArticleImageUrl } from '@/utils/imageResolver';
 import type { ContentType } from '@/services/api/engagement';
@@ -153,15 +153,9 @@ export default function MenuBookmarksScreen() {
     return (
       <View style={[styles.container, {
         backgroundColor: isDark ? '#111122' : '#F8F9FF',
-        justifyContent: 'center',
-        alignItems: 'center',
         paddingTop: insets.top
       }]}>
-        <LoadingSpinner
-          fullScreen
-          text="Loading bookmarks..."
-          colorScheme={colorScheme ?? 'light'}
-        />
+        <BookmarksSkeleton colorScheme={colorScheme ?? 'light'} />
       </View>
     );
   }

@@ -21,6 +21,7 @@ import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useLanguagesList, useStatesList } from '@/hooks/useApi';
 import { usersApi } from '@/services/api';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { SelectListSkeleton } from '@/components/ui/SkeletonScreens';
 import { scaleFontSize } from '@/utils/responsive';
 import { shouldShowDistrictCity } from '@/services/api/location';
 import { useAuthStore } from '@/store/authStore';
@@ -406,11 +407,7 @@ export default function LocationScreen() {
           alignItems: 'center',
         }}
       >
-        <LoadingSpinner
-          fullScreen
-          text="Loading states..."
-          colorScheme={colorScheme ?? 'light'}
-        />
+        <SelectListSkeleton colorScheme={colorScheme ?? 'light'} />
       </View>
     );
   }

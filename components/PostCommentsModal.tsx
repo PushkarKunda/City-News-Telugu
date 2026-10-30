@@ -151,6 +151,10 @@ export const PostCommentsModal = ({ visible, onClose, postUid, onCommentAdded }:
               keyExtractor={(item, index) => String(item.id ?? index)}
               renderItem={renderComment}
               contentContainerStyle={styles.listContainer}
+              initialNumToRender={8}
+              maxToRenderPerBatch={8}
+              windowSize={5}
+              removeClippedSubviews={Platform.OS === 'android'}
               ListEmptyComponent={
                 <View style={styles.emptyContainer}>
                   <Ionicons name="chatbubbles-outline" size={48} color={colors.textTertiary} />

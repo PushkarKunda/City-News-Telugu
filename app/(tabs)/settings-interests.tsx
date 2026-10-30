@@ -16,7 +16,7 @@ import { Colors } from '@/constants/Colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCategoriesAll } from '@/hooks/useApi';
 import { usersApi } from '@/services/api/users';
-import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { SelectListSkeleton } from '@/components/ui/SkeletonScreens';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useAuthStore } from '@/store/authStore';
 import { useAppAlert } from '@/components/AppAlert';
@@ -307,11 +307,7 @@ export default function SettingsInterestsScreen() {
                     alignItems: 'center',
                 }}
             >
-                <LoadingSpinner
-                    fullScreen
-                    text="Loading interests..."
-                    colorScheme={colorScheme ?? 'light'}
-                />
+                <SelectListSkeleton colorScheme={colorScheme ?? 'light'} />
             </View>
         );
     }
