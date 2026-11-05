@@ -15,7 +15,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useCategoryNews } from '@/hooks/useNews';
+import { useCategoryNews, useAllNews } from '@/hooks/useNews';
 import { useBookmarks } from '@/hooks/useEngagement';
 import { FeedItem } from '@/services/api/news';
 import { ImmersiveFeedCard } from '@/components/ImmersiveNewsCard';
@@ -34,7 +34,13 @@ import { useHomeScreen } from '@/hooks/useScreens';
 import { usersApi } from '@/services/api/users';
 
 const FOR_YOU_ID = 'for-you' as const;
-type CategoryId = typeof FOR_YOU_ID | number;
+const ALL_ID = 'all' as const;
+type CategoryId = typeof FOR_YOU_ID | typeof ALL_ID | number;
+
+// Feed types that ImmersiveFeedCard can actually render. Unknown types
+// (notably the backend's `admob_native` placeholder) would otherwise fall
+// through to the news card and render an empty screen.
+const RENDERABLE_FEED_TYPES = new Set(['news', 'post', 'ad', 'sponsored', 'poll']);
 
 const HOME_SCREEN_PARAMS = { limit: 50 };
 
@@ -103,28 +109,6 @@ export default function HomeScreen() {
     isRefetching: isRefetchingHomeScreen,
   } = useHomeScreen(HOME_SCREEN_PARAMS);
 
-  // Performance telemetry logging (before: 5 roundtrips, after: 1 aggregate roundtrip)
-  useEffect(() => {
-    const t0 = Date.now();
-    console.log('[PERF][Screen:Home] Initializing with aggregate endpoint GET /screens/home (1 call vs 5 individual calls)');
-    return () => {
-      console.log(`[PERF][Screen:Home] Screen active duration: ${Date.now() - t0}ms`);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (homeScreenData) {
-      console.log('[PERF][Screen:Home] Aggregate payload hydrated successfully:', {
-        categories: homeScreenData.categories?.length ?? 0,
-        active_polls: homeScreenData.active_polls?.length ?? 0,
-        feed_items: homeScreenData.feed?.items?.length ?? 0,
-        has_bookmarks: Boolean(homeScreenData.bookmarks),
-        has_preferences: Boolean(homeScreenData.preferences),
-        errors: homeScreenData.errors,
-      });
-    }
-  }, [homeScreenData]);
-
   const categoriesData = useMemo(() => (homeScreenData?.categories ?? [])
     .filter((category) => category.is_active)
     .sort((a, b) => a.display_order - b.display_order), [homeScreenData?.categories]);
@@ -142,15 +126,26 @@ export default function HomeScreen() {
     typeof activeCategory === 'number' ? activeCategory : null
   );
 
-  const isRefreshing = isRefetchingHomeScreen || isRefetchingCategoryNews;
+  // "All" tab: every article, across every language
+  const {
+    data: allNewsData,
+    isLoading: isLoadingAllNews,
+    isError: isErrorAllNews,
+    refetch: refetchAllNews,
+    isRefetching: isRefetchingAllNews,
+  } = useAllNews(activeCategory === ALL_ID);
+
+  const isRefreshing = isRefetchingHomeScreen || isRefetchingCategoryNews || isRefetchingAllNews;
 
   const handleRefresh = useCallback(() => {
     if (activeCategory === FOR_YOU_ID) {
       refetchHomeScreen();
+    } else if (activeCategory === ALL_ID) {
+      refetchAllNews();
     } else {
       refetchCategoryNews();
     }
-  }, [activeCategory, refetchHomeScreen, refetchCategoryNews]);
+  }, [activeCategory, refetchHomeScreen, refetchCategoryNews, refetchAllNews]);
 
   // Bookmarks - used to show filled/outline bookmark icon
   const { data: rawNewsBookmarks = [] } = useBookmarks('news', false);
@@ -188,6 +183,7 @@ export default function HomeScreen() {
   const categoryTabs = useMemo(() => {
     const tabs: { id: CategoryId; name: string; color?: string }[] = [
       { id: FOR_YOU_ID, name: 'For You' },
+      { id: ALL_ID, name: 'All' },
     ];
     categoriesData
       .filter((c) => c.name.toLowerCase() !== 'local')
@@ -218,16 +214,18 @@ export default function HomeScreen() {
         rawItems = (forYouFeed as any).news;
       }
 
-      const mapped = rawItems.map((item: any, idx: number): FeedItem => {
-        if (item && item.type && item.data) {
-          return item as FeedItem;
-        }
-        return {
-          type: 'news',
-          data: item,
-          position: idx,
-        };
-      });
+      const mapped = rawItems
+        .filter((item: any) => item?.type !== 'admob_native')
+        .map((item: any, idx: number): FeedItem => {
+          if (item && item.type && item.data) {
+            return item as FeedItem;
+          }
+          return {
+            type: 'news',
+            data: item,
+            position: idx,
+          };
+        });
 
       // Inject active opinion polls into For You feed cleanly
       if (activePolls && activePolls.length > 0 && mapped.length >= 4) {
@@ -248,6 +246,23 @@ export default function HomeScreen() {
 
       return mapped;
     }
+
+    // "All" tab: every article from every language, unfiltered by preference
+    if (activeCategory === ALL_ID) {
+      const rawItems: any[] = Array.isArray(allNewsData?.items) ? allNewsData!.items : [];
+      return rawItems
+        .filter((item: any) => {
+          if (!item) return false;
+          if (item.type) return RENDERABLE_FEED_TYPES.has(item.type);
+          return Boolean(item.news_uid || item.post_uid || item.title);
+        })
+        .map((item: any, idx: number): FeedItem => (
+          item.type && item.data
+            ? { ...(item as FeedItem), position: idx }
+            : { type: 'news', data: item, position: idx }
+        ));
+    }
+
     // Category tabs: wrap news articles into FeedItem shape
     const categoryArticles = Array.isArray(categoryNewsData)
       ? categoryNewsData
@@ -264,18 +279,21 @@ export default function HomeScreen() {
         position: i,
       })
     );
-  }, [activeCategory, forYouFeed, categoryNewsData, activePolls]);
+  }, [activeCategory, forYouFeed, categoryNewsData, allNewsData, activePolls]);
 
   const isLoading =
-    isLoadingHomeScreen ||
-    (activeCategory === FOR_YOU_ID
-      ? isLoadingHomeScreen
-      : isLoadingCategoryNews);
+    activeCategory === ALL_ID
+      ? isLoadingAllNews
+      : activeCategory === FOR_YOU_ID
+        ? isLoadingHomeScreen
+        : isLoadingCategoryNews;
 
   const isError =
-    activeCategory === FOR_YOU_ID
-      ? isErrorHomeScreen || Boolean(homeScreenData?.errors?.feed)
-      : isErrorCategoryNews;
+    activeCategory === ALL_ID
+      ? isErrorAllNews
+      : activeCategory === FOR_YOU_ID
+        ? isErrorHomeScreen || Boolean(homeScreenData?.errors?.feed)
+        : isErrorCategoryNews;
 
 
 
@@ -300,8 +318,8 @@ export default function HomeScreen() {
           language_id: prefLanguageId,
           category_ids: prefCategoryIds,
         });
-      } catch (e) {
-        console.log('Background updatePreferences error:', e);
+      } catch {
+        // Preference sync is best-effort; the feed refetch below still runs.
       }
 
       // 3. Refetch the feed to load local news for newly selected district

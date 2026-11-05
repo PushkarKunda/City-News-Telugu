@@ -48,6 +48,7 @@ import {
   getCategoryFallbackImage,
   CURATED_FALLBACK_IMAGES,
   isInvalidOrMockImageUrl,
+  BREAKING_NEWS_FALLBACK_ASSET,
 } from '@/utils/imageResolver';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -614,6 +615,8 @@ const NewsCard = React.memo(
       }
     };
 
+    const isFallbackImage = isInvalidOrMockImageUrl(imgSrc) || isErrorFallback;
+
     return (
       <View
         style={[
@@ -625,12 +628,16 @@ const NewsCard = React.memo(
         <TouchableWithoutFeedback onPress={onToggleUI}>
           <View style={[styles.imageContainer, { height: imageHeight }]}>
             <Image
-              source={{ uri: imgSrc, headers: { Accept: 'image/webp,image/*;q=0.8' } }}
+              source={
+                isFallbackImage
+                  ? BREAKING_NEWS_FALLBACK_ASSET
+                  : { uri: imgSrc, headers: { Accept: 'image/webp,image/*;q=0.8' } }
+              }
               style={styles.image}
               contentFit="cover"
               transition={150}
               cachePolicy="disk"
-              recyclingKey={imgSrc}
+              recyclingKey={isFallbackImage ? 'breaking-fallback' : imgSrc}
               priority={isActive ? 'high' : 'normal'}
               onError={() => {
                 setIsErrorFallback(true);
@@ -651,7 +658,7 @@ const NewsCard = React.memo(
               }}
             />
 
-            {Boolean(imgSrc) && !isErrorFallback && <Watermark />}
+            {Boolean(imgSrc) && !isFallbackImage && <Watermark />}
 
             {/* Aa Font Size Control button */}
             <TouchableOpacity

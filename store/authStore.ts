@@ -241,8 +241,6 @@ const isAlreadyLinkedError = (error: any): boolean => {
   return false;
 };
 
-
-
 const handleAuthError = (error: any, endpoint?: string): AuthError => {
   const status = error?.response?.status ?? error?.status;
   const serverDetail = error?.response?.data?.detail || error?.response?.data?.message;
@@ -351,7 +349,6 @@ export const useAuthStore = create<AuthState>()(
         } catch (error: any) {
           // If the backend returns 404, it means preferences aren't set yet.
           if (error?.response?.status === 404 || error?.code === '404' || error?.message?.includes('404')) {
-            console.log('[authStore] No preferences found for user on backend. Creating default preferences...');
             try {
               const defaultPrefPayload = {
                 language_id: 1, // Telugu
@@ -566,11 +563,8 @@ export const useAuthStore = create<AuthState>()(
             );
           }
 
-          console.log('[authStore] Verifying OTP with Firebase...');
           const firebaseToken = await firebaseVerifyOTP(session, otp);
-          console.log('[authStore] Firebase token retrieved. Authenticating with backend...');
           const response = await authApi.loginWithFirebase(firebaseToken);
-          console.log('[authStore] Backend authentication success!');
 
           set({
             user: sanitizeUser(response.user),
@@ -632,40 +626,6 @@ export const useAuthStore = create<AuthState>()(
 
           const sanitized = sanitizeUser(fullUserData);
 
-          // Compute can_apply by checking publisher eligibility
-          let can_apply = false;
-          try {
-            const elig = await authApi.checkPublisherEligibility();
-            can_apply = Boolean(
-              (elig as any)?.can_apply ??
-              (elig as any)?.is_eligible ??
-              (elig as any)?.can_become_reporter ??
-              false
-            );
-          } catch {
-            const isEmailOk = Boolean(
-              sanitized.email_verified ||
-              sanitized.google_id ||
-              sanitized.auth_provider === 'google'
-            );
-            can_apply = Boolean(
-              isEmailOk &&
-              sanitized.mobile_verified &&
-              sanitized.name &&
-              sanitized.date_of_birth &&
-              sanitized.gender
-            );
-          }
-
-          // Requirement: Log user_id, auth_provider, email_verified, google_id, and can_apply
-          console.log('[authStore] Google login success:', {
-            user_id: sanitized.user_uid,
-            auth_provider: sanitized.auth_provider,
-            email_verified: sanitized.email_verified,
-            google_id: sanitized.google_id,
-            can_apply,
-          });
-
           set({
             user: sanitized,
             isAuthenticated: true,
@@ -720,13 +680,6 @@ export const useAuthStore = create<AuthState>()(
           fullUserData.email_verified = true;
 
           const sanitized = sanitizeUser(fullUserData);
-          console.log('[authStore] Post-Google link verification status:', {
-            user_google_id: sanitized.google_id,
-            user_auth_provider: sanitized.auth_provider,
-            user_email_verified: sanitized.email_verified,
-            is_google_linked: sanitized.is_google_linked,
-            providers: sanitized.providers,
-          });
 
           set({
             user: sanitized,
@@ -751,7 +704,6 @@ export const useAuthStore = create<AuthState>()(
           if (!currentUser) return null;
           const freshIdToken = await currentUser.getIdToken(true);
           if (!freshIdToken) return null;
-          console.log('[authStore] Calling syncProvider with fresh Firebase ID token...');
           const response = await authApi.loginWithGoogleAuth(freshIdToken);
 
           let fullUserData: RawUser = response.user;
@@ -773,13 +725,6 @@ export const useAuthStore = create<AuthState>()(
           }
 
           const sanitized = sanitizeUser(fullUserData);
-          console.log('[authStore] syncProvider completed:', {
-            user_google_id: sanitized.google_id,
-            user_auth_provider: sanitized.auth_provider,
-            user_email_verified: sanitized.email_verified,
-            providers: sanitized.providers,
-            is_google_linked: sanitized.is_google_linked,
-          });
 
           assertCurrentSession(sessionVersion);
           set({ user: sanitized, isAuthenticated: true });
@@ -812,7 +757,6 @@ export const useAuthStore = create<AuthState>()(
             firebaseToken = await linkPhoneNumber(pendingVerificationId, otp);
           } catch (linkError: any) {
             if (isAlreadyLinkedError(linkError)) {
-              console.log('📞 Phone already linked — OTP verified successfully');
               const currentUser = getAuth().currentUser;
               if (!currentUser) {
                 throw new AuthError('No authenticated user found', 'NO_USER');

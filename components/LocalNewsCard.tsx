@@ -5,7 +5,12 @@ import { Colors } from '@/constants/Colors';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { useAppTextScale } from '@/hooks/useAppTextScale';
-import { resolveArticleImageUrl, getCategoryFallbackImage } from '@/utils/imageResolver';
+import {
+  resolveArticleImageUrl,
+  getCategoryFallbackImage,
+  isInvalidOrMockImageUrl,
+  BREAKING_NEWS_FALLBACK_ASSET,
+} from '@/utils/imageResolver';
 
 export interface LocalNewsItem {
   id: string;
@@ -43,13 +48,18 @@ function LocalNewsCardComponent({ item, onPress }: LocalNewsCardProps) {
   }, [resolvedImg]);
 
   const handleImageError = () => {
-    if (imgSrc === resolvedImg && item.originalImageUrl && item.originalImageUrl !== imgSrc) {
+    if (imgSrc === resolvedImg && item.originalImageUrl && item.originalImageUrl !== imgSrc && !isInvalidOrMockImageUrl(item.originalImageUrl)) {
       setImgSrc(item.originalImageUrl);
     } else {
       const fallback = getCategoryFallbackImage('Local');
       if (imgSrc !== fallback) setImgSrc(fallback);
     }
   };
+
+  const isFallback = isInvalidOrMockImageUrl(imgSrc);
+  const imageSource = isFallback
+    ? BREAKING_NEWS_FALLBACK_ASSET
+    : { uri: imgSrc, headers: { Accept: 'image/webp,image/*;q=0.8' } };
 
   if (item.variant === 'horizontal') {
     return (
@@ -74,7 +84,7 @@ function LocalNewsCardComponent({ item, onPress }: LocalNewsCardProps) {
           </View>
         </View>
         <Image
-          source={{ uri: imgSrc, headers: { Accept: 'image/webp,image/*;q=0.8' } }}
+          source={imageSource}
           style={styles.horizontalImage}
           contentFit="cover"
           transition={200}
@@ -93,7 +103,7 @@ function LocalNewsCardComponent({ item, onPress }: LocalNewsCardProps) {
     >
       <View style={styles.verticalImageContainer}>
         <Image
-          source={{ uri: imgSrc, headers: { Accept: 'image/webp,image/*;q=0.8' } }}
+          source={imageSource}
           style={styles.verticalImage}
           contentFit="cover"
           transition={200}

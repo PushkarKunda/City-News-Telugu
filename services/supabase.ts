@@ -122,7 +122,6 @@ export const uploadImageToSupabaseProfile = async (
     const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(2, 10)}`;
     const filePath = `${folder}/${uniqueId}.${ext}`;
 
-    console.log(`📤 Uploading to: ${bucket}/${filePath}`);
 
     // 3. Upload
     const { data, error: uploadError } = await supabase.storage
@@ -151,7 +150,6 @@ export const uploadImageToSupabaseProfile = async (
       throw new Error('Failed to get public URL');
     }
 
-    console.log('✅ Upload successful:', publicUrlData.publicUrl);
     return publicUrlData.publicUrl;
 
   } catch (error: any) {
@@ -197,7 +195,6 @@ export const uploadImageToSupabaseNews = async (
     const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(2, 10)}`;
     const filePath = `${folder}/${uniqueId}.${ext}`;
 
-    console.log(`📤 Uploading to: ${bucket}/${filePath}`);
 
     // 3. Upload
     const { data, error: uploadError } = await supabase.storage
@@ -226,7 +223,6 @@ export const uploadImageToSupabaseNews = async (
       throw new Error('Failed to get public URL');
     }
 
-    console.log('✅ Upload successful:', publicUrlData.publicUrl);
     return publicUrlData.publicUrl;
 
   } catch (error: any) {
@@ -250,6 +246,3 @@ export const getSupabaseConfigStatus = () => ({
   hasAnonKey: Boolean(supabaseAnonKey),
   bucket: supabaseBucket,
 });
-
-//Just for testing
-console.log(getSupabaseConfigStatus());

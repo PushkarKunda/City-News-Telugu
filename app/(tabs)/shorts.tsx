@@ -289,24 +289,6 @@ export default function ShortsScreen() {
     refetch: refetchShorts,
   } = useShortsScreen({ language: 'te' });
 
-  useEffect(() => {
-    const t0 = Date.now();
-    console.log('[PERF][Screen:Shorts] Initializing with aggregate endpoint GET /screens/shorts (1 call vs 2 individual calls)');
-    return () => {
-      console.log(`[PERF][Screen:Shorts] Screen active duration: ${Date.now() - t0}ms`);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (shortsScreenData) {
-      console.log('[PERF][Screen:Shorts] Aggregate payload hydrated successfully:', {
-        shorts_count: shortsScreenData.shorts?.items?.length ?? 0,
-        ads_count: shortsScreenData.ads?.length ?? 0,
-        errors: shortsScreenData.errors,
-      });
-    }
-  }, [shortsScreenData]);
-
   const shortsFeed = useMemo(
     () => injectAdsIntoFeed(shortsScreenData?.shorts?.items ?? [], shortsScreenData?.ads ?? [], 5),
     [shortsScreenData]

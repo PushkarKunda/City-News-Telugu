@@ -2,6 +2,7 @@
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import * as Application from 'expo-application';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform, Linking } from 'react-native';
 import Constants from 'expo-constants';
 import { request } from './api/client';
@@ -26,7 +27,8 @@ export interface NotificationPayload {
 export interface DeviceTokenPayload {
   fcm_token: string;
   device_type: 'ios' | 'android';
-  device_name: string;
+  device_name?: string;
+  app_version?: string;
 }
 
 export interface NotificationPreferences {
@@ -53,7 +55,19 @@ export interface NotificationAnalytics {
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
+const IS_NATIVE = Platform.OS === 'ios' || Platform.OS === 'android';
+const DEVICE_TOKEN_STORAGE_KEY = '@citynews/device-push-token';
+const PREFERENCES_STORAGE_KEY = '@citynews/notification-preferences';
+
 const ANDROID_CHANNELS = {
+  DEFAULT: {
+    id: 'default',
+    name: 'General',
+    importance: Notifications.AndroidImportance.HIGH,
+    sound: 'default',
+    vibrationPattern: [0, 250] as number[],
+    lightColor: '#4648D4',
+  },
   BREAKING: {
     id: 'breaking-news',
     name: 'Breaking News',
@@ -105,7 +119,7 @@ const ANDROID_CHANNELS = {
   },
 } as const;
 
-const DEFAULT_PREFERENCES: NotificationPreferences = {
+export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   enabled: true,
   breaking_news: true,
   local_news: true,
@@ -121,9 +135,25 @@ const DEFAULT_PREFERENCES: NotificationPreferences = {
 
 // ─── State ──────────────────────────────────────────────────────────────────
 
-let expoPushToken: string | null = null;
-let currentPreferences: NotificationPreferences = { ...DEFAULT_PREFERENCES };
+let devicePushToken: string | null = null;
+let currentPreferences: NotificationPreferences = { ...DEFAULT_NOTIFICATION_PREFERENCES };
 let isInitialized = false;
+let tokenRefreshSubscription: ReturnType<typeof Notifications.addPushTokenListener> | null = null;
+
+// Show notifications while the app is in the foreground. This has to be
+// configured before the first notification is delivered, so do it at import
+// time rather than waiting for the authenticated setup flow.
+if (IS_NATIVE) {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    }),
+  });
+}
 
 // ─── Core Functions ─────────────────────────────────────────────────────────
 
@@ -131,30 +161,29 @@ let isInitialized = false;
  * Initialize push notifications (call once at app startup)
  */
 export const initializePushNotifications = async (): Promise<boolean> => {
+  if (!IS_NATIVE) return false;
   if (isInitialized) return true;
 
   try {
-    // Configure notification handler
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
         shouldShowAlert: true,
-        shouldPlaySound: true,
-        shouldSetBadge: true,
         shouldShowBanner: true,
         shouldShowList: true,
+        shouldPlaySound: true,
+        shouldSetBadge: true,
       }),
     });
 
-    // Setup Android channels
+    // Channels must exist before permission is requested on Android 13+.
     if (Platform.OS === 'android') {
       await setupAndroidChannels();
     }
 
     isInitialized = true;
-    console.log('[PushNotifications] Initialized');
     return true;
   } catch (error: any) {
-    console.error('[PushNotifications] Initialization failed:', error.message);
+    console.error('[PushNotifications] Initialization failed:', error?.message);
     return false;
   }
 };
@@ -171,11 +200,11 @@ const setupAndroidChannels = async (): Promise<void> => {
       vibrationPattern: channel.vibrationPattern,
       lightColor: channel.lightColor,
     };
-    
+
     if ('bypassDnd' in channel && channel.bypassDnd) {
       channelOptions.bypassDnd = true;
     }
-    
+
     await Notifications.setNotificationChannelAsync(channel.id, channelOptions);
   }
 };
@@ -185,67 +214,64 @@ const setupAndroidChannels = async (): Promise<void> => {
  */
 export const requestNotificationPermissions = async (): Promise<boolean> => {
   try {
-    if (!Device.isDevice) {
-      console.log('[PushNotifications] Simulators do not support push notifications');
+    if (!IS_NATIVE || !Device.isDevice) {
       return false;
     }
 
     const existingPermissions = await Notifications.getPermissionsAsync();
-    const existingStatus = (existingPermissions as any).status || (existingPermissions as any).granted;
-    
-    if (existingStatus !== 'granted' && existingStatus !== true) {
+    const existingGranted =
+      existingPermissions.granted || existingPermissions.status === 'granted';
+
+    if (!existingGranted) {
       const permResult = await Notifications.requestPermissionsAsync({
         ios: {
           allowAlert: true,
           allowBadge: true,
           allowSound: true,
-          allowCriticalAlerts: true,
           provideAppNotificationSettings: true,
         },
       });
-      const newStatus = (permResult as any).status;
-      const newGranted = (permResult as any).granted;
-      
-      if (newStatus !== 'granted' && !newGranted) {
-        console.log('[PushNotifications] Permission denied');
+
+      if (!permResult.granted && permResult.status !== 'granted') {
         return false;
       }
     }
 
-    console.log('[PushNotifications] Permission granted');
     return true;
   } catch (error: any) {
-    console.error('[PushNotifications] Permission request failed:', error.message);
+    console.error('[PushNotifications] Permission request failed:', error?.message);
     return false;
   }
 };
 
 /**
- * Get Expo push token
+ * Get the native device push token.
+ *
+ * The backend sends notifications through Firebase Cloud Messaging, so it
+ * needs the native FCM token — NOT an Expo push token
+ * (`ExponentPushToken[...]`, which only works with the Expo Push API).
+ *
+ * On Android this is the FCM registration token. On iOS this is the APNs
+ * token (Firebase/APNs must be configured for that token to be accepted).
  */
-export const getExpoPushToken = async (): Promise<string | null> => {
+export const getDevicePushToken = async (): Promise<string | null> => {
+  if (devicePushToken) return devicePushToken;
+
+  if (!IS_NATIVE || !Device.isDevice) {
+    return null;
+  }
+
   try {
-    if (expoPushToken) return expoPushToken;
-
-    if (!Device.isDevice) {
+    const token = await Notifications.getDevicePushTokenAsync();
+    if (typeof token.data !== 'string' || !token.data) {
+      console.warn('[PushNotifications] Native push token was empty');
       return null;
     }
 
-    const projectId = Constants.expoConfig?.extra?.eas?.projectId;
-    if (!projectId) {
-      console.warn('[PushNotifications] No EAS project ID found');
-      return null;
-    }
-
-    const token = await Notifications.getExpoPushTokenAsync({
-      projectId,
-    });
-
-    expoPushToken = token.data;
-    console.log('[PushNotifications] Token obtained:', expoPushToken.substring(0, 20) + '...');
-    return expoPushToken;
+    devicePushToken = token.data;
+    return devicePushToken;
   } catch (error: any) {
-    console.error('[PushNotifications] Failed to get push token:', error.message);
+    console.error('[PushNotifications] Failed to get device push token:', error?.message);
     return null;
   }
 };
@@ -256,7 +282,10 @@ export const getExpoPushToken = async (): Promise<string | null> => {
 export const registerDeviceToken = async (fcmToken: string): Promise<boolean> => {
   try {
     const deviceType = Platform.OS as 'ios' | 'android';
-    const deviceName = Device.deviceName || Application.applicationName || 'Unknown Device';
+    const deviceName =
+      Device.deviceName || Device.modelName || Application.applicationName || 'Unknown Device';
+    const appVersion =
+      Application.nativeApplicationVersion || Constants.expoConfig?.version || undefined;
 
     await request({
       url: API_ROUTES.auth.registerDevice,
@@ -265,13 +294,16 @@ export const registerDeviceToken = async (fcmToken: string): Promise<boolean> =>
         fcm_token: fcmToken,
         device_type: deviceType,
         device_name: deviceName,
+        app_version: appVersion,
       } as DeviceTokenPayload,
     });
 
-    console.log('[PushNotifications] Device registered successfully');
+    devicePushToken = fcmToken;
+    await AsyncStorage.setItem(DEVICE_TOKEN_STORAGE_KEY, fcmToken);
+
     return true;
   } catch (error: any) {
-    console.error('[PushNotifications] Device registration failed:', error.message);
+    console.error('[PushNotifications] Device registration failed:', error?.message);
     return false;
   }
 };
@@ -281,59 +313,82 @@ export const registerDeviceToken = async (fcmToken: string): Promise<boolean> =>
  */
 export const unregisterDeviceToken = async (): Promise<void> => {
   try {
-    if (!expoPushToken) return;
+    const token =
+      devicePushToken ||
+      (await AsyncStorage.getItem(DEVICE_TOKEN_STORAGE_KEY));
+
+    if (!token) return;
 
     await request({
       url: API_ROUTES.auth.unregisterDevice,
       method: 'DELETE',
       data: {
-        fcm_token: expoPushToken,
+        fcm_token: token,
       },
     });
 
-    expoPushToken = null;
-    console.log('[PushNotifications] Device unregistered');
+    devicePushToken = null;
+    await AsyncStorage.removeItem(DEVICE_TOKEN_STORAGE_KEY);
   } catch (error: any) {
-    console.error('[PushNotifications] Device unregistration failed:', error.message);
+    console.error('[PushNotifications] Device unregistration failed:', error?.message);
   }
+};
+
+/**
+ * Re-register whenever Android/iOS rotates the push token.
+ */
+const ensureTokenRefreshListener = (): void => {
+  if (!IS_NATIVE || tokenRefreshSubscription) return;
+
+  tokenRefreshSubscription = Notifications.addPushTokenListener((token) => {
+    if (typeof token.data !== 'string' || !token.data) return;
+
+    devicePushToken = token.data;
+    void registerDeviceToken(token.data);
+  });
+};
+
+const removeTokenRefreshListener = (): void => {
+  tokenRefreshSubscription?.remove();
+  tokenRefreshSubscription = null;
 };
 
 // ─── Preferences ────────────────────────────────────────────────────────────
 
 /**
- * Load notification preferences from backend
+ * Load notification preferences.
+ *
+ * The backend currently exposes no preferences endpoint, so preferences are
+ * persisted locally on the device. This keeps the settings screen functional
+ * without firing repeated 404s.
  */
 export const loadNotificationPreferences = async (): Promise<NotificationPreferences> => {
   try {
-    const prefs = await request<NotificationPreferences>({
-      url: '/user/notifications/preferences',
-      method: 'GET',
-    });
-    currentPreferences = { ...DEFAULT_PREFERENCES, ...prefs };
-    return currentPreferences;
+    const stored = await AsyncStorage.getItem(PREFERENCES_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored) as Partial<NotificationPreferences>;
+      currentPreferences = { ...DEFAULT_NOTIFICATION_PREFERENCES, ...parsed };
+    }
   } catch {
     console.warn('[PushNotifications] Failed to load preferences, using defaults');
-    return currentPreferences;
   }
+
+  return currentPreferences;
 };
 
 /**
- * Save notification preferences to backend
+ * Save notification preferences locally.
  */
-export const saveNotificationPreferences = async (prefs: Partial<NotificationPreferences>): Promise<boolean> => {
+export const saveNotificationPreferences = async (
+  prefs: Partial<NotificationPreferences>
+): Promise<boolean> => {
   try {
     currentPreferences = { ...currentPreferences, ...prefs };
-    
-    await request({
-      url: '/user/notifications/preferences',
-      method: 'PATCH',
-      data: prefs,
-    });
+    await AsyncStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(currentPreferences));
 
-    console.log('[PushNotifications] Preferences saved');
     return true;
   } catch (error: any) {
-    console.error('[PushNotifications] Failed to save preferences:', error.message);
+    console.error('[PushNotifications] Failed to save preferences:', error?.message);
     return false;
   }
 };
@@ -346,27 +401,6 @@ export const getNotificationPreferences = (): NotificationPreferences => {
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
-
-/**
- * Get channel ID for notification type
- */
-const getChannelId = (type: NotificationType): string => {
-  switch (type) {
-    case 'breaking':
-      return ANDROID_CHANNELS.BREAKING.id;
-    case 'news':
-      return ANDROID_CHANNELS.LOCAL.id;
-    case 'poll':
-      return ANDROID_CHANNELS.POLL.id;
-    case 'comment':
-      return ANDROID_CHANNELS.COMMENT.id;
-    case 'event':
-      return ANDROID_CHANNELS.EVENT.id;
-    case 'system':
-    default:
-      return ANDROID_CHANNELS.SYSTEM.id;
-  }
-};
 
 /**
  * Check if notification type is enabled in preferences
@@ -418,59 +452,16 @@ export const isQuietHoursActive = (): boolean => {
 // ─── Analytics ──────────────────────────────────────────────────────────────
 
 /**
- * Track notification analytics event
+ * Track notification analytics event.
+ *
+ * The backend does not expose a notification analytics endpoint yet, so this
+ * stays a no-op instead of sending requests that would 404.
  */
 export const trackNotificationEvent = async (
-  event: 'delivered' | 'opened' | 'dismissed',
-  notification: Notifications.Notification
+  _event: 'delivered' | 'opened' | 'dismissed',
+  _notification: Notifications.Notification
 ): Promise<void> => {
-  try {
-    const data = notification.request.content.data as Record<string, any>;
-    
-    const analytics: NotificationAnalytics = {
-      event,
-      notification_id: notification.request.identifier,
-      type: data?.type || 'system',
-      timestamp: Date.now(),
-      device_id: expoPushToken || 'unknown',
-    };
-
-    // Fire and forget - don't await to avoid blocking notification handling
-    request({
-      url: '/user/notifications/analytics',
-      method: 'POST',
-      data: analytics,
-    }).catch(() => {});
-  } catch {
-    // Silently fail - analytics should never block UX
-  }
-};
-
-// ─── Local Notifications (Testing) ──────────────────────────────────────────
-
-/**
- * Schedule a local notification for testing
- */
-export const scheduleTestNotification = async (payload: NotificationPayload): Promise<string | null> => {
-  try {
-    const channelId = payload.channelId || getChannelId(payload.type);
-    
-    const identifier = await Notifications.scheduleNotificationAsync({
-      content: {
-        title: payload.title,
-        body: payload.body,
-        data: payload.data || {},
-        sound: payload.sound !== false,
-        ...(Platform.OS === 'android' && { channelId }),
-      },
-      trigger: { seconds: 2 } as any,
-    });
-
-    return identifier;
-  } catch (error: any) {
-    console.error('[PushNotifications] Failed to schedule test notification:', error.message);
-    return null;
-  }
+  // Intentionally left as a no-op until the backend exposes analytics.
 };
 
 // ─── Utility Functions ──────────────────────────────────────────────────────
@@ -500,7 +491,7 @@ export const openNotificationSettings = async (): Promise<boolean> => {
       return true;
     }
   } catch (error: any) {
-    console.error('[PushNotifications] Failed to open settings:', error.message);
+    console.error('[PushNotifications] Failed to open settings:', error?.message);
     return false;
   }
 };
@@ -519,11 +510,11 @@ export const openAppNotificationSettings = async (): Promise<boolean> => {
         return true;
       }
     }
-    
+
     // Fallback: Open general app settings
     return await openNotificationSettings();
   } catch (error: any) {
-    console.error('[PushNotifications] Failed to open app notification settings:', error.message);
+    console.error('[PushNotifications] Failed to open app notification settings:', error?.message);
     return false;
   }
 };
@@ -535,7 +526,7 @@ export const clearAllNotifications = async (): Promise<void> => {
   try {
     await Notifications.dismissAllNotificationsAsync();
   } catch (error: any) {
-    console.error('[PushNotifications] Failed to clear notifications:', error.message);
+    console.error('[PushNotifications] Failed to clear notifications:', error?.message);
   }
 };
 
@@ -557,46 +548,64 @@ export const setBadgeCount = async (count: number): Promise<void> => {
   try {
     await Notifications.setBadgeCountAsync(count);
   } catch (error: any) {
-    console.warn('[PushNotifications] Failed to set badge count:', error.message);
+    console.warn('[PushNotifications] Failed to set badge count:', error?.message);
   }
 };
 
 // ─── Full Setup Flow ────────────────────────────────────────────────────────
 
+export interface PushSetupResult {
+  permissionGranted: boolean;
+  tokenRegistered: boolean;
+}
+
+let setupInFlight: Promise<PushSetupResult> | null = null;
+
+const performSetup = async (): Promise<PushSetupResult> => {
+  // 1. Initialize (handler + Android channels)
+  await initializePushNotifications();
+
+  // 2. Request permissions
+  const permissionGranted = await requestNotificationPermissions();
+  if (!permissionGranted) {
+    return { permissionGranted: false, tokenRegistered: false };
+  }
+
+  // 3. Get the native FCM/APNs token the backend expects
+  const token = await getDevicePushToken();
+  if (!token) {
+    return { permissionGranted: true, tokenRegistered: false };
+  }
+
+  // 4. Register with backend
+  const tokenRegistered = await registerDeviceToken(token);
+
+  // 5. Keep the backend in sync if the token rotates while the app runs
+  ensureTokenRefreshListener();
+
+  // 6. Load locally cached preferences
+  await loadNotificationPreferences();
+
+  return { permissionGranted, tokenRegistered };
+};
+
 /**
  * Complete push notification setup (call after authentication)
  */
-export const setupPushNotifications = async (): Promise<{
-  permissionGranted: boolean;
-  tokenRegistered: boolean;
-}> => {
-  try {
-    // 1. Initialize
-    await initializePushNotifications();
+export const setupPushNotifications = async (): Promise<PushSetupResult> => {
+  // Multiple screens may ask for setup at the same time; share one request.
+  if (setupInFlight) return setupInFlight;
 
-    // 2. Request permissions
-    const permissionGranted = await requestNotificationPermissions();
-    if (!permissionGranted) {
+  setupInFlight = performSetup()
+    .catch((error: any) => {
+      console.error('[PushNotifications] Setup failed:', error?.message);
       return { permissionGranted: false, tokenRegistered: false };
-    }
+    })
+    .finally(() => {
+      setupInFlight = null;
+    });
 
-    // 3. Get Expo push token
-    const token = await getExpoPushToken();
-    if (!token) {
-      return { permissionGranted: true, tokenRegistered: false };
-    }
-
-    // 4. Register with backend
-    const tokenRegistered = await registerDeviceToken(token);
-
-    // 5. Load preferences
-    await loadNotificationPreferences();
-
-    return { permissionGranted, tokenRegistered };
-  } catch (error: any) {
-    console.error('[PushNotifications] Setup failed:', error.message);
-    return { permissionGranted: false, tokenRegistered: false };
-  }
+  return setupInFlight;
 };
 
 // ─── Cleanup ────────────────────────────────────────────────────────────────
@@ -606,12 +615,13 @@ export const setupPushNotifications = async (): Promise<{
  */
 export const cleanupPushNotifications = async (): Promise<void> => {
   try {
+    removeTokenRefreshListener();
     await unregisterDeviceToken();
     await clearAllNotifications();
-    expoPushToken = null;
+    devicePushToken = null;
     isInitialized = false;
   } catch (error: any) {
-    console.error('[PushNotifications] Cleanup failed:', error.message);
+    console.error('[PushNotifications] Cleanup failed:', error?.message);
   }
 };
 
@@ -620,7 +630,7 @@ export const cleanupPushNotifications = async (): Promise<void> => {
 export default {
   initializePushNotifications,
   requestNotificationPermissions,
-  getExpoPushToken,
+  getDevicePushToken,
   registerDeviceToken,
   unregisterDeviceToken,
   loadNotificationPreferences,
@@ -629,7 +639,6 @@ export default {
   isTypeEnabled,
   isQuietHoursActive,
   trackNotificationEvent,
-  scheduleTestNotification,
   openNotificationSettings,
   openAppNotificationSettings,
   clearAllNotifications,

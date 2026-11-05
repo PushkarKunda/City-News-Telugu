@@ -46,13 +46,15 @@ export const PollCard = React.memo(
     const [votesList, setVotesList] = useState<number[]>(
       votes.length === options.length
         ? votes
-        : new Array(options.length).fill(100)
+        : new Array(options.length).fill(0)
     );
-    const [totalVotes, setTotalVotes] = useState(item?.total_votes || 100);
+    const [totalVotes, setTotalVotes] = useState(item?.total_votes ?? 0);
 
     useEffect(() => {
       if (votes.length === options.length) {
         setVotesList(votes);
+      } else {
+        setVotesList(new Array(options.length).fill(0));
       }
       if (item?.total_votes != null) {
         setTotalVotes(item.total_votes);
@@ -65,8 +67,8 @@ export const PollCard = React.memo(
     const hasVoted = selectedOption !== null;
 
     const calculatePercentages = useMemo(() => {
-      const total = totalVotes > 0 ? totalVotes : 1;
-      return votesList.map((v) => Math.round((v / total) * 100));
+      if (totalVotes <= 0) return votesList.map(() => 0);
+      return votesList.map((v) => Math.round((v / totalVotes) * 100));
     }, [votesList, totalVotes]);
 
     const handleVote = (optionIndex: number) => {

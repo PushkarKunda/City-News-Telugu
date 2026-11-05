@@ -175,8 +175,6 @@ export default function SettingsLanguageScreen() {
     const loadPreferences = async () => {
       try {
         const prefs = cachedPreferences ?? (await fetchPreferences());
-        console.log('[SettingsLanguage] prefs:', prefs);
-        console.log('[SettingsLanguage] languagesList:', languagesList);
         let langId = prefs.language_id ?? null;
         if (!langId && prefs.language && languagesList.length > 0) {
           langId = languagesList.find((l: any) => l.id === prefs.language)?.backendId ?? null;

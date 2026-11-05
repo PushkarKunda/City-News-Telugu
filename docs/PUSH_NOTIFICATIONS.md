@@ -13,8 +13,8 @@ This document describes the push notification system implementation in City News
    - Preferences management
    - Analytics tracking
 
-2. **Push Notifications Hook** (`hooks/usePushNotifications.ts`)
-   - React integration layer
+2. **Push Notifications Hook** (`hooks/usePushNotifications.tsx`)
+   - React integration layer (provider mounted once in `app/_layout.tsx`)
    - Authentication lifecycle management
    - Deep linking handlers
    - Badge count management
@@ -26,18 +26,21 @@ This document describes the push notification system implementation in City News
 
 ### Backend Endpoints
 
-- `POST /user/device/token/register` - Register FCM token
+- `POST /user/device/token/register` - Register native FCM token
 - `DELETE /user/device/token/unregister` - Unregister device
-- `GET /user/notifications/preferences` - Get preferences
-- `PATCH /user/notifications/preferences` - Update preferences
-- `POST /user/notifications/analytics` - Track events
-- `POST /user/notifications/test` - Send test notification
+- `GET /user/notifications/preferences` - Not currently exposed by the backend
+- `PATCH /user/notifications/preferences` - Not currently exposed by the backend
+- `POST /user/notifications/analytics` - Not currently exposed by the backend
+- `POST /user/notifications/test` - Not currently exposed by the backend
+
+> Preferences are persisted locally on-device. Analytics and the test-send
+> endpoint are disabled until those routes are added to the backend.
 
 ## Features
 
 ### Core Features
 
-- ✅ **FCM Token Registration**: Automatically registers Expo push tokens with backend
+- ✅ **FCM Token Registration**: Automatically registers the native FCM token with the backend
 - ✅ **Permission Management**: Requests and manages notification permissions
 - ✅ **Foreground Handling**: Handles notifications while app is open
 - ✅ **Background Handling**: System handles notifications when app is closed
@@ -62,14 +65,11 @@ This document describes the push notification system implementation in City News
 - ✅ **Master Toggle**: Enable/disable all push notifications
 - ✅ **Per-Type Toggles**: Control each notification category
 - ✅ **Quiet Hours**: Configure Do Not Disturb schedule
-- ✅ **Sync Across Devices**: Preferences sync via backend
+- ℹ️ **Local Persistence**: Preferences are stored on-device until the backend exposes a preferences endpoint
 
 ### Analytics
 
-- ✅ **Delivery Tracking**: Track when notifications are delivered
-- ✅ **Open Tracking**: Track when notifications are tapped
-- ✅ **Dismiss Tracking**: Track when notifications are dismissed
-- ✅ **Badge Analytics**: Track badge count updates
+- ⏳ **Delivery/Open Tracking**: Pending a backend analytics endpoint (currently a no-op)
 
 ## Setup
 
@@ -103,26 +103,41 @@ Add the expo-notifications plugin:
 
 ### 3. Initialize in App
 
-Push notifications are automatically initialized in `app/_layout.tsx`:
+Push notifications are initialized automatically by the provider mounted in `app/_layout.tsx`:
 
 ```typescript
-import { usePushNotifications } from '@/hooks/usePushNotifications';
+import { PushNotificationsProvider } from '@/hooks/usePushNotifications';
 
 export default function RootLayout() {
-  usePushNotifications(); // Auto-initializes on auth
-  // ...
+  return (
+    <QueryClientProvider client={queryClient}>
+      <PushNotificationsProvider>{/* app */}</PushNotificationsProvider>
+    </QueryClientProvider>
+  );
 }
 ```
+
+The provider registers the device token when the user is authenticated and installs the notification listeners once for the whole app.
 
 ### 4. Backend Requirements
 
 The backend must implement these endpoints:
 
-- Store device tokens (FCM token, device type, device name)
+- Store device tokens (native FCM token, device type, device name, app version)
 - Store user notification preferences
-- Send push notifications via Expo Push API
+- Send push notifications via Firebase Cloud Messaging
 - Track notification analytics
 - Target notifications by district, city, interests
+
+> **Important:** The mobile app registers the **native device push token**
+> (`Notifications.getDevicePushTokenAsync()`), not an Expo push token
+> (`ExponentPushToken[...]`). Expo push tokens only work with the Expo Push API;
+> the backend's `/user/device/token/register` endpoint and
+> `POST /notifications/send/push` use Firebase Cloud Messaging.
+
+> **iOS:** `getDevicePushTokenAsync()` returns the APNs token on iOS. For
+> Firebase Admin to deliver to iOS, the backend must either use an FCM
+> registration token or route APNs tokens through Firebase/APNs correctly.
 
 ## Notification Types
 
@@ -210,18 +225,8 @@ Users can enable/disable each notification type:
 
 ### Test Notifications
 
-Use the "Send Test Notification" button in settings, or:
-
-```typescript
-import { scheduleTestNotification } from '@/services/notifications';
-
-await scheduleTestNotification({
-  type: 'system',
-  title: 'Test',
-  body: 'Hello from City News Telugu!',
-  sound: true
-});
-```
+Send a test push from your backend or the Firebase Console. Local test
+notification helpers are not included in production builds.
 
 ### Simulators
 
@@ -245,7 +250,7 @@ Push notifications require a physical device. You'll see a warning in settings i
 1. Check device token is registered with backend
 2. Verify user preferences have notifications enabled
 3. Check quiet hours aren't active
-4. Verify backend is sending to correct Expo push token
+4. Verify backend is sending to the registered FCM token (not an Expo push token)
 
 ### Deep Linking Not Working
 
@@ -257,24 +262,24 @@ Push notifications require a physical device. You'll see a warning in settings i
 
 ### Sending Notifications
 
-Use Expo Push API:
+The backend sends through Firebase Cloud Messaging (Admin SDK):
 
 ```python
-import requests
+from firebase_admin import messaging
 
-message = {
-    "to": expo_push_token,
-    "title": "Breaking News!",
-    "body": "Important update in your area",
-    "data": {
+message = messaging.Message(
+    token=fcm_token,
+    notification=messaging.Notification(
+        title="Breaking News!",
+        body="Important update in your area",
+    ),
+    data={
         "type": "breaking",
-        "news_uid": "abc123"
+        "news_uid": "abc123",
     },
-    "priority": "high",
-    "sound": "default"
-}
+)
 
-requests.post("https://exp.host/--/api/v2/push/send", json=message)
+messaging.send(message)
 ```
 
 ### Targeting

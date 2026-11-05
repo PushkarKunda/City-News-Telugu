@@ -37,7 +37,6 @@ export function useGoogleFirebaseAuth(options: UseGoogleFirebaseAuthOptions = {}
           webClientId,
           offlineAccess: false,
         });
-        console.log('✅ Google Sign-In configured');
         setIsConfigured(true);
       } catch (error: any) {
         console.error('❌ Google Sign-In config error:', error.message);
@@ -59,12 +58,10 @@ export function useGoogleFirebaseAuth(options: UseGoogleFirebaseAuthOptions = {}
     }
 
     if (isGoogleLoading) {
-      console.log('⏳ Google Sign-In already in progress, ignoring double-tap');
       return;
     }
 
     setIsGoogleLoading(true);
-    console.log('🚀 Starting Google Sign-In...');
 
     try {
       await GoogleSignin.hasPlayServices();
@@ -72,7 +69,6 @@ export function useGoogleFirebaseAuth(options: UseGoogleFirebaseAuthOptions = {}
 
       // Handle v16+ cancellation response
       if (userInfo.type === 'cancelled') {
-        console.log('🚫 User cancelled Google Sign-In');
         return;
       }
 
@@ -86,14 +82,11 @@ export function useGoogleFirebaseAuth(options: UseGoogleFirebaseAuthOptions = {}
 
       // ✅ FIXED: Properly handle linking vs new sign-in
       if (isAuthenticated) {
-        console.log('🔗 Linking Google to existing account...');
         backendResponse = await linkGoogle(idToken);
       } else {
-        console.log('🚀 New Google Sign-In...');
         backendResponse = await loginWithGoogle(idToken);
       }
 
-      console.log('✅ Google auth successful');
       options.onSuccess?.(backendResponse);
     } catch (error: any) {
       // Full diagnostic logging in development so the real failure is visible
@@ -114,9 +107,6 @@ export function useGoogleFirebaseAuth(options: UseGoogleFirebaseAuthOptions = {}
         error.code === 'SIGN_IN_CANCELLED' ||
         error.message?.includes('cancelled')
       ) {
-        if (typeof __DEV__ !== 'undefined' && __DEV__) {
-          console.log('🚫 User cancelled');
-        }
         return; // Silent cancel
       }
 
@@ -128,9 +118,6 @@ export function useGoogleFirebaseAuth(options: UseGoogleFirebaseAuthOptions = {}
       }
 
       if (error.code === statusCodes.IN_PROGRESS) {
-        if (typeof __DEV__ !== 'undefined' && __DEV__) {
-          console.log('⏳ Google Sign-In already in progress');
-        }
         return;
       }
 
@@ -163,16 +150,7 @@ export function useGoogleFirebaseAuth(options: UseGoogleFirebaseAuthOptions = {}
         "Couldn't complete sign-in, please try again."
       );
 
-      // In development, surface the raw error detail so the root cause is visible
-      const isDev = typeof __DEV__ !== 'undefined' && __DEV__;
-      const rawDetail = [error?.code, error?.status, error?.endpoint, error?.message]
-        .filter(Boolean)
-        .join(' | ');
-      const devMessage = isDev && rawDetail
-        ? `${message}\n\n[DEBUG] ${rawDetail}`
-        : message;
-
-      const userFacingError = new Error(devMessage);
+      const userFacingError = new Error(message);
       (userFacingError as any).code = 'GOOGLE_AUTH_FAILED';
       options.onError?.(userFacingError);
     } finally {

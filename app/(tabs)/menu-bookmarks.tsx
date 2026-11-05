@@ -19,7 +19,11 @@ import { Colors } from '@/constants/Colors';
 import { useBookmarks, useRemoveBookmark } from '@/hooks/useEngagement';
 import { BookmarksSkeleton } from '@/components/ui/SkeletonScreens';
 import { formatTimeAgo, formatNumber } from '@/utils/formatters';
-import { resolveArticleImageUrl } from '@/utils/imageResolver';
+import {
+  resolveArticleImageUrl,
+  isInvalidOrMockImageUrl,
+  BREAKING_NEWS_FALLBACK_ASSET,
+} from '@/utils/imageResolver';
 import type { ContentType } from '@/services/api/engagement';
 
 interface MenuBookmarkItem {
@@ -315,7 +319,11 @@ export default function MenuBookmarksScreen() {
                   {item.imageUrl && (
                     <View style={styles.cardImageContainer}>
                       <Image
-                        source={{ uri: item.imageUrl }}
+                        source={
+                          isInvalidOrMockImageUrl(item.imageUrl)
+                            ? BREAKING_NEWS_FALLBACK_ASSET
+                            : { uri: item.imageUrl }
+                        }
                         style={styles.cardImage}
                         contentFit="cover"
                       />

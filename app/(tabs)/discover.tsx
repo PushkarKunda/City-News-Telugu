@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
@@ -60,31 +60,7 @@ export default function DiscoverScreen() {
   const userState = useAuthStore((state) => state.user?.state);
 
   // Single aggregate endpoint for Discover Screen (1 call vs 5 individual calls)
-  const {
-    data: discoverScreenData,
-    isLoading: isLoadingDiscoverAggregate,
-  } = useDiscoverScreen({ limit: 10 });
-
-  useEffect(() => {
-    const t0 = Date.now();
-    console.log('[PERF][Screen:Discover] Initializing with aggregate endpoint GET /screens/discover (1 call vs 5 individual calls)');
-    return () => {
-      console.log(`[PERF][Screen:Discover] Screen active duration: ${Date.now() - t0}ms`);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (discoverScreenData) {
-      console.log('[PERF][Screen:Discover] Aggregate payload hydrated successfully:', {
-        trending_count: discoverScreenData.trending_news?.length ?? 0,
-        hashtags_count: discoverScreenData.trending_hashtags?.length ?? 0,
-        categories_count: discoverScreenData.categories?.length ?? 0,
-        popular_count: discoverScreenData.popular_news?.length ?? 0,
-        districts_count: discoverScreenData.districts?.length ?? 0,
-        errors: discoverScreenData.errors,
-      });
-    }
-  }, [discoverScreenData]);
+  const { isLoading: isLoadingDiscoverAggregate } = useDiscoverScreen({ limit: 10 });
 
   // Fetch Server Data - read from seeded React Query cache
   const { data: trendingNews = [], isLoading: isLoadingTrending } = useTrendingNews();

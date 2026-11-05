@@ -113,6 +113,8 @@ export interface NewsFilters {
   include_polls?: boolean;
   include_posts?: boolean;
   post_limit?: number;
+  /** Ignore the user's saved language preference and return news from every language. */
+  all_languages?: boolean;
 }
 
 export interface LocationNewsParams {
@@ -318,6 +320,26 @@ export const newsApi = {
       method: 'GET',
       params,
     });
+  },
+
+  /**
+   * GET /news/v1/search (no keyword)
+   * Returns every approved article across all languages, newest first.
+   * Used by the "All" tab as an all-language listing.
+   */
+  getAllNews: async (params?: { limit?: number; offset?: number }): Promise<NewsArticle[]> => {
+    const res = await request<any>({
+      url: API_ROUTES.news.search,
+      method: 'GET',
+      params: {
+        limit: params?.limit ?? 50,
+        offset: params?.offset ?? 0,
+      },
+    });
+    if (Array.isArray(res)) return res;
+    if (Array.isArray(res?.items)) return res.items;
+    if (Array.isArray(res?.news)) return res.news;
+    return [];
   },
 
   // ─── CATEGORIES ────────────────────────────────────────────────────────

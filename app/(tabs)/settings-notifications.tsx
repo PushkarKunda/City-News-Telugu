@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Switch, TouchableOpacity, Alert, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { Colors } from '@/constants/Colors';
 import { BorderRadius } from '@/constants/Spacing';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { SettingsListSkeleton } from '@/components/ui/SkeletonScreens';
-import { scheduleTestNotification, openNotificationSettings } from '@/services/notifications';
+import { openNotificationSettings } from '@/services/notifications';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -78,6 +79,7 @@ export default function NotificationSettingsScreen() {
 
   const [localPreferences, setLocalPreferences] = useState(preferences);
   const [isSaving, setIsSaving] = useState(false);
+  const [timePickerField, setTimePickerField] = useState<'start' | 'end' | null>(null);
 
   useEffect(() => {
     if (preferences) {
@@ -97,20 +99,38 @@ export default function NotificationSettingsScreen() {
     setIsSaving(false);
   };
 
-  const handleTestNotification = async () => {
-    const identifier = await scheduleTestNotification({
-      type: 'system',
-      title: 'Test Notification 🔔',
-      body: 'This is a test from City News Telugu. Your notifications are working!',
-      data: { test: true },
-      sound: true,
-    });
+  const parseTime = (value: string): Date => {
+    const [hours, minutes] = value.split(':').map(Number);
+    const date = new Date();
+    date.setHours(
+      Number.isFinite(hours) ? hours : 0,
+      Number.isFinite(minutes) ? minutes : 0,
+      0,
+      0
+    );
+    return date;
+  };
 
-    if (identifier) {
-      Alert.alert('Success', 'Test notification scheduled! It will appear in 2 seconds.');
-    } else {
-      Alert.alert('Error', 'Failed to schedule test notification.');
-    }
+  const handleTimePicked = (event: DateTimePickerEvent, selected?: Date) => {
+    const field = timePickerField;
+    if (Platform.OS === 'android') setTimePickerField(null);
+    if (!field || event.type === 'dismissed' || !selected) return;
+
+    const formatted = `${String(selected.getHours()).padStart(2, '0')}:${String(
+      selected.getMinutes()
+    ).padStart(2, '0')}`;
+
+    setLocalPreferences((previous) =>
+      field === 'start'
+        ? { ...previous, quiet_hours_start: formatted }
+        : { ...previous, quiet_hours_end: formatted }
+    );
+    setIsSaving(true);
+    void updatePreferences(
+      field === 'start'
+        ? { quiet_hours_start: formatted }
+        : { quiet_hours_end: formatted }
+    ).finally(() => setIsSaving(false));
   };
 
   const handleOpenSystemSettings = async () => {
@@ -291,10 +311,7 @@ export default function NotificationSettingsScreen() {
                 <Text style={[styles.timeLabel, { color: colors.textSecondary }]}>Start Time</Text>
                 <TouchableOpacity
                   style={[styles.timeButton, { backgroundColor: colors.background, borderColor: colors.border }]}
-                  onPress={() => {
-                    // In a full implementation, show a time picker here
-                    Alert.alert('Time Picker', 'Time picker would open here. Current: ' + localPreferences.quiet_hours_start);
-                  }}
+                  onPress={() => setTimePickerField('start')}
                 >
                   <Text style={[styles.timeValue, { color: colors.text }]}>{localPreferences.quiet_hours_start}</Text>
                   <Feather name="clock" size={18} color={colors.textSecondary} />
@@ -304,39 +321,43 @@ export default function NotificationSettingsScreen() {
                 <Text style={[styles.timeLabel, { color: colors.textSecondary }]}>End Time</Text>
                 <TouchableOpacity
                   style={[styles.timeButton, { backgroundColor: colors.background, borderColor: colors.border }]}
-                  onPress={() => {
-                    Alert.alert('Time Picker', 'Time picker would open here. Current: ' + localPreferences.quiet_hours_end);
-                  }}
+                  onPress={() => setTimePickerField('end')}
                 >
                   <Text style={[styles.timeValue, { color: colors.text }]}>{localPreferences.quiet_hours_end}</Text>
                   <Feather name="clock" size={18} color={colors.textSecondary} />
                 </TouchableOpacity>
               </View>
+
+              {timePickerField && (
+                <View style={styles.timePickerInline}>
+                  <DateTimePicker
+                    value={parseTime(
+                      timePickerField === 'start'
+                        ? localPreferences.quiet_hours_start
+                        : localPreferences.quiet_hours_end
+                    )}
+                    mode="time"
+                    is24Hour
+                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    onChange={handleTimePicked}
+                  />
+                  {Platform.OS === 'ios' && (
+                    <TouchableOpacity
+                      style={[styles.timePickerDone, { backgroundColor: colors.primary }]}
+                      onPress={() => setTimePickerField(null)}
+                    >
+                      <Text style={styles.timePickerDoneText}>Done</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
             </View>
           )}
         </View>
 
-        {/* Test & Info */}
-        <SectionHeader title="TEST & INFO" />
+        {/* System Settings */}
+        <SectionHeader title="SYSTEM" />
         <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <TouchableOpacity
-            style={[styles.actionItem, { borderBottomColor: colors.border }]}
-            onPress={handleTestNotification}
-          >
-            <View style={styles.settingIcon}>
-              <View style={[styles.iconCircle, { backgroundColor: '#E0E7FF' }]}>
-                <Ionicons name="send" size={20} color="#6366F1" />
-              </View>
-            </View>
-            <View style={styles.settingTextContainer}>
-              <Text style={[styles.settingTitle, { color: colors.text }]}>Send Test Notification</Text>
-              <Text style={[styles.settingDescription, { color: colors.textSecondary }]}>
-                Verify notifications are working
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={colors.textTertiary} />
-          </TouchableOpacity>
-
           <TouchableOpacity
             style={[styles.actionItem, { borderBottomWidth: 0 }]}
             onPress={handleOpenSystemSettings}
@@ -504,6 +525,21 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingTop: 0,
     gap: 12,
+  },
+  timePickerInline: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  timePickerDone: {
+    paddingHorizontal: 24,
+    paddingVertical: 8,
+    borderRadius: BorderRadius.sm,
+  },
+  timePickerDoneText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+    fontFamily: 'Poppins_600SemiBold',
   },
   timeRow: {
     flexDirection: 'row',

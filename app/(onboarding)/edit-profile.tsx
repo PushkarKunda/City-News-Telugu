@@ -22,7 +22,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuthStore, isEmailVerified, isUserGoogleLinked } from '@/store/authStore';
+import { useAuthStore, isUserGoogleLinked } from '@/store/authStore';
 import { Colors } from '@/constants/Colors';
 import * as ImagePicker from 'expo-image-picker';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
@@ -463,24 +463,12 @@ export default function ProfileCompletionScreen() {
     !isNameValid || isSaving || isLoading || isLoadingProfile;
 
   const phoneVerified = user?.mobile_verified === true;
-  const emailVerified = isEmailVerified(user);
 
   // Derive Google linked state directly from backend user state
   const isGoogleLinked = isUserGoogleLinked(user);
 
   const connectedGoogleEmail =
     (isGoogleLinked ? (user?.email || email) : '') || '';
-
-  // Log Google linked decision value after fresh login and profile checks
-  console.log('[edit-profile] Google linked state decision:', {
-    isGoogleLinked,
-    user_google_id: user?.google_id,
-    user_auth_provider: user?.auth_provider,
-    user_providers: user?.providers,
-    user_is_google_linked: user?.is_google_linked,
-    user_email_verified: emailVerified,
-    connectedGoogleEmail,
-  });
 
   const borderInterpolation = inputBorderAnim.interpolate({
     inputRange: [0, 1],

@@ -14,7 +14,7 @@
 | `POST` | `/user/auth/logout` | Invalidate current user session | None | Bearer JWT |
 | `POST` | `/user/auth/switch-to-publisher` | Upgrade user role to Publisher (Role 2) | None | Bearer JWT |
 | `POST` | `/user/device/token/register` | Register FCM push notification token | `{ fcm_token, device_type, device_name }` | Bearer JWT |
-| `DELETE`| `/user/device/token/unregister` | Unregister FCM token | None | Bearer JWT |
+| `DELETE`| `/user/device/token/unregister` | Unregister FCM token | `{ fcm_token }` | Bearer JWT |
 
 ---
 

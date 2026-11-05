@@ -311,8 +311,8 @@ const PostCardInner: React.FC<PostCardProps> = ({
         message: `${post.content ? post.content + '\n\n' : ''}Check out this post on City News Telugu:\n${shareUrl}`,
         url: Platform.OS === 'ios' ? shareUrl : undefined,
       });
-    } catch (error) {
-      console.log('Share error:', error);
+    } catch {
+      // Sharing is best-effort; ignore cancellation or share failures.
     }
   }, [post.post_uid, post.content, sharePostMutation, shareScale]);
 

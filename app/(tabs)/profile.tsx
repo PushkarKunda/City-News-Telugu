@@ -63,24 +63,7 @@ export default function ProfileScreen() {
   const isLoadingProfile = isLoadingProfileAggregate;
 
   useEffect(() => {
-    const t0 = Date.now();
-    console.log('[PERF][Screen:Profile] Initializing with aggregate endpoint GET /screens/profile (1 call vs 4+ individual calls)');
-    return () => {
-      console.log(`[PERF][Screen:Profile] Screen session duration: ${Date.now() - t0}ms`);
-    };
-  }, []);
-
-  useEffect(() => {
     if (profileScreenData) {
-      console.log('[PERF][Screen:Profile] Aggregate payload hydrated successfully:', {
-        has_user: Boolean(profileScreenData.user),
-        has_dashboard: Boolean(profileScreenData.dashboard),
-        posts_count: profileScreenData.posts?.length ?? 0,
-        has_bookmarks: Boolean(profileScreenData.bookmarks),
-        has_rewards: Boolean(profileScreenData.rewards),
-        errors: profileScreenData.errors,
-      });
-
       if (profileScreenData.dashboard) {
         setDashboardData(profileScreenData.dashboard);
       }
@@ -251,7 +234,24 @@ export default function ProfileScreen() {
     'Set Location';
   const followersCount = dashboardData?.user?.followers_count ?? 0;
   const followingCount = dashboardData?.user?.following_count ?? 0;
-  const profileCompletion = dashboardData?.user?.profile_completion ?? 0;
+  const isPublisher = dashboardData?.user?.is_publisher ?? user?.isPublisher ?? false;
+
+  // Profile completion is based on the same five fields the backend requires
+  // to become a publisher. The dashboard's own `profile_completion` value can
+  // lag behind (or use a different field set), which is why it could stay at
+  // 60% (3 of 5 fields) even after the publisher requirements were met.
+  const requiredProfileFields = [
+    Boolean((dashboardData?.user?.name || user?.name)?.trim()),
+    isEmailVerified(user),
+    Boolean(user?.mobile_verified),
+    Boolean(user?.date_of_birth),
+    Boolean(user?.gender),
+  ];
+  const filledProfileFields = requiredProfileFields.filter(Boolean).length;
+  const profileCompletion = isPublisher
+    ? 100
+    : Math.round((filledProfileFields / requiredProfileFields.length) * 100);
+
   const unreadNotifications = dashboardData?.user?.unread_notifications ?? 0;
   const joinedDate = dashboardData?.user?.joined_date ?? (
     user?.created_at
@@ -261,7 +261,6 @@ export default function ProfileScreen() {
 
   // ─── Publisher / CTA ──────────────────────────────────────────────────────
 
-  const isPublisher = dashboardData?.user?.is_publisher ?? user?.isPublisher ?? false;
   const verifiedEmail = isEmailVerified(user);
   const isGoogleLinked = isUserGoogleLinked(user);
   const rawMissingRequirements = dashboardData?.publisher_cta?.missing_requirements ?? [];
@@ -378,6 +377,10 @@ export default function ProfileScreen() {
           }
           : prev
       );
+
+      // The avatar is one of the fields counted by profile completion, so
+      // refresh the aggregate instead of leaving the bar on its old value.
+      void refetchProfileScreen();
 
       alert('Success', 'Profile picture updated successfully!', [{ text: 'OK' }], { icon: 'checkmark-circle', iconColor: '#10B981' });
     } catch (error: any) {

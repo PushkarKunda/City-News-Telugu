@@ -28,6 +28,8 @@ import {
   resolveAdImageUrl,
   getCategoryFallbackImage,
   CURATED_FALLBACK_IMAGES,
+  isInvalidOrMockImageUrl,
+  BREAKING_NEWS_FALLBACK_ASSET,
 } from '@/utils/imageResolver';
 
 // Ad Card Component for injecting inside the article
@@ -263,12 +265,26 @@ export default function NewsDetailScreen() {
         {/* Immersive Hero Image */}
         <View style={styles.heroContainer}>
           <Image
-            source={{ uri: heroImageUri }}
+            source={
+              isInvalidOrMockImageUrl(heroImageUri)
+                ? BREAKING_NEWS_FALLBACK_ASSET
+                : { uri: heroImageUri }
+            }
             style={styles.heroImage}
             contentFit="cover"
             transition={500}
             cachePolicy="disk"
             onError={() => {
+              const origImg = (article as any)?.original_image_url;
+              if (
+                heroImageUri === resolvedHeroImage &&
+                origImg &&
+                origImg !== heroImageUri &&
+                !isInvalidOrMockImageUrl(origImg)
+              ) {
+                setHeroImageUri(origImg);
+                return;
+              }
               const fallback = getCategoryFallbackImage(categoryName, article.is_breaking);
               if (heroImageUri !== fallback) {
                 setHeroImageUri(fallback);

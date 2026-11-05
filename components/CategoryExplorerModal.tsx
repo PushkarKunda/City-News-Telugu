@@ -18,6 +18,7 @@ const { height: screenHeight } = Dimensions.get('window');
 
 const CATEGORY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   'for-you': 'sparkles',
+  all: 'albums',
   politics: 'business',
   cinema: 'film',
   movies: 'film',
@@ -40,6 +41,7 @@ const CATEGORY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 
 const CATEGORY_TELUGU: Record<string, string> = {
   'for-you': 'మీ కోసం',
+  all: 'అన్నీ',
   politics: 'రాజకీయాలు',
   cinema: 'సినిమా',
   movies: 'సినిమా',
@@ -57,7 +59,7 @@ const CATEGORY_TELUGU: Record<string, string> = {
 };
 
 export interface CategoryTabItem {
-  id: 'for-you' | number;
+  id: 'for-you' | 'all' | number;
   name: string;
   color?: string;
 }
@@ -66,8 +68,8 @@ interface CategoryExplorerModalProps {
   visible: boolean;
   onClose: () => void;
   categories: CategoryTabItem[];
-  activeCategoryId: 'for-you' | number;
-  onSelectCategory: (id: 'for-you' | number) => void;
+  activeCategoryId: 'for-you' | 'all' | number;
+  onSelectCategory: (id: 'for-you' | 'all' | number) => void;
 }
 
 export function CategoryExplorerModal({
@@ -81,7 +83,7 @@ export function CategoryExplorerModal({
   const colors = Colors[colorScheme ?? 'light'];
   const isDark = colorScheme === 'dark';
 
-  const handleSelect = (id: 'for-you' | number) => {
+  const handleSelect = (id: 'for-you' | 'all' | number) => {
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }

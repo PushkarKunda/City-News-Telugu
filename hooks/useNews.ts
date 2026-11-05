@@ -9,6 +9,7 @@ import type {
   UpdateNewsPayload,
   CommentsPage,
   NewsComment,
+  NewsFeedResponse,
 } from '@/services/api/news';
 
 
@@ -19,6 +20,7 @@ import type {
 export const newsKeys = {
   all: ['news'] as const,
   feed: (filters?: NewsFilters) => ['news', 'feed', filters] as const,
+  allFeed: ['news', 'feed', 'all-languages'] as const,
   categories: ['news', 'categories'] as const,
   categoryNews: (id: number) => ['news', 'category', id] as const,
   locationNews: (params: LocationNewsParams) =>
@@ -47,6 +49,46 @@ export function useNewsFeed(filters?: NewsFilters) {
     queryFn: () => newsApi.getFeed({ limit: 20, ...filters }),
     staleTime: 1000 * 60 * 5,
     gcTime: 1000 * 60 * 15,
+  });
+}
+
+/**
+ * GET /news/v1/feed?all_languages=true
+ *
+ * The "All" tab: every article regardless of the user's saved language.
+ * On backends that predate the `all_languages` flag the parameter is ignored,
+ * so we fall back to the all-language search listing when the feed comes back
+ * with no news items at all.
+ */
+export function useAllNews(enabled = true) {
+  return useQuery({
+    queryKey: newsKeys.allFeed,
+    queryFn: async (): Promise<NewsFeedResponse> => {
+      const feed = await newsApi.getFeed({ limit: 50, all_languages: true });
+      const items = Array.isArray(feed?.items) ? feed.items : [];
+      if (items.some((item) => item?.type === 'news')) return feed;
+
+      const articles = await newsApi.getAllNews({ limit: 100 });
+      const seen = new Set<string>();
+      const uniqueArticles = articles.filter((article) => {
+        const key = String(article?.title ?? '').trim().toLowerCase() || String(article?.news_uid ?? '');
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      return {
+        ...feed,
+        items: uniqueArticles.map((article, position) => ({
+          type: 'news' as const,
+          data: article,
+          position,
+        })),
+      } as NewsFeedResponse;
+    },
+    enabled,
+    staleTime: 1000 * 60 * 2,
+    gcTime: 1000 * 60 * 10,
   });
 }
 

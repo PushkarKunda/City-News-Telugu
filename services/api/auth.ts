@@ -101,16 +101,12 @@ export const authApi = {
   ): Promise<BackendLoginResponse> => {
     const fullUrl = `${API_CONFIG.baseUrl}${API_ROUTES.auth.google}`;
     const method = 'POST';
-    const hasAuthHeader = Boolean(firebaseToken);
     const sessionVersion = getSessionVersion();
 
     // If server does not have /user/auth/google deployed yet, directly use firebaseLogin
     if (isGoogleAuthSupported === false) {
-      console.log(`[authApi.loginWithGoogleAuth] Using deployed endpoint: ${API_ROUTES.auth.firebaseLogin}`);
       return await authApi.loginWithFirebase(firebaseToken);
     }
-
-    console.log(`[authApi.loginWithGoogleAuth] Calling: ${method} ${fullUrl} | Authorization header set: ${hasAuthHeader}`);
 
     try {
       const response = await request<BackendLoginResponse>({
@@ -151,7 +147,6 @@ export const authApi = {
 
       if (is404) {
         isGoogleAuthSupported = false;
-        console.log(`[authApi.loginWithGoogleAuth] ${fullUrl} returned 404 (endpoint pending Railway deployment). Falling back to ${API_ROUTES.auth.firebaseLogin}...`);
         try {
           return await authApi.loginWithFirebase(firebaseToken);
         } catch (fallbackErr: any) {

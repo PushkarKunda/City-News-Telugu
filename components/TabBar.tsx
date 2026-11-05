@@ -134,23 +134,6 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
     const isFullscreenFeed = routeName === 'index' || routeName === 'posts';
     const isTabBarVisible = isFullscreenFeed ? visible : true;
 
-    // Requirement: Log tab bar debug values on focus for the posts route
-    useEffect(() => {
-        if (routeName === 'posts') {
-            console.log('[DEBUG][TabBar:Posts]', {
-                routeName,
-                tabBarStyle_display: (activeOptions?.tabBarStyle as any)?.display ?? 'default',
-                useTabBarStore_visible: visible,
-                isTabBarVisible,
-                translateY_target: isTabBarVisible ? 0 : 150,
-                backgroundColor: colors.surface,
-                isSolidBackground: colors.surface !== 'transparent',
-                tabHeight,
-                bottomInset,
-            });
-        }
-    }, [routeName, activeOptions, visible, isTabBarVisible, colors.surface, tabHeight, bottomInset]);
-
     useEffect(() => {
         Animated.spring(translateY, {
             toValue: isTabBarVisible ? 0 : 150,

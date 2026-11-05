@@ -52,6 +52,7 @@ import { setOnUnauthorizedCallback } from '@/services/api/client';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 import { Colors } from '@/constants/Colors';
 import { useRealtimeReconciliation } from '@/hooks/useRealtimeReconciliation';
+import { PushNotificationsProvider } from '@/hooks/usePushNotifications';
 import { bindQueryFocus } from '@/services/queryFocus';
 import { bindSessionCache, queryClient } from '@/services/queryClient';
 WebBrowser.maybeCompleteAuthSession();
@@ -234,86 +235,88 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
-        <RealtimeInitializer>
-          <GestureHandlerRootView style={{ flex: 1 }}>
-            <StatusBar
-              style={isDark ? 'light' : 'dark'}
-              translucent
-              backgroundColor="transparent"
-            />
-
-            <Stack
-              screenOptions={{
-                headerShown: false,
-                contentStyle: { backgroundColor: colors.background },
-                animation: 'fade',
-              }}
-            >
-              <Stack.Screen name="index" />
-              <Stack.Screen name="(auth)" />
-              <Stack.Screen name="(onboarding)" />
-              <Stack.Screen name="(tabs)" />
-
-              {/* ✅ FIXED: Use animation prop not animationEnabled */}
-              <Stack.Screen
-                name="news/[id]"
-                options={{
-                  animation: 'slide_from_right',
-                }}
+        <PushNotificationsProvider>
+          <RealtimeInitializer>
+            <GestureHandlerRootView style={{ flex: 1 }}>
+              <StatusBar
+                style={isDark ? 'light' : 'dark'}
+                translucent
+                backgroundColor="transparent"
               />
-              <Stack.Screen
-                name="(publisher)"
-                options={{
-                  animation: 'slide_from_right',
-                }}
-              />
-            </Stack>
 
-            {/* Offline Network Warning Banner */}
-            {showNetworkError && !isConnected && (
-              <View
-                style={[
-                  StyleSheet.absoluteFill,
-                  styles.centerContainer,
-                  { backgroundColor: colors.background },
-                ]}
+              <Stack
+                screenOptions={{
+                  headerShown: false,
+                  contentStyle: { backgroundColor: colors.background },
+                  animation: 'fade',
+                }}
               >
-                <View style={styles.centerContent}>
-                  <View
-                    style={[
-                      styles.iconContainer,
-                      { backgroundColor: colors.primaryLight },
-                    ]}
-                  >
-                    <Ionicons name="cloud-offline" size={56} color={colors.primary} />
+                <Stack.Screen name="index" />
+                <Stack.Screen name="(auth)" />
+                <Stack.Screen name="(onboarding)" />
+                <Stack.Screen name="(tabs)" />
+
+                {/* ✅ FIXED: Use animation prop not animationEnabled */}
+                <Stack.Screen
+                  name="news/[id]"
+                  options={{
+                    animation: 'slide_from_right',
+                  }}
+                />
+                <Stack.Screen
+                  name="(publisher)"
+                  options={{
+                    animation: 'slide_from_right',
+                  }}
+                />
+              </Stack>
+
+              {/* Offline Network Warning Banner */}
+              {showNetworkError && !isConnected && (
+                <View
+                  style={[
+                    StyleSheet.absoluteFill,
+                    styles.centerContainer,
+                    { backgroundColor: colors.background },
+                  ]}
+                >
+                  <View style={styles.centerContent}>
+                    <View
+                      style={[
+                        styles.iconContainer,
+                        { backgroundColor: colors.primaryLight },
+                      ]}
+                    >
+                      <Ionicons name="cloud-offline" size={56} color={colors.primary} />
+                    </View>
+                    <Text style={[styles.errorTitle, { color: colors.text }]}>
+                      No Internet Connection
+                    </Text>
+                    <Text
+                      style={[styles.errorMessage, { color: colors.textSecondary }]}
+                    >
+                      Please check your network and try again.
+                    </Text>
+                    <TouchableOpacity
+                      style={[styles.retryButton, { backgroundColor: colors.primary }]}
+                      onPress={() => {
+                        NetInfo.fetch().then((netState) => {
+                          if (netState.isConnected) {
+                            setShowNetworkError(false);
+                          }
+                        });
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="refresh" size={20} color="#FFFFFF" />
+                      <Text style={styles.retryText}>Retry Connection</Text>
+                    </TouchableOpacity>
                   </View>
-                  <Text style={[styles.errorTitle, { color: colors.text }]}>
-                    No Internet Connection
-                  </Text>
-                  <Text
-                    style={[styles.errorMessage, { color: colors.textSecondary }]}
-                  >
-                    Please check your network and try again.
-                  </Text>
-                  <TouchableOpacity
-                    style={[styles.retryButton, { backgroundColor: colors.primary }]}
-                    onPress={() => {
-                      NetInfo.fetch().then((netState) => {
-                        if (netState.isConnected) {
-                          setShowNetworkError(false);
-                        }
-                      });
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons name="refresh" size={20} color="#FFFFFF" />
-                    <Text style={styles.retryText}>Retry Connection</Text>
-                  </TouchableOpacity>
                 </View>
-              </View>
-            )}
-          </GestureHandlerRootView>
-        </RealtimeInitializer>
+              )}
+            </GestureHandlerRootView>
+          </RealtimeInitializer>
+        </PushNotificationsProvider>
       </QueryClientProvider>
     </SafeAreaProvider>
   );
