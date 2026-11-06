@@ -476,12 +476,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'inherit',
     borderTopLeftRadius: BorderRadius['2xl'],
     borderTopRightRadius: BorderRadius['2xl'],
-    paddingTop: Spacing.lg,
+    paddingTop: Spacing.sm,
   },
   categoryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: Spacing.sm,
+    marginBottom: 0,
   },
   categoryBadge: {
     paddingHorizontal: 10,
@@ -508,16 +508,17 @@ const styles = StyleSheet.create({
   headline: {
     fontSize: 28,
     fontFamily: 'Poppins_700Bold',
-    lineHeight: 42,
-    marginBottom: Spacing.lg,
+    lineHeight: 38,
+    marginBottom: 6,
     letterSpacing: -0.5,
+    includeFontPadding: false,
   },
   byline: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingBottom: Spacing.lg,
+    paddingBottom: 6,
     borderBottomWidth: 1,
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.sm,
   },
   authorAvatar: {
     width: 48,
@@ -534,7 +535,7 @@ const styles = StyleSheet.create({
   publishedDate: {
     fontSize: 13,
     fontFamily: 'Poppins_400Regular',
-    marginTop: 2,
+    marginTop: 0,
   },
   followBtn: {
     paddingHorizontal: 16,
@@ -547,7 +548,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Poppins_600SemiBold',
   },
   articleBody: {
-    marginTop: Spacing.sm,
+    marginTop: 0,
   },
   leadIn: {
     fontSize: 18,

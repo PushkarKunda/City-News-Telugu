@@ -8,6 +8,7 @@ import axios, {
 import { API_CONFIG } from './config';
 import { getAuthToken, getRefreshToken, saveTokens, clearTokens } from './token';
 import { API_ROUTES } from './routes';
+import { getIdToken } from '@react-native-firebase/auth';
 import { firebaseAuth } from '../firebase';
 import { getSessionVersion, isCurrentSession } from '../session';
 
@@ -163,7 +164,7 @@ apiClient.interceptors.response.use(
           try {
             const fbUser = firebaseAuth.currentUser;
             if (fbUser) {
-              const fbToken = await fbUser.getIdToken(true);
+              const fbToken = await getIdToken(fbUser, true);
               if (fbToken) {
                 const fbRes = await axios.post(
                   `${API_CONFIG.baseUrl}${API_ROUTES.auth.firebaseLogin}`,

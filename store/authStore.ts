@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
-import { getAuth, FirebaseAuthTypes } from '@react-native-firebase/auth';
+import { getAuth, getIdToken, FirebaseAuthTypes } from '@react-native-firebase/auth';
 import {
   sendPhoneOTP as firebaseSendOTP,
   verifyPhoneOTP as firebaseVerifyOTP,
@@ -406,7 +406,7 @@ export const useAuthStore = create<AuthState>()(
 
           if (!token && currentUser) {
             try {
-              const freshToken = await currentUser.getIdToken();
+              const freshToken = await getIdToken(currentUser);
               if (freshToken) {
                 const loginRes = await authApi.loginWithFirebase(freshToken).catch(() => null);
                 if (loginRes?.access_token) {
@@ -428,7 +428,7 @@ export const useAuthStore = create<AuthState>()(
           const isGoogleProvider = currentUser?.providerData?.some((p) => p.providerId === 'google.com');
           if (currentUser && isGoogleProvider) {
             try {
-              const freshToken = await currentUser.getIdToken(true);
+              const freshToken = await getIdToken(currentUser, true);
               if (freshToken) {
                 await authApi.syncProvider(freshToken);
               }
@@ -702,7 +702,7 @@ export const useAuthStore = create<AuthState>()(
         try {
           const currentUser = getAuth().currentUser;
           if (!currentUser) return null;
-          const freshIdToken = await currentUser.getIdToken(true);
+          const freshIdToken = await getIdToken(currentUser, true);
           if (!freshIdToken) return null;
           const response = await authApi.loginWithGoogleAuth(freshIdToken);
 
@@ -761,7 +761,7 @@ export const useAuthStore = create<AuthState>()(
               if (!currentUser) {
                 throw new AuthError('No authenticated user found', 'NO_USER');
               }
-              firebaseToken = await currentUser.getIdToken(true);
+              firebaseToken = await getIdToken(currentUser, true);
             } else {
               throw linkError;
             }

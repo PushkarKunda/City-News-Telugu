@@ -1,6 +1,11 @@
 // services/firebase.ts
 import {
   getAuth,
+  signInWithPhoneNumber,
+  getIdToken,
+  signInWithCredential,
+  linkWithCredential,
+  signOut,
   GoogleAuthProvider,
   PhoneAuthProvider,
   FirebaseAuthTypes,
@@ -25,7 +30,7 @@ export const sendPhoneOTP = async (
   phoneNumber: string
 ): Promise<FirebaseAuthTypes.ConfirmationResult> => {
   try {
-    const confirmation = await firebaseAuth.signInWithPhoneNumber(phoneNumber);
+    const confirmation = await signInWithPhoneNumber(firebaseAuth, phoneNumber);
     return confirmation;
   } catch (error: any) {
     console.error('❌ OTP Send Failed:', error.message, error.code);
@@ -53,7 +58,7 @@ export const verifyPhoneOTP = async (
           );
 
       try {
-        userCredential = await currentUser.linkWithCredential(credential);
+        userCredential = await linkWithCredential(currentUser, credential);
       } catch (linkError: any) {
         // FIX: Also check for 'auth/unknown' with the specific message, as Firebase Android sometimes uses this instead of the specific code
         const isAlreadyLinked =
@@ -62,7 +67,7 @@ export const verifyPhoneOTP = async (
           (linkError.code === 'auth/unknown' && linkError.message?.includes('already been linked'));
 
         if (isAlreadyLinked) {
-          return await currentUser.getIdToken(true);
+          return await getIdToken(currentUser, true);
         }
         throw linkError;
       }
@@ -72,14 +77,14 @@ export const verifyPhoneOTP = async (
           confirmationOrVerificationId,
           otp
         );
-        userCredential = await firebaseAuth.signInWithCredential(credential);
+        userCredential = await signInWithCredential(firebaseAuth, credential);
       } else {
         userCredential = await confirmationOrVerificationId.confirm(otp);
       }
     }
 
     if (!userCredential?.user) throw new Error('Verification failed');
-    const firebaseToken = await userCredential.user.getIdToken(true);
+    const firebaseToken = await getIdToken(userCredential.user, true);
     return firebaseToken;
   } catch (error: any) {
     console.error('❌ OTP Verify Failed:', error.message, error.code);
@@ -92,8 +97,8 @@ export const verifyPhoneOTP = async (
 export const signInWithGoogle = async (idToken: string): Promise<string> => {
   try {
     const googleCredential = GoogleAuthProvider.credential(idToken);
-    const userCredential = await firebaseAuth.signInWithCredential(googleCredential);
-    const firebaseToken = await userCredential.user.getIdToken(true);
+    const userCredential = await signInWithCredential(firebaseAuth, googleCredential);
+    const firebaseToken = await getIdToken(userCredential.user, true);
     return firebaseToken;
   } catch (error: any) {
     console.error('❌ Google Sign-In Failed:', error.message, error.code);
@@ -113,8 +118,8 @@ export const linkGoogleAccount = async (idToken: string): Promise<string> => {
     const googleCredential = GoogleAuthProvider.credential(idToken);
     let firebaseToken: string;
     try {
-      const userCredential = await currentUser.linkWithCredential(googleCredential);
-      firebaseToken = await userCredential.user.getIdToken(true);
+      const userCredential = await linkWithCredential(currentUser, googleCredential);
+      firebaseToken = await getIdToken(userCredential.user, true);
     } catch (linkError: any) {
       const isAlreadyLinked =
         linkError.code === 'auth/credential-already-in-use' ||
@@ -123,7 +128,7 @@ export const linkGoogleAccount = async (idToken: string): Promise<string> => {
         linkError.message?.includes('already linked');
 
       if (isAlreadyLinked) {
-        return await currentUser.getIdToken(true);
+        return await getIdToken(currentUser, true);
       }
       throw linkError;
     }
@@ -147,8 +152,8 @@ export const linkPhoneNumber = async (
     }
 
     const credential = PhoneAuthProvider.credential(verificationId, otp);
-    const userCredential = await currentUser.linkWithCredential(credential);
-    const firebaseToken = await userCredential.user.getIdToken(true);
+    const userCredential = await linkWithCredential(currentUser, credential);
+    const firebaseToken = await getIdToken(userCredential.user, true);
     return firebaseToken;
   } catch (error: any) {
     console.error('❌ Phone Link Failed:', error.message, error.code);
@@ -162,7 +167,7 @@ export const firebaseSignOut = async (): Promise<void> => {
   try {
     const currentUser = firebaseAuth.currentUser;
     if (currentUser) {
-      await firebaseAuth.signOut();
+      await signOut(firebaseAuth);
     }
   } catch (error: any) {
     console.error('❌ Sign Out Failed:', error.message);
@@ -175,7 +180,7 @@ export const getCurrentFirebaseToken = async (): Promise<string | null> => {
   try {
     const currentUser = firebaseAuth.currentUser;
     if (!currentUser) return null;
-    return await currentUser.getIdToken(true);
+    return await getIdToken(currentUser, true);
   } catch {
     return null;
   }
