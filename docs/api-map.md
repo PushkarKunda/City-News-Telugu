@@ -92,3 +92,21 @@
 | `POST` | `/rewards/earn/share` | Claim reward points for sharing article | `{ article_id }` | Bearer JWT |
 | `GET` | `/rewards/bingo` | Fetch user bingo challenge card | None | Bearer JWT |
 | `POST` | `/rewards/bingo/claim` | Claim bingo completion reward | `{ tile_id }` | Bearer JWT |
+
+---
+
+## 7. Screen Aggregation / BFF Domain (`API_ROUTES.screens`)
+
+> **Full Specification & Schemas**: See [`docs/BACKEND_SCREENS_API_SPEC.md`](file:///c:/A/City-News-Telugu/docs/BACKEND_SCREENS_API_SPEC.md)
+
+| Method | Endpoint Route | Purpose | Payload / Parameters | Auth Required |
+| :--- | :--- | :--- | :--- | :--- |
+| `GET` | `/screens/home` | Composite Home screen (feed, categories, polls, prefs, bookmarks) | `cursor`, `limit`, `category_id`, `category_slug`, `language_id` | Optional |
+| `GET` | `/screens/community` | Composite Community screen (feed, trending hashtags, bookmarks) | `cursor`, `limit` | Optional |
+| `GET` | `/screens/profile` | Composite Profile screen (user, dashboard, eligibility, posts, bookmarks) | None | Bearer JWT |
+| `GET` | `/screens/shorts` | Composite Shorts screen (video shorts items, ads) | `language`, `limit`, `cursor` | Optional |
+| `GET` | `/screens/discover` | Composite Discover screen (trending news, tags, categories, districts) | `state_id`, `limit` | Optional |
+| `GET` | `/screens/local` | Composite Local screen (geo-news feed, location hierarchy) | `state`, `district`, `city`, `limit`, `cursor` | Optional |
+| `GET` | `/screens/notifications` | Composite Notifications screen (inbox items, unread count) | `limit`, `offset` | Bearer JWT |
+| `GET` | `/screens/news/:uid` | Composite News Detail screen (article, engagement, bookmark, comments, ads) | `uid` (path param) | Optional |
+

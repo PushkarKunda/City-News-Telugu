@@ -476,12 +476,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'inherit',
     borderTopLeftRadius: BorderRadius['2xl'],
     borderTopRightRadius: BorderRadius['2xl'],
-    paddingTop: Spacing.xl,
+    paddingTop: Spacing.lg,
   },
   categoryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   categoryBadge: {
     paddingHorizontal: 10,
@@ -508,9 +508,8 @@ const styles = StyleSheet.create({
   headline: {
     fontSize: 28,
     fontFamily: 'Poppins_700Bold',
-    lineHeight: 46,
-    paddingVertical: 4,
-    marginBottom: Spacing.xl,
+    lineHeight: 42,
+    marginBottom: Spacing.lg,
     letterSpacing: -0.5,
   },
   byline: {

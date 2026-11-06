@@ -24,6 +24,7 @@ import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { CreateArticleModal } from '@/components/CreateArticleModal';
+import { CreatePostModal } from '@/components/CreatePostModal';
 import { useAppAlert } from '@/components/AppAlert';
 import { useCreateNews, useCategories } from '@/hooks/useNews';
 import { useDeletePost } from '@/hooks/usePosts';
@@ -32,7 +33,7 @@ import { useProfileScreen } from '@/hooks/useScreens';
 import { usersApi, postsApi, getUserFacingError, type DashboardResponse } from '@/services/api';
 import type { Post } from '@/services/api/posts';
 import { compressImage } from '@/services/image';
-import { uploadImageToSupabaseProfile, uploadImageToSupabaseNews } from '@/services/supabase';
+import { uploadImageToSupabaseProfile } from '@/services/supabase';
 import InitialsAvatar from '@/components/InitialsAvatar';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -126,12 +127,8 @@ export default function ProfileScreen() {
   const [showCreatePostModal, setShowCreatePostModal] = useState(false);
 
   // ─── Post State ──────────────────────────────────────────────────────────
-  const [postCaption, setPostCaption] = useState('');
-  const [postCoverImage, setPostCoverImage] = useState('');
-  const [isUploadingPostImage, setIsUploadingPostImage] = useState(false);
   const [posts, setPosts] = useState<Post[]>([]);
   const isLoadingPosts = isLoadingProfileAggregate;
-  const [isPublishingPost, setIsPublishingPost] = useState(false);
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [comments, setComments] = useState<any[]>([]);
   const [newCommentText, setNewCommentText] = useState('');
@@ -529,92 +526,37 @@ export default function ProfileScreen() {
     );
   };
 
-  // ─── Post image upload (gallery → compress → Supabase → public URL) ──────
-  const handlePickPostImage = async () => {
-    if (isUploadingPostImage) return;
-    try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        alert('Permission Denied', 'Please allow photo access to upload an image.', [{ text: 'OK' }], { icon: 'lock-closed-outline', iconColor: '#F59E0B' });
-        return;
-      }
+  // ─── Newly created post is prepended instantly (query cache also refreshes) ──
+  const handlePostCreated = (response: any) => {
+    const created = response?.post;
+    if (!created?.post_uid) return;
 
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: 'images',
-        quality: 0.8,
-      });
+    const captionTags = (created.content?.match(/#[a-zA-Z0-9_]+/g) || []).map((t: string) =>
+      t.replace(/^#/, '').trim()
+    );
 
-      if (result.canceled || !result.assets?.length) return;
+    const newPost: Post = {
+      id: Date.now(),
+      post_uid: created.post_uid,
+      content: created.content || '',
+      image_url: created.image_url,
+      video_url: created.video_url,
+      user_uid: user?.user_uid || '',
+      user_name: user?.user_name || 'user',
+      user_display_name: user?.name || 'User',
+      user_profile_picture: user?.profile_picture || null,
+      like_count: 0,
+      comment_count: 0,
+      share_count: 0,
+      is_edited: false,
+      edited_at: null,
+      created_at: created.created_at,
+      time_ago: 'Just now',
+      hashtags: created.hashtags || captionTags || [],
+      is_liked: false,
+    };
 
-      setIsUploadingPostImage(true);
-      const compressed = await compressImage(result.assets[0].uri, {
-        width: 1280,
-        compress: 0.8,
-      });
-      const publicUrl = await uploadImageToSupabaseNews(compressed.uri, 'posts');
-      setPostCoverImage(publicUrl);
-    } catch (error: any) {
-      console.warn('[profile] Post image upload failed:', error);
-      alert('Upload Failed', getUserFacingError(error, 'Could not upload image. Please try again.'), [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
-    } finally {
-      setIsUploadingPostImage(false);
-    }
-  };
-
-  const handleCreatePost = async () => {
-    if (!postCaption.trim()) {
-      alert('Validation Error', 'Please write a caption.', [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#F59E0B' });
-      return;
-    }
-
-    setIsPublishingPost(true);
-    try {
-      const imageUrl = postCoverImage.trim() || null;
-
-      const captionTags = (postCaption.match(/#[a-zA-Z0-9_]+/g) || []).map((t) =>
-        t.replace(/^#/, '').trim()
-      );
-
-      // Call backend Post creation API
-      const response = await postsApi.createPost({
-        content: postCaption.trim(),
-        image_url: imageUrl,
-        hashtags: captionTags.length > 0 ? captionTags : undefined,
-      });
-
-      // 3. Prepend newly created post
-      const newPost: Post = {
-        id: Date.now(),
-        post_uid: response.post.post_uid,
-        content: response.post.content || '',
-        image_url: response.post.image_url,
-        video_url: response.post.video_url,
-        user_uid: user?.user_uid || '',
-        user_name: user?.user_name || 'user',
-        user_display_name: user?.name || 'User',
-        user_profile_picture: user?.profile_picture || null,
-        like_count: 0,
-        comment_count: 0,
-        share_count: 0,
-        is_edited: false,
-        edited_at: null,
-        created_at: response.post.created_at,
-        time_ago: 'Just now',
-        hashtags: response.post.hashtags || captionTags || [],
-        is_liked: false,
-      };
-
-      setPosts([newPost, ...posts]);
-      setPostCaption('');
-      setPostCoverImage('');
-      setShowCreatePostModal(false);
-      alert('Success', 'Your post has been published successfully!', [{ text: 'OK' }], { icon: 'checkmark-circle', iconColor: '#10B981' });
-    } catch (error: any) {
-      console.error('[profile] Failed to create post:', error);
-      alert('Error', getUserFacingError(error, 'Failed to publish post. Please try again.'), [{ text: 'OK' }], { icon: 'alert-circle', iconColor: '#EF4444' });
-    } finally {
-      setIsPublishingPost(false);
-    }
+    setPosts((prev) => [newPost, ...prev]);
   };
 
   // ─── Render ───────────────────────────────────────────────────────────────
@@ -1029,38 +971,26 @@ export default function ProfileScreen() {
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.tabButton, activeTab === 'publisher' && styles.tabButtonActive]}
-            onPress={() => {
-              if (isPublisher) {
-                setShowCreatePostModal(true);
-              } else {
-                setActiveTab('publisher');
-              }
-            }}
-          >
-            {isPublisher ? (
-              <View style={styles.plusTabCircle}>
-                <Ionicons name="add" size={18} color="#FFFFFF" />
-              </View>
-            ) : (
-              <>
-                <Ionicons
-                  name="shield-checkmark"
-                  size={16}
-                  color={activeTab === 'publisher' ? colors.primary : colors.textSecondary}
-                />
-                <Text
-                  style={[
-                    styles.tabLabel,
-                    { color: activeTab === 'publisher' ? colors.primary : colors.textSecondary },
-                  ]}
-                >
-                  Publisher
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
+          {!isPublisher && (
+            <TouchableOpacity
+              style={[styles.tabButton, activeTab === 'publisher' && styles.tabButtonActive]}
+              onPress={() => setActiveTab('publisher')}
+            >
+              <Ionicons
+                name="shield-checkmark"
+                size={16}
+                color={activeTab === 'publisher' ? colors.primary : colors.textSecondary}
+              />
+              <Text
+                style={[
+                  styles.tabLabel,
+                  { color: activeTab === 'publisher' ? colors.primary : colors.textSecondary },
+                ]}
+              >
+                Publisher
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Tab: Posts */}
@@ -1080,7 +1010,7 @@ export default function ProfileScreen() {
                   style={{ marginBottom: 12 }}
                 />
                 <Text style={{ color: colors.textSecondary, textAlign: 'center' }}>
-                  No posts yet. Create your first post!
+                  No posts yet. Tap the + button to share your first post.
                 </Text>
               </View>
             ) : (
@@ -1463,6 +1393,14 @@ export default function ProfileScreen() {
       </ScrollView>
 
       {/* FAB */}
+      {showFabMenu && (
+        <TouchableOpacity
+          style={styles.fabBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowFabMenu(false)}
+        />
+      )}
+
       <View style={styles.fabContainer}>
         {showFabMenu && (
           <View
@@ -1471,6 +1409,8 @@ export default function ProfileScreen() {
               { backgroundColor: colors.surface, borderColor: colors.border },
             ]}
           >
+            <Text style={[styles.fabMenuHeading, { color: colors.textTertiary }]}>CREATE</Text>
+
             <TouchableOpacity
               style={styles.fabMenuItem}
               activeOpacity={0.7}
@@ -1479,13 +1419,15 @@ export default function ProfileScreen() {
                 setShowCreatePostModal(true);
               }}
             >
-              <Ionicons
-                name="create-outline"
-                size={16}
-                color={colors.text}
-                style={{ marginRight: 10 }}
-              />
-              <Text style={[styles.fabMenuText, { color: colors.text }]}>Create Post</Text>
+              <View style={[styles.fabMenuIcon, { backgroundColor: colors.primary + '18' }]}>
+                <Ionicons name="create-outline" size={18} color={colors.primary} />
+              </View>
+              <View style={styles.fabMenuTextWrap}>
+                <Text style={[styles.fabMenuText, { color: colors.text }]}>Create Post</Text>
+                <Text style={[styles.fabMenuSubtext, { color: colors.textSecondary }]}>
+                  Share with your community
+                </Text>
+              </View>
             </TouchableOpacity>
 
             <View style={[styles.fabDivider, { backgroundColor: colors.border }]} />
@@ -1500,7 +1442,7 @@ export default function ProfileScreen() {
                 } else {
                   alert(
                     'Access Denied',
-                    'Write News is only available for verified publishers.',
+                    'Creating news is only available for verified publishers.',
                     [
                       { text: 'View Status', onPress: () => setActiveTab('publisher') },
                       { text: 'Cancel', style: 'cancel' },
@@ -1510,13 +1452,19 @@ export default function ProfileScreen() {
                 }
               }}
             >
-              <Ionicons
-                name="document-text-outline"
-                size={16}
-                color={colors.text}
-                style={{ marginRight: 10 }}
-              />
-              <Text style={[styles.fabMenuText, { color: colors.text }]}>Write News</Text>
+              <View style={[styles.fabMenuIcon, { backgroundColor: 'rgba(245, 158, 11, 0.14)' }]}>
+                <Ionicons
+                  name={isPublisher ? 'newspaper-outline' : 'lock-closed-outline'}
+                  size={18}
+                  color="#F59E0B"
+                />
+              </View>
+              <View style={styles.fabMenuTextWrap}>
+                <Text style={[styles.fabMenuText, { color: colors.text }]}>Create News</Text>
+                <Text style={[styles.fabMenuSubtext, { color: colors.textSecondary }]}>
+                  {isPublisher ? 'Publish a news article' : 'Verified publishers only'}
+                </Text>
+              </View>
             </TouchableOpacity>
           </View>
         )}
@@ -1525,6 +1473,8 @@ export default function ProfileScreen() {
           style={[styles.fabButton, { backgroundColor: colors.primary }]}
           activeOpacity={0.85}
           onPress={() => setShowFabMenu(!showFabMenu)}
+          accessibilityRole="button"
+          accessibilityLabel="Create"
         >
           <Ionicons name={showFabMenu ? 'close' : 'add'} size={28} color="#FFFFFF" />
         </TouchableOpacity>
@@ -1547,130 +1497,11 @@ export default function ProfileScreen() {
       {AlertComponent}
 
       {/* Create Post Modal */}
-      <Modal
+      <CreatePostModal
         visible={showCreatePostModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowCreatePostModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.background }]}>
-            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-              <TouchableOpacity
-                onPress={() => setShowCreatePostModal(false)}
-                style={styles.modalCloseBtn}
-              >
-                <Ionicons name="close" size={24} color={colors.text} />
-              </TouchableOpacity>
-              <Text style={[styles.modalTitle, { color: colors.text }]}>Create New Post</Text>
-              <View style={{ width: 24 }} />
-            </View>
-
-            <ScrollView
-              contentContainerStyle={styles.modalFormContent}
-              showsVerticalScrollIndicator={false}
-            >
-              <View style={styles.formGroup}>
-                <Text style={[styles.formLabel, { color: colors.text }]}>Caption</Text>
-                <TextInput
-                  style={[
-                    styles.modalTextInput,
-                    styles.modalTextArea,
-                    {
-                      backgroundColor: colors.surface,
-                      color: colors.text,
-                      borderColor: colors.border,
-                    },
-                  ]}
-                  placeholder="Share a story or what's on your mind..."
-                  placeholderTextColor={colors.textTertiary}
-                  multiline
-                  numberOfLines={4}
-                  value={postCaption}
-                  onChangeText={setPostCaption}
-                />
-              </View>
-
-              <View style={styles.formGroup}>
-                <Text style={[styles.formLabel, { color: colors.text }]}>Image (optional)</Text>
-                <TouchableOpacity
-                  style={[
-                    styles.postImageUploadBtn,
-                    { borderColor: colors.border, backgroundColor: colors.surface },
-                  ]}
-                  onPress={handlePickPostImage}
-                  disabled={isUploadingPostImage}
-                  activeOpacity={0.7}
-                >
-                  {isUploadingPostImage ? (
-                    <ActivityIndicator size="small" color={colors.primary} />
-                  ) : (
-                    <Ionicons name="cloud-upload-outline" size={18} color={colors.primary} />
-                  )}
-                  <Text style={[styles.postImageUploadBtnText, { color: colors.primary }]}>
-                    {isUploadingPostImage
-                      ? 'Uploading image...'
-                      : postCoverImage.trim().length > 0
-                      ? 'Change uploaded photo'
-                      : 'Upload image from gallery'}
-                  </Text>
-                </TouchableOpacity>
-                <TextInput
-                  style={[
-                    styles.modalTextInput,
-                    {
-                      backgroundColor: colors.surface,
-                      color: colors.text,
-                      borderColor: colors.border,
-                      marginTop: 8,
-                    },
-                  ]}
-                  placeholder="…or paste an Image URL (https://...)"
-                  placeholderTextColor={colors.textTertiary}
-                  value={postCoverImage}
-                  onChangeText={setPostCoverImage}
-                  autoCapitalize="none"
-                  keyboardType="url"
-                />
-                {postCoverImage.trim().length > 0 && (
-                  <View style={styles.postCoverContainer}>
-                    <Image
-                      source={{ uri: postCoverImage.trim() }}
-                      style={styles.postCoverImg}
-                      resizeMode="cover"
-                    />
-                    <TouchableOpacity
-                      style={styles.postCoverRemoveBtn}
-                      onPress={() => setPostCoverImage('')}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                    >
-                      <Ionicons name="close-circle" size={22} color="#FFFFFF" />
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-
-              <TouchableOpacity
-                style={[
-                  styles.publishPostBtn,
-                  { backgroundColor: colors.primary },
-                  isPublishingPost && { opacity: 0.7 }
-                ]}
-                activeOpacity={0.8}
-                onPress={handleCreatePost}
-                disabled={isPublishingPost}
-              >
-                {isPublishingPost ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.publishPostBtnText}>Publish Post</Text>
-                )}
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
+        onClose={() => setShowCreatePostModal(false)}
+        onCreated={handlePostCreated}
+      />
       {/* Post Detail Modal */}
       <Modal
         visible={selectedPost !== null}
@@ -2217,14 +2048,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
-  plusTabCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#4648D4',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   tabContentTitle: {
     fontSize: 15,
     fontWeight: '700',
@@ -2450,12 +2273,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
   },
+  fabBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 55,
+  },
   fabContainer: {
     position: 'absolute',
     bottom: 90,
     right: 20,
     alignItems: 'flex-end',
     gap: 8,
+    zIndex: 60,
   },
   fabButton: {
     width: 56,
@@ -2470,32 +2298,54 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   fabMenu: {
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
-    width: 140,
+    width: 248,
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.14,
+    shadowRadius: 14,
+    elevation: 8,
+    paddingVertical: 6,
     marginBottom: 4,
+  },
+  fabMenuHeading: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    paddingHorizontal: 14,
+    paddingTop: 8,
+    paddingBottom: 4,
   },
   fabMenuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    gap: 10,
+  },
+  fabMenuIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fabMenuTextWrap: {
+    flex: 1,
   },
   fabMenuText: {
-    fontSize: 13,
+    fontSize: 13.5,
     fontWeight: '600',
+  },
+  fabMenuSubtext: {
+    fontSize: 11,
+    marginTop: 1,
   },
   fabDivider: {
     height: 1,
-  },
-  formGroup: {
-    gap: 8,
+    marginHorizontal: 12,
   },
   modalOverlay: {
     flex: 1,
@@ -2523,88 +2373,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     fontFamily: 'Poppins_700Bold',
-  },
-  modalFormContent: {
-    padding: 20,
-    gap: 20,
-  },
-  formLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  modalTextInput: {
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 15,
-    borderWidth: 1,
-  },
-  modalTextArea: {
-    height: 100,
-    textAlignVertical: 'top',
-  },
-  textInput: {
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 14,
-    borderWidth: 1,
-  },
-  postCoverContainer: {
-    width: '100%',
-    aspectRatio: 16 / 9,
-    borderRadius: 12,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  postCoverImg: {
-    width: '100%',
-    height: '100%',
-  },
-  postImageUploadBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-  },
-  postImageUploadBtnText: {
-    fontSize: 13,
-    fontWeight: '600',
-    fontFamily: 'Poppins_600SemiBold',
-  },
-  postCoverRemoveBtn: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  publishPostBtn: {
-    borderRadius: 24,
-    paddingVertical: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  publishPostBtnText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
   },
   postDetailContainer: {
     paddingHorizontal: 20,

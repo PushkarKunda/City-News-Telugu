@@ -106,7 +106,23 @@ Affected code: `routes/news_routes.py` like endpoint.
 - Run a smoke test with `GEMINI_API_KEY` configured and confirm the startup
   warning is gone.
 
-## 9. Verification checklist
+## 9. Screen Aggregator (BFF) Endpoints (`/screens/*`)
+
+The mobile client is actively logging 404 warnings when visiting screens because it attempts to fetch aggregated payloads before falling back to modular endpoints:
+- Implement the `/screens` router specified in [`docs/BACKEND_SCREENS_API_SPEC.md`](file:///c:/A/City-News-Telugu/docs/BACKEND_SCREENS_API_SPEC.md).
+- Immediate priority endpoints to eliminate client 404 warnings:
+  - `GET /screens/home`
+  - `GET /screens/community`
+  - `GET /screens/profile`
+- Secondary screen routes:
+  - `GET /screens/shorts`
+  - `GET /screens/news/{uid}`
+  - `GET /screens/discover`
+  - `GET /screens/local`
+  - `GET /screens/notifications`
+- Aggregate child queries in parallel using `asyncio.gather(..., return_exceptions=True)` to prevent individual partial failures from blowing up the entire response.
+
+## 10. Verification checklist
 
 Run after implementation:
 
@@ -124,3 +140,4 @@ Then verify in the deployed environment:
 4. Concurrent likes do not return HTTP 500.
 5. Authenticated feeds preserve liked state.
 6. The deployed OpenAPI document matches the current repository routes.
+7. `GET /screens/home`, `GET /screens/community`, and `GET /screens/profile` return `200 OK`.
