@@ -41,34 +41,78 @@ function trackView(videoId: string) {
 }
 
 // ─── YouTube helpers ──────────────────────────────────────────────────────────
+// A YouTube video ID is always exactly 11 URL-safe characters. Validating this
+// matters because the combined Shorts feed also contains user-uploaded clips,
+// some of which carry a numeric database id in a `video_id` field. Passing one
+// of those to the IFrame player produces Error 2 ("invalid parameter").
+const YOUTUBE_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
+const YOUTUBE_URL_ID_PATTERN =
+  /(?:youtu\.be\/|(?:^|[?&])v=|\/(?:shorts|embed|v|live)\/)([A-Za-z0-9_-]{11})(?=[?&#/]|$)/i;
+
+function extractYouTubeId(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const raw = value.trim();
+  if (!raw) return null;
+  if (YOUTUBE_ID_PATTERN.test(raw)) return raw;
+  const match = raw.match(YOUTUBE_URL_ID_PATTERN);
+  return match ? match[1] : null;
+}
+
 function resolveYouTubeId(item: any): string | null {
   if (!item) return null;
-  const raw =
-    item.video_id ||
-    item.youtube_id ||
-    item.youtubeId ||
-    item.videoId ||
-    item.video_url ||
-    item.url;
-  if (typeof raw !== 'string' || raw.trim().length === 0) return null;
-  const match = raw.match(/(?:v=|youtu\.be\/|\/shorts\/|\/embed\/|\/v\/)([A-Za-z0-9_-]{6,})/);
-  return match ? match[1] : raw.trim();
+
+  // User-uploaded shorts can expose their DB id as `video_id`; only trust a
+  // YouTube-specific field or a YouTube URL for those.
+  const candidates =
+    item.source === 'user'
+      ? [
+          item.youtube_video_id,
+          item.youtube_id,
+          item.youtubeId,
+          item.video_url,
+          item.youtube_url,
+          item.url,
+        ]
+      : [
+          item.video_id,
+          item.youtube_video_id,
+          item.youtube_id,
+          item.youtubeId,
+          item.videoId,
+          item.video_url,
+          item.youtube_url,
+          item.url,
+        ];
+
+  for (const candidate of candidates) {
+    const id = extractYouTubeId(candidate);
+    if (id) return id;
+  }
+  return null;
 }
 
 function isYouTubeItem(item: any): boolean {
   if (!item || isAdvertisement(item)) return false;
-  if (item.video_id || item.youtube_id || item.youtubeId || item.source === 'youtube') return true;
-  const url = item.video_url || item.url;
-  return typeof url === 'string' && /(?:youtube\.com|youtu\.be)/i.test(url);
+  return resolveYouTubeId(item) !== null;
 }
 
 // ─── YouTube IFrame Player page ───────────────────────────────────────────────
 // One page for the whole screen. The native side switches videos with
 // `loadVideoById` instead of reloading YouTube for every swipe.
+//
+// YouTube requires embedded players to send a valid HTTP Referer. A WebView
+// page rendered from an in-memory HTML string sends no Referer by default,
+// which makes the embed fail with Error 153 ("video player configuration
+// error"). Giving the document a real HTTPS origin via `baseUrl`, matching
+// `playerVars.origin`, and an explicit referrer policy fixes that.
+const YOUTUBE_HOST_ORIGIN = 'https://hypernews.app';
+const YOUTUBE_HOST_REFERER = `${YOUTUBE_HOST_ORIGIN}/`;
+
 const YOUTUBE_PLAYER_HTML = `<!DOCTYPE html>
 <html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
   <style>
     html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
     #player { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
@@ -138,7 +182,6 @@ const YOUTUBE_PLAYER_HTML = `<!DOCTYPE html>
         player = new YT.Player('player', {
           width: '100%',
           height: '100%',
-          videoId: '',
           playerVars: {
             autoplay: 1,
             controls: 0,
@@ -149,7 +192,7 @@ const YOUTUBE_PLAYER_HTML = `<!DOCTYPE html>
             iv_load_policy: 3,
             disablekb: 1,
             enablejsapi: 1,
-            origin: 'https://www.youtube.com'
+            origin: '${YOUTUBE_HOST_ORIGIN}'
           },
           events: {
             onReady: function () {
@@ -186,7 +229,11 @@ const YOUTUBE_PLAYER_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
-const YOUTUBE_SOURCE = { html: YOUTUBE_PLAYER_HTML, baseUrl: 'https://www.youtube.com' };
+const YOUTUBE_SOURCE = {
+  html: YOUTUBE_PLAYER_HTML,
+  baseUrl: YOUTUBE_HOST_REFERER,
+  headers: { Referer: YOUTUBE_HOST_REFERER },
+};
 
 const YOUTUBE_ERROR_MESSAGES: Record<string, string> = {
   '2': 'This video has an invalid parameter.',
@@ -194,6 +241,7 @@ const YOUTUBE_ERROR_MESSAGES: Record<string, string> = {
   '100': 'This video was not found or is private.',
   '101': 'The owner does not allow this video to be embedded.',
   '150': 'The owner does not allow this video to be embedded.',
+  '153': 'YouTube rejected the embedded player request. Tap Retry or open the video in YouTube.',
   load: 'The video could not be loaded.',
   player: 'The player could not be loaded.',
 };
@@ -481,9 +529,15 @@ export default function ShortsScreen() {
       setYtPlayerState(nextState);
     } else if (payload?.type === 'error') {
       const key = String(payload.code);
-      setYtError(YOUTUBE_ERROR_MESSAGES[key] ?? 'This video cannot be played here.');
+      let message = YOUTUBE_ERROR_MESSAGES[key] ?? 'This video cannot be played here.';
+      // In development, surface the ID that failed so a misclassified feed
+      // item is easy to spot (Error 2 means the ID itself is malformed).
+      if (__DEV__ && key === '2' && activeVideoId) {
+        message = `${message} (ID: ${activeVideoId})`;
+      }
+      setYtError(message);
     }
-  }, []);
+  }, [activeVideoId]);
 
   const retryYouTube = useCallback(() => {
     setYtError(null);
@@ -516,6 +570,9 @@ export default function ShortsScreen() {
   // switch while scrolling, so fast swipes don't hammer the iframe API.
   useEffect(() => {
     if (!ytReady || !activeVideoId || isScrolling) return;
+    // Any error on the card belongs to the previous video; clear it so a
+    // restricted clip doesn't leave a permanent error on every later short.
+    setYtError(null);
     injectYouTube(`window.__ytLoadVideo && window.__ytLoadVideo(${JSON.stringify(activeVideoId)});`);
   }, [activeVideoId, isScrolling, ytReady, injectYouTube]);
 
@@ -674,7 +731,6 @@ export default function ShortsScreen() {
             setSupportMultipleWindows={false}
             onMessage={handleYouTubeMessage}
             onError={() => setYtError(YOUTUBE_ERROR_MESSAGES.player)}
-            onHttpError={() => setYtError(YOUTUBE_ERROR_MESSAGES.player)}
           />
         </View>
       )}

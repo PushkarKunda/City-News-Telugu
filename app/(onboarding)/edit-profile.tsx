@@ -64,8 +64,6 @@ export default function ProfileCompletionScreen() {
   const user = useAuthStore((state) => state.user);
   const updateProfile = useAuthStore((state) => state.updateProfile);
   const isOnboarded = useAuthStore((state) => state.isOnboarded);
-  const sendPhoneOTP = useAuthStore((state) => state.sendPhoneOTP);
-  const linkPhone = useAuthStore((state) => state.linkPhone);
   const isLoading = useAuthStore((state) => state.isLoading);
   const updateProfileLocal = useAuthStore((state) => state.updateProfileLocal);
   const fetchUser = useAuthStore((state) => state.fetchUser);
@@ -82,12 +80,8 @@ export default function ProfileCompletionScreen() {
   // ─── UI State ───────────────────────────────────────────────────────────
 
   const [isFocused, setIsFocused] = useState(false);
-  const [otpCode, setOtpCode] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingProfile, setIsLoadingProfile] = useState(false);
-  const [showPhoneVerification, setShowPhoneVerification] = useState(false);
-  const [isVerifyingPhone, setIsVerifyingPhone] = useState(false);
-  const [formattedPhone, setFormattedPhone] = useState('');
 
   // ─── Dialog ─────────────────────────────────────────────────────────────
 
@@ -241,76 +235,10 @@ export default function ProfileCompletionScreen() {
     });
 
   // ─── Phone Verification ──────────────────────────────────────────────────
-
-  const handleSendPhoneVerification = async () => {
-    if (!phoneNumber.trim()) {
-      showDialog('Phone Required', 'Please enter your phone number first.', 'warning');
-      return;
-    }
-
-    let phone = phoneNumber.trim();
-    if (!phone.startsWith('+')) {
-      const clean = phone.replace(/\D/g, '');
-      if (clean.length < 10) {
-        showDialog('Invalid Phone', 'Please enter a valid 10-digit number.', 'error');
-        return;
-      }
-      phone = `+91${clean.slice(-10)}`;
-    }
-
-    try {
-      setIsVerifyingPhone(true);
-      setFormattedPhone(phone);
-      setPhoneNumber(phone);
-      await sendPhoneOTP(phone);
-      setShowPhoneVerification(true);
-      showDialog('Code Sent', `Verification code sent to ${phone}.`, 'success');
-    } catch (error: unknown) {
-      const message = getUserFacingError(error, 'Failed to send code.');
-      showDialog('Error', message, 'error');
-    } finally {
-      setIsVerifyingPhone(false);
-    }
-  };
-
-  const handleConfirmPhoneOtp = async () => {
-    if (otpCode.trim().length !== 6) {
-      showDialog('Invalid Code', 'Please enter the 6-digit code.', 'error');
-      return;
-    }
-
-    try {
-      setIsVerifyingPhone(true);
-      await linkPhone(formattedPhone || phoneNumber, otpCode);
-      setOtpCode('');
-      setShowPhoneVerification(false);
-
-      // ✅ CRITICAL FIX: Fetch fresh user data after phone verification
-      try {
-        const freshUser: UserMeResponse = await usersApi.me();
-
-        updateProfileLocal({
-          phone: freshUser.phone,
-          phoneNumber: freshUser.phone,
-          mobile_verified: freshUser.mobile_verified,
-          email: freshUser.email,
-          email_verified: freshUser.email_verified,
-        });
-
-        setPhoneNumber(freshUser.phone ?? formattedPhone);
-      } catch {
-        // Fallback
-        setPhoneNumber(formattedPhone);
-      }
-
-      showDialog('Verified', 'Phone number verified successfully!', 'success');
-    } catch (error: unknown) {
-      const message = getUserFacingError(error, 'OTP verification failed.');
-      showDialog('Error', message, 'error');
-    } finally {
-      setIsVerifyingPhone(false);
-    }
-  };
+  // Phone verification is intentionally not offered in the app: Firebase SMS
+  // billing is disabled, and publisher access is granted from the admin portal.
+  // The phone number is displayed read-only and `mobile_verified` comes from
+  // the server.
 
   // ─── Image Picker ────────────────────────────────────────────────────────
 
@@ -753,7 +681,7 @@ export default function ProfileCompletionScreen() {
                 </Animated.View>
               </View>
 
-              {/* ── PHONE NUMBER ── */}
+              {/* ── PHONE NUMBER (managed by the City News Telugu team) ── */}
               <View style={styles.inputContainer}>
                 <Text
                   style={[styles.inputLabel, { color: colors.textSecondary }]}
@@ -764,11 +692,7 @@ export default function ProfileCompletionScreen() {
                   style={[
                     styles.inputWrapper,
                     {
-                      backgroundColor: phoneVerified
-                        ? isDark
-                          ? '#1C1C2E'
-                          : '#F1F3F9'
-                        : colors.card,
+                      backgroundColor: isDark ? '#1C1C2E' : '#F1F3F9',
                       borderColor: colors.border,
                     },
                   ]}
@@ -777,26 +701,21 @@ export default function ProfileCompletionScreen() {
                     style={[
                       styles.textInput,
                       {
-                        color: phoneVerified
-                          ? isDark
-                            ? 'rgba(255,255,255,0.4)'
-                            : 'rgba(0,0,0,0.4)'
-                          : colors.text,
+                        color: isDark
+                          ? 'rgba(255,255,255,0.4)'
+                          : 'rgba(0,0,0,0.4)',
                       },
                     ]}
-                    placeholder="Enter phone number"
+                    placeholder="No phone number on file"
                     placeholderTextColor={
                       isDark
                         ? 'rgba(255,255,255,0.3)'
                         : 'rgba(118,117,134,0.5)'
                     }
                     value={phoneNumber}
-                    onChangeText={setPhoneNumber}
                     keyboardType="phone-pad"
                     maxLength={15}
-                    editable={
-                      !phoneVerified && !isVerifyingPhone && !isLoadingProfile
-                    }
+                    editable={false}
                   />
                   <Feather
                     name="phone"
@@ -814,7 +733,11 @@ export default function ProfileCompletionScreen() {
                   <View
                     style={[
                       styles.statusBadge,
-                      { backgroundColor: '#10B981', borderColor: '#10B981', marginTop: 10 },
+                      {
+                        backgroundColor: '#10B981',
+                        borderColor: '#10B981',
+                        marginTop: 10,
+                      },
                     ]}
                   >
                     <Ionicons
@@ -826,8 +749,8 @@ export default function ProfileCompletionScreen() {
                       Phone Verified
                     </Text>
                   </View>
-                ) : !showPhoneVerification ? (
-                  <TouchableOpacity
+                ) : (
+                  <View
                     style={[
                       styles.actionButton,
                       {
@@ -836,126 +759,26 @@ export default function ProfileCompletionScreen() {
                         marginTop: 10,
                       },
                     ]}
-                    onPress={handleSendPhoneVerification}
-                    disabled={isVerifyingPhone || isLoadingProfile}
-                    activeOpacity={0.7}
                   >
-                    {isVerifyingPhone ? (
-                      <ActivityIndicator
-                        size="small"
-                        color={colors.primary}
-                      />
-                    ) : (
-                      <>
-                        <Ionicons
-                          name="send"
-                          size={16}
-                          color={colors.primary}
-                        />
-                        <Text
-                          style={[
-                            styles.actionButtonText,
-                            { color: colors.primary },
-                          ]}
-                        >
-                          Send Verification Code
-                        </Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                ) : (
-                  <View
-                    style={[
-                      styles.otpBox,
-                      {
-                        borderColor: 'rgba(70,72,212,0.15)',
-                        backgroundColor: 'rgba(70,72,212,0.02)',
-                      },
-                    ]}
-                  >
+                    <Ionicons
+                      name="information-circle-outline"
+                      size={16}
+                      color={colors.primary}
+                    />
                     <Text
                       style={[
-                        styles.otpLabel,
-                        { color: colors.textSecondary },
-                      ]}
-                    >
-                      ENTER OTP CODE
-                    </Text>
-                    <View
-                      style={[
-                        styles.otpInputWrapper,
+                        styles.actionButtonText,
                         {
-                          backgroundColor: colors.card,
-                          borderColor: colors.border,
+                          color: colors.primary,
+                          flex: 1,
+                          fontSize: 13,
+                          textAlign: 'center',
                         },
                       ]}
                     >
-                      <TextInput
-                        style={[styles.otpInput, { color: colors.text }]}
-                        placeholder="Enter 6-digit code"
-                        placeholderTextColor={
-                          isDark
-                            ? 'rgba(255,255,255,0.3)'
-                            : 'rgba(118,117,134,0.5)'
-                        }
-                        value={otpCode}
-                        onChangeText={setOtpCode}
-                        keyboardType="number-pad"
-                        maxLength={6}
-                      />
-                      <Feather
-                        name="lock"
-                        size={20}
-                        color={
-                          isDark
-                            ? 'rgba(255,255,255,0.4)'
-                            : 'rgba(118,117,134,0.5)'
-                        }
-                        style={styles.inputIcon}
-                      />
-                    </View>
-                    <TouchableOpacity
-                      style={[
-                        styles.otpConfirmBtn,
-                        { backgroundColor: colors.primary },
-                        (isVerifyingPhone || otpCode.length !== 6) && {
-                          opacity: 0.6,
-                        },
-                      ]}
-                      onPress={handleConfirmPhoneOtp}
-                      disabled={isVerifyingPhone || otpCode.length !== 6}
-                      activeOpacity={0.8}
-                    >
-                      {isVerifyingPhone ? (
-                        <ActivityIndicator color="#fff" />
-                      ) : (
-                        <Text style={styles.otpConfirmBtnText}>
-                          Confirm & Verify Phone
-                        </Text>
-                      )}
-                    </TouchableOpacity>
-
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, paddingHorizontal: 4 }}>
-                      <TouchableOpacity
-                        onPress={() => {
-                          setShowPhoneVerification(false);
-                          setOtpCode('');
-                        }}
-                        disabled={isVerifyingPhone}
-                      >
-                        <Text style={{ color: colors.textSecondary, fontSize: 13, fontFamily: 'Poppins_500Medium' }}>
-                          Change Number
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={handleSendPhoneVerification}
-                        disabled={isVerifyingPhone}
-                      >
-                        <Text style={{ color: colors.primary, fontSize: 13, fontFamily: 'Poppins_500Medium' }}>
-                          Resend Code
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
+                      Phone verification is handled by the City News Telugu
+                      team.
+                    </Text>
                   </View>
                 )}
               </View>
@@ -1562,46 +1385,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   actionButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
-    fontFamily: 'Poppins_700Bold',
-  },
-  otpBox: {
-    marginTop: 12,
-    gap: 8,
-    padding: 14,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  otpLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    fontFamily: 'Poppins_700Bold',
-    letterSpacing: 1.0,
-  },
-  otpInputWrapper: {
-    height: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-  },
-  otpInput: {
-    flex: 1,
-    fontSize: 15,
-    fontFamily: 'Poppins_600SemiBold',
-    letterSpacing: 2,
-  },
-  otpConfirmBtn: {
-    height: 44,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  otpConfirmBtnText: {
-    color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '700',
     fontFamily: 'Poppins_700Bold',

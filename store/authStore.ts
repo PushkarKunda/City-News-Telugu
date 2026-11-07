@@ -58,6 +58,8 @@ export interface User {
   district_name?: string | null;
   city_name?: string | null;
   isPublisher?: boolean;
+  /** Backend flag used by the admin portal to grant publisher access. */
+  is_publisher?: boolean | null;
   gender?: string | null;
   date_of_birth?: string | null;
   google_id?: string | null;
@@ -113,6 +115,43 @@ export const isEmailVerified = (
 
 export const computeIsEmailVerified = isEmailVerified;
 
+const PUBLISHER_ROLE_NAMES = new Set([
+  'publisher',
+  'reporter',
+  'editor',
+  'admin',
+  'moderator',
+]);
+
+/**
+ * Publisher access is granted from the admin portal. The backend may expose it
+ * as a numeric role (>= 2), a role name, or the `is_publisher` flag, so treat
+ * any of those signals as authoritative.
+ */
+export const computeIsPublisher = (
+  user:
+    | {
+        role?: number | string | null;
+        is_publisher?: boolean | null;
+        isPublisher?: boolean | null;
+      }
+    | null
+    | undefined
+): boolean => {
+  if (!user) return false;
+  if (user.isPublisher || user.is_publisher) return true;
+
+  const role = user.role;
+  if (typeof role === 'number') return role >= 2;
+  if (typeof role === 'string') {
+    const normalized = role.trim().toLowerCase();
+    if (/^\d+$/.test(normalized)) return Number(normalized) >= 2;
+    return PUBLISHER_ROLE_NAMES.has(normalized);
+  }
+
+  return false;
+};
+
 const sanitizeUser = (user: RawUser): User => {
   const isPhone = (str: string | null): boolean => {
     if (!str) return false;
@@ -133,9 +172,17 @@ const sanitizeUser = (user: RawUser): User => {
   // Google-verified emails are always considered verified.
   // This derives the state from real data and corrects stale persisted state.
   const emailVerified = computeIsEmailVerified(user);
+  // Admin-portal access changes arrive through /user/users/me and/or the
+  // dashboard. Keep both `role` and `is_publisher` in sync so every screen
+  // (More, Settings, Profile) agrees on the user's publisher status.
+  const publisher = computeIsPublisher(user);
+  const normalizedRole = publisher
+    ? Math.max(typeof user.role === 'number' ? user.role : 0, 2)
+    : 1;
 
   return {
     ...user,
+    role: normalizedRole,
     is_suspended: user.is_suspended ?? false,
     created_at: user.created_at ?? new Date().toISOString(),
     name: updatedName,
@@ -144,7 +191,8 @@ const sanitizeUser = (user: RawUser): User => {
     email_verified: emailVerified,
     email_verified_at: user.email_verified_at ?? (emailVerified ? new Date().toISOString() : null),
     mobile_verified: user.mobile_verified === true,
-    isPublisher: user.role >= 2,
+    isPublisher: publisher,
+    is_publisher: publisher,
     avatar: profilePicture,
     profile_picture: profilePicture,
     language: user.language ?? user.language_name ?? null,
@@ -218,6 +266,7 @@ interface AuthState {
   fetchPreferences: () => Promise<UserPreferences>;
   updateCachedPreferences: (updates: Partial<UserPreferences>) => void;
   fetchUser: () => Promise<User | null>;
+  refreshAccess: () => Promise<User | null>;
   syncProvider: () => Promise<User | null>;
   loginAsDemo: (customUser?: Partial<User>) => void;
 }
@@ -463,6 +512,61 @@ export const useAuthStore = create<AuthState>()(
         } catch (err) {
           console.warn('[authStore] fetchUser failed:', err);
           return get().user;
+        }
+      },
+
+      // ─── Refresh Access / Role ─────────────────────────────────────────────
+      // Lightweight profile refresh used when the app returns to the
+      // foreground. Publisher access is toggled from the admin portal, so the
+      // client must re-read the role without forcing the user to sign in again.
+      refreshAccess: async (): Promise<User | null> => {
+        const current = get().user;
+        if (!current) return null;
+
+        const sessionVersion = getSessionVersion();
+        try {
+          const res = await usersApi.me();
+          if (!res || !(res as any).user_uid) return current;
+
+          // The server response is authoritative for access. Drop the locally
+          // cached publisher flags so a grant revoked in the admin portal does
+          // not stick around, then let the dashboard fallback below re-grant
+          // when the backend reports access there instead.
+          let sanitized = sanitizeUser({
+            ...current,
+            ...(res as any),
+            isPublisher: undefined,
+            is_publisher: (res as any).is_publisher,
+          });
+
+          // Some admin portal builds grant access through the `is_publisher`
+          // flag without changing the numeric role. `/user/users/me` may not
+          // expose that flag, so fall back to the dashboard snapshot once when
+          // the profile still says "reader".
+          if (!computeIsPublisher(sanitized)) {
+            try {
+              const dashboard = await usersApi.dashboard({
+                detailed: false,
+                recent_limit: 1,
+              });
+              if (computeIsPublisher(dashboard?.user)) {
+                sanitized = sanitizeUser({
+                  ...sanitized,
+                  role: Math.max(sanitized.role ?? 0, dashboard.user.role ?? 0, 2),
+                  is_publisher: true,
+                });
+              }
+            } catch {
+              // Dashboard is best-effort; keep the /me result.
+            }
+          }
+
+          assertCurrentSession(sessionVersion);
+          set({ user: sanitized, isAuthenticated: true });
+          return sanitized;
+        } catch (err) {
+          console.warn('[authStore] refreshAccess failed:', err);
+          return current;
         }
       },
 
@@ -840,7 +944,7 @@ export const useAuthStore = create<AuthState>()(
           await authApi.switchToPublisher();
           set((state) => ({
             user: state.user
-              ? { ...state.user, role: 2, isPublisher: true }
+              ? { ...state.user, role: 2, isPublisher: true, is_publisher: true }
               : null,
             isLoading: false,
           }));
@@ -977,7 +1081,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       clearError: () => set({ error: null }),
-      isPublisher: () => (get().user?.role ?? 0) >= 2,
+      isPublisher: () => computeIsPublisher(get().user),
     }),
     {
       name: 'auth-storage',

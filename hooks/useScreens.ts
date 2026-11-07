@@ -6,7 +6,7 @@ import { newsKeys } from '@/hooks/useNews';
 import { postKeys } from '@/hooks/usePosts';
 import { pollKeys } from '@/hooks/usePolls';
 import { engagementKeys } from '@/hooks/useEngagement';
-import { useAuthStore } from '@/store/authStore';
+import { useAuthStore, computeIsPublisher } from '@/store/authStore';
 import { useIsFocused } from '@react-navigation/native';
 import { useCommentCountStore } from '@/store/commentCountStore';
 import { getSessionVersion, isCurrentSession } from '@/services/session';
@@ -122,6 +122,25 @@ export function useProfileScreen() {
       // copy so the auth store (which the More tab + Profile header read)
       // never ends up empty when the dashboard has a picture.
       const seededProfilePicture = u.profile_picture ?? dashboard?.user?.profile_picture ?? null;
+      // Publisher access can be granted from the admin portal and may be
+      // reported only by the dashboard (`is_publisher`). Treat any positive
+      // signal as publisher so a stale aggregate never downgrades the user and
+      // makes the app ask them to apply/verify again. The auth store is
+      // included because `refreshAccess()` is authoritative when the app
+      // returns to the foreground.
+      const currentUser = useAuthStore.getState().user;
+      const isPublisher =
+        computeIsPublisher(u) ||
+        computeIsPublisher(dashboard?.user) ||
+        computeIsPublisher(currentUser);
+      const resolvedRole = isPublisher
+        ? Math.max(
+            typeof u.role === 'number' ? u.role : 0,
+            typeof dashboard?.user?.role === 'number' ? dashboard.user.role : 0,
+            2
+          )
+        : 1;
+
       updateProfileLocal({
         user_uid: u.user_uid,
         name: u.name,
@@ -133,8 +152,9 @@ export function useProfileScreen() {
         date_of_birth: u.date_of_birth,
         avatar: seededProfilePicture,
         profile_picture: seededProfilePicture,
-        isPublisher: (u.role ?? 0) >= 2 || Boolean(u.is_publisher),
-        role: u.role,
+        isPublisher,
+        is_publisher: isPublisher,
+        role: resolvedRole,
         email_verified: u.email_verified,
         mobile_verified: u.mobile_verified,
         google_id: u.google_id,

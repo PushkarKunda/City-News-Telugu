@@ -19,7 +19,7 @@ import { Colors } from '@/constants/Colors';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
-import { useAuthStore, isEmailVerified, isUserGoogleLinked } from '@/store/authStore';
+import { useAuthStore, isEmailVerified, isUserGoogleLinked, computeIsPublisher } from '@/store/authStore';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
@@ -231,16 +231,19 @@ export default function ProfileScreen() {
     'Set Location';
   const followersCount = dashboardData?.user?.followers_count ?? 0;
   const followingCount = dashboardData?.user?.following_count ?? 0;
-  const isPublisher = dashboardData?.user?.is_publisher ?? user?.isPublisher ?? false;
+  // Publisher access is granted from the admin portal. Trust every positive
+  // server signal (store role, dashboard role, or dashboard is_publisher) so a
+  // stale cached payload can never make the app ask an approved publisher to
+  // apply or verify again.
+  const isPublisher =
+    computeIsPublisher(user) || computeIsPublisher(dashboardData?.user);
 
-  // Profile completion is based on the same five fields the backend requires
-  // to become a publisher. The dashboard's own `profile_completion` value can
-  // lag behind (or use a different field set), which is why it could stay at
-  // 60% (3 of 5 fields) even after the publisher requirements were met.
+  // Profile completion is based on the same fields the backend requires to
+  // become a publisher. Phone verification is intentionally excluded: Firebase
+  // SMS billing is disabled, so publisher access is managed by the admin team.
   const requiredProfileFields = [
     Boolean((dashboardData?.user?.name || user?.name)?.trim()),
     isEmailVerified(user),
-    Boolean(user?.mobile_verified),
     Boolean(user?.date_of_birth),
     Boolean(user?.gender),
   ];
@@ -261,14 +264,24 @@ export default function ProfileScreen() {
   const verifiedEmail = isEmailVerified(user);
   const isGoogleLinked = isUserGoogleLinked(user);
   const rawMissingRequirements = dashboardData?.publisher_cta?.missing_requirements ?? [];
-  const missingRequirements = rawMissingRequirements.filter(
-    (req) => req !== 'email_verified' || !verifiedEmail
-  );
-  const canApplyForPublisher = (dashboardData?.publisher_cta?.can_apply ?? false) || (
-    missingRequirements.length === 0 && Boolean(dashboardData?.publisher_cta?.show_cta)
-  );
+  const missingRequirements = rawMissingRequirements
+    .filter(
+      (req) => req !== 'email_verified' || !verifiedEmail
+    )
+    // Firebase SMS billing is disabled, so the app must never ask a user to
+    // verify a phone number for publisher access. The admin portal owns that
+    // decision and the app simply reflects the resulting role.
+    .filter((req) => req !== 'mobile_verified');
+  // Self-apply is only possible when the backend explicitly says so. Publisher
+  // access is admin-controlled, so the client must not invent eligibility from
+  // a locally-filtered requirements list.
+  const canApplyForPublisher = Boolean(dashboardData?.publisher_cta?.can_apply);
   const isOnlyEmailMissing = missingRequirements.length === 1 && missingRequirements[0] === 'email_verified';
   const hasProfileFieldsMissing = missingRequirements.some((req) => req !== 'email_verified');
+  const showPublisherCtaBanner =
+    !isPublisher &&
+    Boolean(dashboardData?.publisher_cta?.show_cta) &&
+    (canApplyForPublisher || hasProfileFieldsMissing || (!verifiedEmail && !isGoogleLinked));
   const publisherMessage = dashboardData?.publisher_cta?.message ?? 'Get verified as a Publisher to write and publish news for your city.';
 
   // ─── Stats ────────────────────────────────────────────────────────────────
@@ -449,11 +462,12 @@ export default function ProfileScreen() {
   const handleApplyForPublisher = async () => {
     // ✅ Check eligibility
     if (!canApplyForPublisher) {
+      const requirementList = missingRequirements.length > 0
+        ? missingRequirements.map((r) => `• ${r.replace(/_/g, ' ')}`).join('\n')
+        : 'Publisher access is granted by the City News Telugu team from the admin portal.';
       alert(
         'Requirements Not Met',
-        `Please complete the following to apply:\n\n${missingRequirements
-          .map((r) => `• ${r.replace(/_/g, ' ')}`)
-          .join('\n')}`,
+        `Publisher access is not available yet.\n\n${requirementList}`,
         [
           {
             text: 'Update Profile',
@@ -814,7 +828,7 @@ export default function ProfileScreen() {
         </View>
 
         {/* Publisher CTA Banner */}
-        {!isPublisher && dashboardData?.publisher_cta?.show_cta && (!isOnlyEmailMissing || (!verifiedEmail && !isGoogleLinked)) && (
+        {showPublisherCtaBanner && (
           <View style={styles.verifyBannerWrapper}>
             <View
               style={[
@@ -1240,8 +1254,8 @@ export default function ProfileScreen() {
                   <Text style={styles.applyButtonText}>Go to Publisher Dashboard</Text>
                 </TouchableOpacity>
               </View>
-            ) : missingRequirements.length === 0 ? (
-              /* All Requirements Met - Replace card with "Apply to become a Publisher" button */
+            ) : canApplyForPublisher ? (
+              /* Backend says the user can self-apply (all requirements met) */
               <View
                 style={[
                   styles.publisherCard,
@@ -1297,6 +1311,29 @@ export default function ProfileScreen() {
                     their local community.
                   </Text>
                 </View>
+              </View>
+            ) : missingRequirements.length === 0 ? (
+              /* No app-side requirements left, but self-apply is not enabled.
+                 Publisher access is granted from the admin portal, so show a
+                 clear status instead of asking the user to verify a phone
+                 number (Firebase SMS billing is currently disabled). */
+              <View
+                style={[
+                  styles.publisherCard,
+                  { backgroundColor: colors.surface, borderColor: colors.border, alignItems: 'center', padding: 24 },
+                ]}
+              >
+                <View style={styles.checkmarkContainer}>
+                  <Ionicons name="shield-checkmark-outline" size={56} color={colors.primary} />
+                </View>
+                <Text style={[styles.publisherTitle, { color: colors.text, fontSize: 18, fontWeight: '700', textAlign: 'center', marginTop: 12, marginBottom: 8 }]}>
+                  Publisher Access
+                </Text>
+                <Text style={{ color: colors.textSecondary, textAlign: 'center', lineHeight: 20, fontSize: 14 }}>
+                  Publisher access is granted by the City News Telugu team from the admin portal.
+                  Once it is enabled for your account, the publisher tools will appear here
+                  automatically — no phone verification or re-application is needed.
+                </Text>
               </View>
             ) : (
               /* Missing Requirements Card */

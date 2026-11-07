@@ -148,11 +148,11 @@ export default function SettingsScreen() {
                   ) : (
                     <TouchableOpacity
                       style={[styles.publisherVerifyButton, { backgroundColor: colors.primaryLight, borderColor: colors.primary, paddingHorizontal: 10, paddingVertical: 4 }]}
-                      onPress={() => router.push('/(onboarding)/edit-profile')}
+                      onPress={() => router.push('/(tabs)/profile')}
                       activeOpacity={0.8}
                     >
                       <Ionicons name="shield-checkmark" size={10} color={colors.primary} style={{ marginRight: 4 }} />
-                      <Text style={[styles.publisherVerifyButtonText, { color: colors.primary, fontWeight: '700', fontSize: 9 }]}>Get Verified to Publish</Text>
+                      <Text style={[styles.publisherVerifyButtonText, { color: colors.primary, fontWeight: '700', fontSize: 9 }]}>Publisher access</Text>
                     </TouchableOpacity>
                   )}
                 </View>

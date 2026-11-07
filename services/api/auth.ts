@@ -31,6 +31,8 @@ export interface BackendLoginResponse {
     phone: string | null;
     role: number;
     role_name?: string;
+    /** Set by the admin portal when publisher access is granted. */
+    is_publisher?: boolean | null;
     email_verified: boolean;
     mobile_verified: boolean;
     is_suspended?: boolean;

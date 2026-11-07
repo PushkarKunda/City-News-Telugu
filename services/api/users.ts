@@ -26,6 +26,8 @@ export interface UserMeResponse {
   district_id: number | null;
   city_id: number | null;
   role: number;
+  /** Set by the admin portal when publisher access is granted. */
+  is_publisher?: boolean | null;
   email_verified: boolean;
   mobile_verified: boolean;
   is_suspended: boolean;

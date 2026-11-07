@@ -55,6 +55,7 @@ import { useRealtimeReconciliation } from '@/hooks/useRealtimeReconciliation';
 import { PushNotificationsProvider } from '@/hooks/usePushNotifications';
 import { bindQueryFocus } from '@/services/queryFocus';
 import { bindSessionCache, queryClient } from '@/services/queryClient';
+import { screenKeys } from '@/hooks/useScreens';
 WebBrowser.maybeCompleteAuthSession();
 
 // ─── Splash Screen ────────────────────────────────────────────────────────────
@@ -206,6 +207,33 @@ export default function RootLayout() {
   // ─── Fetch Current User Profile & Sync Provider ──────────────────────────
   useEffect(() => {
     void useAuthStore.getState().fetchUser();
+  }, []);
+
+  // ─── Refresh Access When App Returns To Foreground ───────────────────────
+  // Publisher access is granted/revoked from the admin portal. Re-reading the
+  // profile when the app becomes active makes those changes take effect
+  // without asking the user to sign in or apply again.
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+
+    let inFlight = false;
+    const unsubscribe = AppState.addEventListener('change', (state) => {
+      if (state !== 'active' || inFlight) return;
+      inFlight = true;
+      void useAuthStore
+        .getState()
+        .refreshAccess()
+        .then(() => {
+          // The profile aggregate embeds the dashboard + publisher CTA, so
+          // refetch it after an access change instead of keeping stale data.
+          void queryClient.invalidateQueries({ queryKey: screenKeys.profile });
+        })
+        .finally(() => {
+          inFlight = false;
+        });
+    });
+
+    return () => unsubscribe.remove();
   }, []);
 
   // ─── User Store Sync ─────────────────────────────────────────────────────
