@@ -54,6 +54,9 @@ function extractYouTubeId(value: unknown): string | null {
   const raw = value.trim();
   if (!raw) return null;
   if (YOUTUBE_ID_PATTERN.test(raw)) return raw;
+  // Handle IDs that were stored with a query/fragment suffix.
+  const bare = raw.split(/[?#&]/)[0];
+  if (YOUTUBE_ID_PATTERN.test(bare)) return bare;
   const match = raw.match(YOUTUBE_URL_ID_PATTERN);
   return match ? match[1] : null;
 }
@@ -642,7 +645,9 @@ export default function ShortsScreen() {
 
   const keyExtractor = useCallback((item: ShortFeedItem, index: number) => {
     if (isAdvertisement(item)) return `ad-${item.data.ad_id}-${index}`;
-    return item.video_id ? `yt-${item.video_id}` : item.news_uid || String(item.id || index);
+    const youTubeId = resolveYouTubeId(item);
+    if (youTubeId) return `yt-${youTubeId}`;
+    return `short-${item.short_uid || item.news_uid || item.id || index}`;
   }, []);
 
   if (isLoading) {
