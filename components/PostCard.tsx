@@ -337,36 +337,24 @@ const PostCardInner: React.FC<PostCardProps> = ({
 
   // ─── Double-Tap Detection ──────────────────────────────────────────────────
   const lastTapRef = useRef<number>(0);
-  const singleTapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleCardPress = useCallback(() => {
     const now = Date.now();
     const DOUBLE_TAP_DELAY = 280;
 
     if (now - lastTapRef.current < DOUBLE_TAP_DELAY) {
-      // Double tap confirmed! Cancel pending single tap
-      if (singleTapTimeoutRef.current) {
-        clearTimeout(singleTapTimeoutRef.current);
-        singleTapTimeoutRef.current = null;
-      }
+      // Double tap confirmed → like the post (and keep the current chrome state)
       handleLike(true);
       fireHeartMicroAnimation();
     } else {
-      // Possible single tap: wait to verify no second tap occurs
-      if (singleTapTimeoutRef.current) clearTimeout(singleTapTimeoutRef.current);
-      singleTapTimeoutRef.current = setTimeout(() => {
-        onToggleUI?.();
-      }, DOUBLE_TAP_DELAY);
+      // Single tap → toggle the chrome immediately. Delaying this by 280ms
+      // used to swallow the tap whenever the user tapped twice (the second
+      // tap was treated as a like) which made the header/tab bar appear to
+      // "sometimes not come back".
+      onToggleUI?.();
     }
     lastTapRef.current = now;
   }, [handleLike, onToggleUI, fireHeartMicroAnimation]);
-
-  // Clean up single tap timeout
-  useEffect(() => {
-    return () => {
-      if (singleTapTimeoutRef.current) clearTimeout(singleTapTimeoutRef.current);
-    };
-  }, []);
 
   // ─── Post Metadata Parsing ─────────────────────────────────────────────────
   const userDisplayName = post.user_display_name || post.user_name || 'Community Member';

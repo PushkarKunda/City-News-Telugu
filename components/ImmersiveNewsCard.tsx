@@ -5,6 +5,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   TouchableWithoutFeedback,
+  Pressable,
   Share,
   Animated,
   Platform,
@@ -209,11 +210,13 @@ const SponsoredCard = React.memo(
     const insets = useSafeAreaInsets();
     const isNarrow = screenWidth < 400;
     const isShortScreen = screenHeight < 700 || containerHeight < 700;
-    const sidePadding = isNarrow ? 16 : 20;
-    const imageHeight = Math.round(containerHeight * (isShortScreen ? 0.35 : 0.42));
+    const sidePadding = isNarrow ? 14 : 16;
+    const imageHeight = Math.round(containerHeight * 0.45);
 
     return (
-      <View
+      <Pressable
+        onPress={onToggleUI}
+        accessible={false}
         style={[
           styles.cardContainer,
           { height: containerHeight, backgroundColor: colors.background },
@@ -225,10 +228,26 @@ const SponsoredCard = React.memo(
           delayPressIn={80}
           onPress={onToggleUI}
         >
+          {Boolean(sponsoredImg) && (
+            <Image
+              source={{ uri: sponsoredImg, headers: { Accept: 'image/webp,image/*;q=0.8' } }}
+              style={StyleSheet.absoluteFillObject}
+              contentFit="cover"
+              blurRadius={28}
+              cachePolicy="disk"
+            />
+          )}
+          <View
+            style={[
+              StyleSheet.absoluteFillObject,
+              { backgroundColor: isDark ? 'rgba(15, 23, 42, 0.45)' : 'rgba(0, 0, 0, 0.25)' },
+            ]}
+          />
           <Image
             source={{ uri: sponsoredImg, headers: { Accept: 'image/webp,image/*;q=0.8' } }}
             style={styles.image}
-            contentFit="cover"
+            contentFit="contain"
+            contentPosition="center"
             transition={200}
             cachePolicy="disk"
             onError={() => setSponsoredImg(sponsoredImg === resolvedSponsoredImg && item.original_image_url && item.original_image_url !== sponsoredImg
@@ -281,7 +300,7 @@ const SponsoredCard = React.memo(
             <Ionicons name="open-outline" size={16} color="#fff" />
           </TouchableOpacity>
         </View>
-      </View>
+      </Pressable>
     );
   }
 );
@@ -505,23 +524,23 @@ const NewsCard = React.memo(
     const isUnder360 = screenWidth < 360;
     const isNarrow = screenWidth < 400;
     const isShortScreen = screenHeight < 700 || containerHeight < 700;
-    const sidePadding = isNarrow ? 16 : 20;
+    const sidePadding = isNarrow ? 14 : 16;
 
-    // Hero image scales: ~35% on short screens (<700px), ~42% on standard screens
-    const imageHeight = Math.round(containerHeight * (isShortScreen ? 0.35 : 0.42));
+    // Image portion occupies exactly 45% of the news card
+    const imageHeight = Math.round(containerHeight * 0.45);
 
-    // Telugu breathing room: ~1.65 for headline, ~1.75 for description
-    const adjustedHeadlineSize = isUnder360 ? Math.max(18, headlineSize - 2) : headlineSize;
+    // Telugu breathing room: tuned for compact vertical rhythm
+    const adjustedHeadlineSize = isUnder360 ? Math.max(16, headlineSize - 2) : headlineSize;
     const adjustedHeadlineLineHeight = Math.max(
       headlineLineHeight,
-      Math.round(adjustedHeadlineSize * (isUnder360 ? 1.6 : 1.65))
+      Math.round(adjustedHeadlineSize * (isUnder360 ? 1.42 : 1.48))
     );
     const headlineLines = isShortScreen ? 2 : (fontSizeLevel === 'xlarge' ? 2 : 3);
 
-    const adjustedBodySize = isUnder360 ? Math.max(13, bodySize - 2) : bodySize;
+    const adjustedBodySize = isUnder360 ? Math.max(12.5, bodySize - 2) : bodySize;
     const adjustedBodyLineHeight = Math.max(
       bodyLineHeight,
-      Math.round(adjustedBodySize * (isUnder360 ? 1.7 : 1.75))
+      Math.round(adjustedBodySize * (isUnder360 ? 1.5 : 1.55))
     );
     const summaryLines = isShortScreen
       ? (fontSizeLevel === 'xlarge' ? 3 : 4)
@@ -618,15 +637,36 @@ const NewsCard = React.memo(
     const isFallbackImage = isInvalidOrMockImageUrl(imgSrc) || isErrorFallback;
 
     return (
-      <View
+      <Pressable
+        onPress={onToggleUI}
+        accessible={false}
         style={[
           styles.cardContainer,
           { height: containerHeight, backgroundColor: colors.background },
         ]}
       >
-        {/* Top Hero Image — scales responsively with screen height */}
+        {/* Top Hero Image — occupies 45% of card, image shown in natural uncropped size */}
         <TouchableWithoutFeedback onPress={onToggleUI}>
           <View style={[styles.imageContainer, { height: imageHeight }]}>
+            {/* Ambient blurred backdrop for letterboxing so the 45% container looks premium */}
+            {!isFallbackImage && Boolean(imgSrc) && (
+              <Image
+                source={{ uri: imgSrc, headers: { Accept: 'image/webp,image/*;q=0.8' } }}
+                style={StyleSheet.absoluteFillObject}
+                contentFit="cover"
+                blurRadius={28}
+                priority="low"
+                cachePolicy="disk"
+              />
+            )}
+            {!isFallbackImage && (
+              <View
+                style={[
+                  StyleSheet.absoluteFillObject,
+                  { backgroundColor: isDark ? 'rgba(15, 23, 42, 0.45)' : 'rgba(0, 0, 0, 0.25)' },
+                ]}
+              />
+            )}
             <Image
               source={
                 isFallbackImage
@@ -634,7 +674,8 @@ const NewsCard = React.memo(
                   : { uri: imgSrc, headers: { Accept: 'image/webp,image/*;q=0.8' } }
               }
               style={styles.image}
-              contentFit="cover"
+              contentFit="contain"
+              contentPosition="center"
               transition={150}
               cachePolicy="disk"
               recyclingKey={isFallbackImage ? 'breaking-fallback' : imgSrc}
@@ -710,8 +751,8 @@ const NewsCard = React.memo(
             {
               backgroundColor: colors.background,
               paddingHorizontal: sidePadding,
-              paddingTop: isShortScreen ? 12 : 16,
-              paddingBottom: (insets.bottom || 0) + (isShortScreen ? 10 : 12),
+              paddingTop: isShortScreen ? 8 : 10,
+              paddingBottom: (insets.bottom || 0) + (isShortScreen ? 8 : 10),
             },
           ]}
         >
@@ -731,7 +772,7 @@ const NewsCard = React.memo(
                       color: colors.text,
                       fontSize: adjustedHeadlineSize,
                       lineHeight: adjustedHeadlineLineHeight,
-                      marginBottom: isShortScreen ? 6 : 8,
+                      marginBottom: isShortScreen ? 4 : 5,
                     },
                   ]}
                   numberOfLines={headlineLines}
@@ -792,8 +833,8 @@ const NewsCard = React.memo(
                 styles.footerDivider,
                 {
                   backgroundColor: colors.divider,
-                  marginTop: Boolean(timeLabelContent) ? 8 : 0,
-                  marginBottom: 12,
+                  marginTop: Boolean(timeLabelContent) ? 4 : 0,
+                  marginBottom: 8,
                 },
               ]}
             />
@@ -982,7 +1023,7 @@ const NewsCard = React.memo(
             </View>
           </View>
           {AlertComponent}
-        </View>
+      </Pressable>
     );
   },
   (prev, next) =>
@@ -1280,8 +1321,8 @@ const styles = StyleSheet.create({
   headline: {
     fontFamily: TELUGU_FONT_STACK.bold,
     fontWeight: 'normal',
-    paddingVertical: 4,
-    marginBottom: 8,
+    paddingVertical: 1,
+    marginBottom: 4,
     ...(Platform.OS === 'web'
       ? {
           display: '-webkit-box' as any,
@@ -1293,7 +1334,7 @@ const styles = StyleSheet.create({
   summaryText: {
     fontFamily: TELUGU_FONT_STACK.regular,
     fontWeight: 'normal',
-    paddingVertical: 4,
+    paddingVertical: 1,
     ...(Platform.OS === 'web'
       ? {
           display: '-webkit-box' as any,

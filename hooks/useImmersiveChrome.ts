@@ -17,6 +17,15 @@ export interface UseImmersiveChromeReturn {
   headerAnim: Animated.Value;
   headerOpacity: Animated.AnimatedInterpolation<number>;
   clearTimer: () => void;
+  /** Call from FlatList `onScroll` / `onScrollBeginDrag` to flag a real swipe. */
+  markUserScroll: () => void;
+  /**
+   * Hides the chrome only if the user is actually swiping. Use this from
+   * `onViewableItemsChanged` so spurious viewability events (data refreshes,
+   * layout changes, a callback that lands just after the user tapped) cannot
+   * hide the chrome the instant it was restored.
+   */
+  hideOnUserScroll: () => void;
 }
 
 export function useImmersiveChrome({
@@ -31,6 +40,7 @@ export function useImmersiveChrome({
   const isChromeVisibleRef = useRef(true);
   const [isShown, setIsShown] = useState(true);
   const hideTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastUserScrollAtRef = useRef(0);
 
   const isModalOpenRef = useRef(isModalOpen);
   isModalOpenRef.current = isModalOpen;
@@ -46,9 +56,9 @@ export function useImmersiveChrome({
   }, []);
 
   const hide = useCallback(() => {
+    clearTimer();
     if (!isChromeVisibleRef.current) return;
     if (isModalOpenRef.current || disabledRef.current) return;
-    clearTimer();
 
     isChromeVisibleRef.current = false;
     setIsShown(false);
@@ -68,17 +78,21 @@ export function useImmersiveChrome({
     (andScheduleAutoHide = false) => {
       clearTimer();
 
-      if (!isChromeVisibleRef.current) {
-        isChromeVisibleRef.current = true;
-        setIsShown(true);
-        setTabBarVisible(true);
+      isChromeVisibleRef.current = true;
+      setIsShown(true);
+      setTabBarVisible(true);
 
-        Animated.timing(headerAnim, {
-          toValue: 1,
-          duration: 250,
-          useNativeDriver: true,
-        }).start();
-      }
+      // Always drive the animation to the visible end-state instead of only
+      // when the ref flipped. If the animated value ever drifts out of sync
+      // (interrupted animation, navigation blur, frozen screen, remount) the
+      // header used to stay off-screen forever while JS believed it was
+      // shown — so taps looked like they did nothing. Starting a new timing
+      // also stops any in-flight hide animation on the same value.
+      Animated.timing(headerAnim, {
+        toValue: 1,
+        duration: 250,
+        useNativeDriver: true,
+      }).start();
 
       if (andScheduleAutoHide && !isModalOpenRef.current && !disabledRef.current) {
         hideTimerRef.current = setTimeout(() => {
@@ -98,6 +112,15 @@ export function useImmersiveChrome({
     } else {
       showRef.current(false);
     }
+  }, []);
+
+  const markUserScroll = useCallback(() => {
+    lastUserScrollAtRef.current = Date.now();
+  }, []);
+
+  const hideOnUserScroll = useCallback(() => {
+    if (Date.now() - lastUserScrollAtRef.current > 1200) return;
+    hideRef.current();
   }, []);
 
   // When a modal or bottom sheet opens, keep chrome shown and prevent auto-hiding
@@ -121,6 +144,7 @@ export function useImmersiveChrome({
       isChromeVisibleRef.current = true;
       setIsShown(true);
       setTabBarVisible(true);
+      // setValue also stops any in-flight (native) hide animation.
       headerAnim.setValue(1);
     });
 
@@ -148,5 +172,7 @@ export function useImmersiveChrome({
     headerAnim,
     headerOpacity,
     clearTimer,
+    markUserScroll,
+    hideOnUserScroll,
   };
 }

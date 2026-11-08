@@ -59,7 +59,7 @@ const CATEGORY_TELUGU: Record<string, string> = {
 };
 
 export interface CategoryTabItem {
-  id: 'for-you' | 'all' | number;
+  id: 'for-you' | number;
   name: string;
   color?: string;
 }
@@ -68,8 +68,8 @@ interface CategoryExplorerModalProps {
   visible: boolean;
   onClose: () => void;
   categories: CategoryTabItem[];
-  activeCategoryId: 'for-you' | 'all' | number;
-  onSelectCategory: (id: 'for-you' | 'all' | number) => void;
+  activeCategoryId: 'for-you' | number;
+  onSelectCategory: (id: 'for-you' | number) => void;
 }
 
 export function CategoryExplorerModal({
@@ -83,7 +83,7 @@ export function CategoryExplorerModal({
   const colors = Colors[colorScheme ?? 'light'];
   const isDark = colorScheme === 'dark';
 
-  const handleSelect = (id: 'for-you' | 'all' | number) => {
+  const handleSelect = (id: 'for-you' | number) => {
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }

@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  Pressable,
   Share,
   Platform,
   Linking,
@@ -12,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { PollItem } from '@/services/api/polls';
-import { useCastVote } from '@/hooks/usePolls';
+import { useCastVote, useLocalVotedPolls } from '@/hooks/usePolls';
 import { Colors } from '@/constants/Colors';
 import { useAppColorScheme } from '@/hooks/useAppColorScheme';
 
@@ -35,13 +36,20 @@ export const PollCard = React.memo(
     const isDark = colorScheme === 'dark';
 
     const { mutate: castVote } = useCastVote();
+    const { data: votedPolls } = useLocalVotedPolls();
 
     const options = Array.isArray(item?.options) ? item.options : [];
     const votes = useMemo(() => (Array.isArray(item?.votes) ? item.votes : []), [item?.votes]);
 
+    // Restore a previously recorded vote for this device so results stay
+    // visible after navigating away or restarting the app.
+    const storedVote = votedPolls?.[item?.poll_uid];
+    const effectiveVotedIndex =
+      votedOptionIndex ?? (typeof storedVote === 'number' ? storedVote : null);
+
     // Local optimistic vote state
     const [selectedOption, setSelectedOption] = useState<number | null>(
-      votedOptionIndex !== undefined ? votedOptionIndex : null
+      effectiveVotedIndex
     );
     const [votesList, setVotesList] = useState<number[]>(
       votes.length === options.length
@@ -59,10 +67,8 @@ export const PollCard = React.memo(
       if (item?.total_votes != null) {
         setTotalVotes(item.total_votes);
       }
-      if (votedOptionIndex !== undefined && votedOptionIndex !== null) {
-        setSelectedOption(votedOptionIndex);
-      }
-    }, [item?.poll_uid, item?.total_votes, votes, options.length, votedOptionIndex]);
+      setSelectedOption(effectiveVotedIndex);
+    }, [item?.poll_uid, item?.total_votes, votes, options.length, effectiveVotedIndex]);
 
     const hasVoted = selectedOption !== null;
 
@@ -125,7 +131,9 @@ export const PollCard = React.memo(
     };
 
     return (
-      <View
+      <Pressable
+        onPress={onToggleUI}
+        accessible={false}
         style={[
           styles.container,
           { height: containerHeight, backgroundColor: colors.background },
@@ -352,7 +360,7 @@ export const PollCard = React.memo(
             </View>
           </View>
         </View>
-      </View>
+      </Pressable>
     );
   }
 );

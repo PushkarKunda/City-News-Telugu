@@ -15,7 +15,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useCategoryNews, useAllNews } from '@/hooks/useNews';
+import { useCategoryNews } from '@/hooks/useNews';
 import { useBookmarks } from '@/hooks/useEngagement';
 import { FeedItem } from '@/services/api/news';
 import { ImmersiveFeedCard } from '@/components/ImmersiveNewsCard';
@@ -32,17 +32,65 @@ import { CategoryExplorerModal } from '@/components/CategoryExplorerModal';
 import { FontSizeModal } from '@/components/FontSizeModal';
 import { useHomeScreen } from '@/hooks/useScreens';
 import { usersApi } from '@/services/api/users';
+import { PollItem, normalizePolls } from '@/services/api/polls';
 
 const FOR_YOU_ID = 'for-you' as const;
-const ALL_ID = 'all' as const;
-type CategoryId = typeof FOR_YOU_ID | typeof ALL_ID | number;
-
-// Feed types that ImmersiveFeedCard can actually render. Unknown types
-// (notably the backend's `admob_native` placeholder) would otherwise fall
-// through to the news card and render an empty screen.
-const RENDERABLE_FEED_TYPES = new Set(['news', 'post', 'ad', 'sponsored', 'poll']);
+type CategoryId = typeof FOR_YOU_ID | number;
 
 const HOME_SCREEN_PARAMS = { limit: 50 };
+
+// Polls are interleaved into the "For You" feed: one appears after the
+// second story, then every six cards afterwards. Capped so a feed can never
+// become poll-heavy.
+const FIRST_POLL_POSITION = 2;
+const POLL_SPACING = 6;
+const MAX_POLLS_PER_FEED = 4;
+
+function blendPollsIntoFeed(items: FeedItem[], polls: PollItem[]): FeedItem[] {
+  if (!polls.length) return items;
+
+  const existingPollUids = new Set(
+    items
+      .filter((item) => item.type === 'poll')
+      .map((item) => String((item.data as any)?.poll_uid ?? ''))
+  );
+
+  const candidates = polls
+    .filter((poll) => !existingPollUids.has(String(poll.poll_uid)))
+    .slice(0, MAX_POLLS_PER_FEED);
+
+  if (!candidates.length) return items;
+
+  const blended: FeedItem[] = [];
+  let nextPoll = 0;
+
+  for (let i = 0; i < items.length; i++) {
+    if (
+      nextPoll < candidates.length &&
+      i === FIRST_POLL_POSITION + nextPoll * POLL_SPACING
+    ) {
+      blended.push({
+        type: 'poll',
+        data: candidates[nextPoll] as any,
+        position: blended.length,
+      });
+      nextPoll++;
+    }
+    blended.push({ ...items[i], position: blended.length });
+  }
+
+  // Short feeds still get their polls; append any that did not fit.
+  while (nextPoll < candidates.length) {
+    blended.push({
+      type: 'poll',
+      data: candidates[nextPoll] as any,
+      position: blended.length,
+    });
+    nextPoll++;
+  }
+
+  return blended;
+}
 
 export default function HomeScreen() {
   const colorScheme = useAppColorScheme();
@@ -112,7 +160,10 @@ export default function HomeScreen() {
   const categoriesData = useMemo(() => (homeScreenData?.categories ?? [])
     .filter((category) => category.is_active)
     .sort((a, b) => a.display_order - b.display_order), [homeScreenData?.categories]);
-  const activePolls = homeScreenData?.active_polls;
+  const activePolls = useMemo(
+    () => normalizePolls(homeScreenData?.active_polls),
+    [homeScreenData?.active_polls]
+  );
   const forYouFeed = homeScreenData?.feed;
 
   // Category tab news (pure news only, no ads)
@@ -126,26 +177,15 @@ export default function HomeScreen() {
     typeof activeCategory === 'number' ? activeCategory : null
   );
 
-  // "All" tab: every article, across every language
-  const {
-    data: allNewsData,
-    isLoading: isLoadingAllNews,
-    isError: isErrorAllNews,
-    refetch: refetchAllNews,
-    isRefetching: isRefetchingAllNews,
-  } = useAllNews(activeCategory === ALL_ID);
-
-  const isRefreshing = isRefetchingHomeScreen || isRefetchingCategoryNews || isRefetchingAllNews;
+  const isRefreshing = isRefetchingHomeScreen || isRefetchingCategoryNews;
 
   const handleRefresh = useCallback(() => {
     if (activeCategory === FOR_YOU_ID) {
       refetchHomeScreen();
-    } else if (activeCategory === ALL_ID) {
-      refetchAllNews();
     } else {
       refetchCategoryNews();
     }
-  }, [activeCategory, refetchHomeScreen, refetchCategoryNews, refetchAllNews]);
+  }, [activeCategory, refetchHomeScreen, refetchCategoryNews]);
 
   // Bookmarks - used to show filled/outline bookmark icon
   const { data: rawNewsBookmarks = [] } = useBookmarks('news', false);
@@ -161,6 +201,8 @@ export default function HomeScreen() {
     toggle: handleToggleUI,
     headerAnim,
     headerOpacity,
+    markUserScroll,
+    hideOnUserScroll,
   } = useImmersiveChrome({
     autoHideDelayMs: 2500,
     isModalOpen,
@@ -171,6 +213,16 @@ export default function HomeScreen() {
   hideHeaderRef.current = hideHeader;
   const showHeaderRef = useRef(showHeader);
   showHeaderRef.current = showHeader;
+  const hideOnUserScrollRef = useRef(hideOnUserScroll);
+  hideOnUserScrollRef.current = hideOnUserScroll;
+
+  // A swipe should hide the chrome immediately (same feel as Posts). The
+  // timestamp is also what lets onViewableItemsChanged tell a real swipe apart
+  // from a spurious viewability event that fires right after a tap.
+  const handleScrollBeginDrag = useCallback(() => {
+    markUserScroll();
+    hideHeaderRef.current?.();
+  }, [markUserScroll]);
 
   const headerTranslateY = headerAnim.interpolate({
     inputRange: [0, 1],
@@ -183,7 +235,6 @@ export default function HomeScreen() {
   const categoryTabs = useMemo(() => {
     const tabs: { id: CategoryId; name: string; color?: string }[] = [
       { id: FOR_YOU_ID, name: 'For You' },
-      { id: ALL_ID, name: 'All' },
     ];
     categoriesData
       .filter((c) => c.name.toLowerCase() !== 'local')
@@ -202,7 +253,10 @@ export default function HomeScreen() {
   // Feed items to render in the vertical snap list
   const feedItems = useMemo((): FeedItem[] => {
     if (activeCategory === FOR_YOU_ID) {
-      if (!forYouFeed) return [];
+      // Polls are still useful when the news feed is empty or short.
+      if (!forYouFeed) {
+        return blendPollsIntoFeed([], activePolls);
+      }
       let rawItems: any[] = [];
       if (Array.isArray(forYouFeed)) {
         rawItems = forYouFeed;
@@ -225,42 +279,10 @@ export default function HomeScreen() {
             data: item,
             position: idx,
           };
-        });
-
-      // Inject active opinion polls into For You feed cleanly
-      if (activePolls && activePolls.length > 0 && mapped.length >= 4) {
-        const pollItem: FeedItem = {
-          type: 'poll',
-          data: activePolls[0] as any,
-          position: 3,
-        };
-        const blended: FeedItem[] = [];
-        for (let i = 0; i < mapped.length; i++) {
-          if (i === 3) {
-            blended.push(pollItem);
-          }
-          blended.push({ ...mapped[i], position: blended.length });
-        }
-        return blended;
-      }
-
-      return mapped;
-    }
-
-    // "All" tab: every article from every language, unfiltered by preference
-    if (activeCategory === ALL_ID) {
-      const rawItems: any[] = Array.isArray(allNewsData?.items) ? allNewsData!.items : [];
-      return rawItems
-        .filter((item: any) => {
-          if (!item) return false;
-          if (item.type) return RENDERABLE_FEED_TYPES.has(item.type);
-          return Boolean(item.news_uid || item.post_uid || item.title);
         })
-        .map((item: any, idx: number): FeedItem => (
-          item.type && item.data
-            ? { ...(item as FeedItem), position: idx }
-            : { type: 'news', data: item, position: idx }
-        ));
+        .filter((item: any) => item?.data);
+
+      return blendPollsIntoFeed(mapped, activePolls);
     }
 
     // Category tabs: wrap news articles into FeedItem shape
@@ -279,21 +301,15 @@ export default function HomeScreen() {
         position: i,
       })
     );
-  }, [activeCategory, forYouFeed, categoryNewsData, allNewsData, activePolls]);
+  }, [activeCategory, forYouFeed, categoryNewsData, activePolls]);
 
   const isLoading =
-    activeCategory === ALL_ID
-      ? isLoadingAllNews
-      : activeCategory === FOR_YOU_ID
-        ? isLoadingHomeScreen
-        : isLoadingCategoryNews;
+    activeCategory === FOR_YOU_ID ? isLoadingHomeScreen : isLoadingCategoryNews;
 
   const isError =
-    activeCategory === ALL_ID
-      ? isErrorAllNews
-      : activeCategory === FOR_YOU_ID
-        ? isErrorHomeScreen || Boolean(homeScreenData?.errors?.feed)
-        : isErrorCategoryNews;
+    activeCategory === FOR_YOU_ID
+      ? isErrorHomeScreen || Boolean(homeScreenData?.errors?.feed)
+      : isErrorCategoryNews;
 
 
 
@@ -361,8 +377,10 @@ export default function HomeScreen() {
           if (Platform.OS !== 'web') {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
           }
-          // Auto-hide header and footer when user changes news cards
-          hideHeaderRef.current?.();
+          // Auto-hide header and footer when the user swipes to another card.
+          // Guarded against spurious viewability callbacks so the chrome is
+          // never hidden immediately after the user taps to reveal it.
+          hideOnUserScrollRef.current?.();
         }
       }
     }
@@ -710,6 +728,8 @@ export default function HomeScreen() {
             getItemLayout={getItemLayout}
             onViewableItemsChanged={onViewableItemsChanged}
             viewabilityConfig={viewabilityConfig}
+            onScrollBeginDrag={handleScrollBeginDrag}
+            onMomentumScrollBegin={markUserScroll}
             initialNumToRender={2}
             maxToRenderPerBatch={3}
             windowSize={5}

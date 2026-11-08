@@ -236,6 +236,8 @@ export default function PostsScreen() {
     toggle: toggleChrome,
     headerAnim,
     headerOpacity,
+    markUserScroll,
+    hideOnUserScroll,
   } = useImmersiveChrome({
     autoHideDelayMs: 2500,
     isModalOpen,
@@ -245,6 +247,13 @@ export default function PostsScreen() {
   hideChromeRef.current = hideChrome;
   const showChromeRef = useRef(showChrome);
   showChromeRef.current = showChrome;
+  const hideOnUserScrollRef = useRef(hideOnUserScroll);
+  hideOnUserScrollRef.current = hideOnUserScroll;
+
+  const handleScrollBeginDrag = useCallback(() => {
+    markUserScroll();
+    hideChromeRef.current?.();
+  }, [markUserScroll]);
 
   // Lift the PostCard overlays up by exactly the tab-bar clearance while the
   // chrome is visible. headerAnim is 0 when hidden → 1 when shown, and it is
@@ -331,8 +340,10 @@ export default function PostsScreen() {
           }
           // Dismiss one-time menu hint on first swipe
           dismissMenuHintRef.current();
-          // Auto-hide header overlay and tab bar when user swipes between posts
-          hideChromeRef.current?.();
+          // Auto-hide the chrome, but only for genuine swipes. Viewability
+          // also fires for data refreshes / layout changes, and a late event
+          // used to hide the chrome right after the user tapped to show it.
+          hideOnUserScrollRef.current?.();
         }
       }
     }
@@ -653,6 +664,8 @@ export default function PostsScreen() {
           onEndReachedThreshold={0.5}
           onViewableItemsChanged={onViewableItemsChanged}
           viewabilityConfig={viewabilityConfig}
+          onScrollBeginDrag={handleScrollBeginDrag}
+          onMomentumScrollBegin={markUserScroll}
           bounces={true}
           refreshControl={
             <RefreshControl

@@ -32,6 +32,85 @@ export interface VotePayload {
 
 const VOTED_POLLS_KEY = '@city_news_voted_polls_v1';
 
+function toCount(value: unknown): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/**
+ * The content API returns options as `{ text, votes }` objects, while the
+ * screens aggregate may return them as plain strings. Normalize both shapes
+ * into the `options: string[]` + `votes: number[]` form the PollCard renders.
+ */
+export function normalizePoll(raw: any, index = 0): PollItem | null {
+  if (!raw || typeof raw !== 'object') return null;
+
+  const pollUid = String(
+    raw.poll_uid ?? raw.pollUid ?? raw.uid ?? raw.id ?? `poll-${index}`
+  );
+
+  const rawOptions: any[] = Array.isArray(raw.options)
+    ? raw.options
+    : Array.isArray(raw.poll_options)
+      ? raw.poll_options
+      : [];
+
+  const options: string[] = [];
+  const optionVotes: number[] = [];
+
+  rawOptions.forEach((option) => {
+    if (option == null) return;
+
+    if (typeof option === 'string' || typeof option === 'number') {
+      options.push(String(option));
+      optionVotes.push(0);
+      return;
+    }
+
+    const text =
+      option.text ?? option.option_text ?? option.optionText ?? option.label ?? '';
+    options.push(String(text));
+    optionVotes.push(
+      toCount(option.votes ?? option.votes_count ?? option.votesCount ?? 0)
+    );
+  });
+
+  const explicitVotes = Array.isArray(raw.votes)
+    ? raw.votes.map(toCount)
+    : [];
+  const votes =
+    explicitVotes.length === options.length ? explicitVotes : optionVotes;
+  const summedVotes = votes.reduce((sum: number, count: number) => sum + count, 0);
+
+  return {
+    ...raw,
+    id: raw.id ?? pollUid,
+    poll_uid: pollUid,
+    question: String(raw.question ?? raw.question_te ?? raw.title ?? ''),
+    question_te: raw.question_te,
+    options,
+    votes,
+    total_votes: toCount(raw.total_votes ?? raw.totalVotes ?? summedVotes),
+  };
+}
+
+export function normalizePolls(input: unknown): PollItem[] {
+  const data = input as any;
+  const list: any[] = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.polls)
+      ? data.polls
+      : Array.isArray(data?.data)
+        ? data.data
+        : Array.isArray(data?.data?.polls)
+          ? data.data.polls
+          : [];
+
+  return list
+    .map((poll, index) => normalizePoll(poll, index))
+    .filter((poll): poll is PollItem => poll !== null);
+}
+
 // ── Curated Real-Time Fallback Polls for AP & Telangana ──────────────────────
 export const FALLBACK_POLLS: PollItem[] = [
   {
@@ -81,18 +160,13 @@ export const pollsApi = {
         method: 'GET',
       });
 
-      if (Array.isArray(response) && response.length > 0) {
-        return response;
+      const polls = normalizePolls(response);
+      if (polls.length > 0) {
+        return polls;
       }
-      if (response?.polls && Array.isArray(response.polls) && response.polls.length > 0) {
-        return response.polls;
-      }
-      if (response?.data && Array.isArray(response.data) && response.data.length > 0) {
-        return response.data;
-      }
-      return FALLBACK_POLLS;
+      return normalizePolls(FALLBACK_POLLS);
     } catch {
-      return FALLBACK_POLLS;
+      return normalizePolls(FALLBACK_POLLS);
     }
   },
 

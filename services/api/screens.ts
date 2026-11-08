@@ -16,19 +16,11 @@ import { postsApi } from './posts';
 import { engagementApi } from './engagement';
 import { newsApi } from './news';
 import { categoriesApi } from './categories';
-import { pollsApi } from './polls';
+import { pollsApi, normalizePolls } from './polls';
+import type { PollItem } from './polls';
 import { contentApi } from './content';
 
-export interface ActivePoll {
-  id: number;
-  poll_uid: string;
-  question: string;
-  options: string[] | { text: string; votes?: number }[];
-  total_votes: number;
-  expires_at: string | null;
-  created_at: string | null;
-  is_approved?: boolean;
-}
+export type ActivePoll = PollItem;
 
 export interface HomeScreenResponse {
   preferences: UserPreferences | null;
@@ -164,12 +156,18 @@ export const screensApi = {
   }, signal?: AbortSignal): Promise<HomeScreenResponse> => {
     const version = getSessionVersion();
     try {
-      return await request<HomeScreenResponse>({
+      const data = await request<HomeScreenResponse>({
         url: API_ROUTES.screens.home,
         method: 'GET',
         params,
         signal,
       });
+      return {
+        ...data,
+        active_polls: data.active_polls
+          ? normalizePolls(data.active_polls)
+          : data.active_polls,
+      };
     } catch (homeErr) {
       allowFallback(homeErr, signal, version);
       console.warn('[screensApi.getHome] /screens/home failed, falling back to modular endpoints:', homeErr);

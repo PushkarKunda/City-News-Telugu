@@ -506,11 +506,11 @@ const styles = StyleSheet.create({
     fontFamily: 'Poppins_500Medium',
   },
   headline: {
-    fontSize: 28,
+    fontSize: 24,
     fontFamily: 'Poppins_700Bold',
-    lineHeight: 38,
+    lineHeight: 32,
     marginBottom: 6,
-    letterSpacing: -0.5,
+    letterSpacing: -0.3,
     includeFontPadding: false,
   },
   byline: {

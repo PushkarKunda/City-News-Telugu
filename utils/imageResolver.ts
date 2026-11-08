@@ -87,6 +87,19 @@ export interface ResolveArticleImageParams {
 }
 
 /**
+ * Upgrades known low-resolution news thumbnails (e.g. BBC ichef ws/240)
+ * to crystal-clear high-definition (ws/800) so images don't look pixelated or blurry.
+ */
+export function upgradeImageResolution(url?: string | null): string {
+  if (!url || typeof url !== 'string') return '';
+  let cleaned = url.trim();
+  if (cleaned.includes('ichef.bbci.co.uk') && /\/ws\/\d+\//.test(cleaned)) {
+    cleaned = cleaned.replace(/\/ws\/\d+\//, '/ws/800/');
+  }
+  return cleaned;
+}
+
+/**
  * Resolves the image URL for a news article or community post.
  * If the provided URL is a valid remote URL, it is returned directly.
  * If it is missing, invalid, or a mock URL, it returns the single breaking news
@@ -95,9 +108,9 @@ export interface ResolveArticleImageParams {
 export function resolveArticleImageUrl(params: ResolveArticleImageParams): string {
   const { imageUrl } = params;
 
-  // If a valid live URL is provided, return it
+  // If a valid live URL is provided, return high-res cleaned version
   if (!isInvalidOrMockImageUrl(imageUrl)) {
-    return imageUrl!.trim();
+    return upgradeImageResolution(imageUrl);
   }
 
   // Unified fallback: single image showing the app logo with breaking news text
@@ -111,7 +124,7 @@ export function getNewsImageSource(url?: string | null) {
   if (isInvalidOrMockImageUrl(url)) {
     return BREAKING_NEWS_FALLBACK_ASSET;
   }
-  return { uri: url!.trim(), headers: { Accept: 'image/webp,image/*;q=0.8' } };
+  return { uri: upgradeImageResolution(url), headers: { Accept: 'image/webp,image/*;q=0.8' } };
 }
 
 /**
