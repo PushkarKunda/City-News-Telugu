@@ -33,64 +33,12 @@ import { FontSizeModal } from '@/components/FontSizeModal';
 import { useHomeScreen } from '@/hooks/useScreens';
 import { usersApi } from '@/services/api/users';
 import { PollItem, normalizePolls } from '@/services/api/polls';
+import { interleaveFeed } from '@/utils/feedInterleaver';
 
 const FOR_YOU_ID = 'for-you' as const;
 type CategoryId = typeof FOR_YOU_ID | number;
 
 const HOME_SCREEN_PARAMS = { limit: 50 };
-
-// Polls are interleaved into the "For You" feed: one appears after the
-// second story, then every six cards afterwards. Capped so a feed can never
-// become poll-heavy.
-const FIRST_POLL_POSITION = 2;
-const POLL_SPACING = 6;
-const MAX_POLLS_PER_FEED = 4;
-
-function blendPollsIntoFeed(items: FeedItem[], polls: PollItem[]): FeedItem[] {
-  if (!polls.length) return items;
-
-  const existingPollUids = new Set(
-    items
-      .filter((item) => item.type === 'poll')
-      .map((item) => String((item.data as any)?.poll_uid ?? ''))
-  );
-
-  const candidates = polls
-    .filter((poll) => !existingPollUids.has(String(poll.poll_uid)))
-    .slice(0, MAX_POLLS_PER_FEED);
-
-  if (!candidates.length) return items;
-
-  const blended: FeedItem[] = [];
-  let nextPoll = 0;
-
-  for (let i = 0; i < items.length; i++) {
-    if (
-      nextPoll < candidates.length &&
-      i === FIRST_POLL_POSITION + nextPoll * POLL_SPACING
-    ) {
-      blended.push({
-        type: 'poll',
-        data: candidates[nextPoll] as any,
-        position: blended.length,
-      });
-      nextPoll++;
-    }
-    blended.push({ ...items[i], position: blended.length });
-  }
-
-  // Short feeds still get their polls; append any that did not fit.
-  while (nextPoll < candidates.length) {
-    blended.push({
-      type: 'poll',
-      data: candidates[nextPoll] as any,
-      position: blended.length,
-    });
-    nextPoll++;
-  }
-
-  return blended;
-}
 
 export default function HomeScreen() {
   const colorScheme = useAppColorScheme();
@@ -253,9 +201,8 @@ export default function HomeScreen() {
   // Feed items to render in the vertical snap list
   const feedItems = useMemo((): FeedItem[] => {
     if (activeCategory === FOR_YOU_ID) {
-      // Polls are still useful when the news feed is empty or short.
       if (!forYouFeed) {
-        return blendPollsIntoFeed([], activePolls);
+        return interleaveFeed([], { polls: activePolls });
       }
       let rawItems: any[] = [];
       if (Array.isArray(forYouFeed)) {
@@ -282,7 +229,7 @@ export default function HomeScreen() {
         })
         .filter((item: any) => item?.data);
 
-      return blendPollsIntoFeed(mapped, activePolls);
+      return interleaveFeed(mapped, { polls: activePolls });
     }
 
     // Category tabs: wrap news articles into FeedItem shape

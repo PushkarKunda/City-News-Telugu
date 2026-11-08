@@ -70,6 +70,19 @@ Aggregates all components required to render the main Home tab in one round trip
   4. News Feed (`/news/v1/feed`)
   5. User Bookmarks (news & post IDs bookmarked by user; empty arrays if guest)
 
+* **Feed Slotting & Content Interleaving Specification**:
+  The `feed.items` stream must be ordered according to the following official distribution and fallback schedule:
+
+  | Slot / Position | Content Type | Fallback Rule |
+  | :--- | :--- | :--- |
+  | **Slot 0** | Premium Ad | If no premium ad is booked, displays News #1. |
+  | **Slots 1–3** | 3 News Articles + 1 Community Post | 1 trending community post is inserted after News #2. |
+  | **Slot 4** | City / District Targeted Ad | Falls back to next News article. |
+  | **Slots 5–7** | 3 News Articles + 1 Sponsored Post | If no direct sponsor, inserts Google AdMob Native Card / next News. |
+  | **Slot 8** | State / Regional Ad | Falls back to next News article. |
+  | **Slots 9–11** | 3 News Articles + Event + Poll + Sponsored | Mixes in upcoming local events and active community polls. |
+  | **Remaining** | Remaining News Stream | Automatically intersperses posts every 5 news items and ads every 10 news items. |
+
 * **Expected JSON Response**:
 ```json
 {

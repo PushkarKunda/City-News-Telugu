@@ -3,6 +3,8 @@ import { request } from './client';
 import { usersApi } from './users';
 
 import { Advertisement, SponsoredPost } from './content';
+import { Post } from './posts';
+import { PollItem } from './polls';
 
 
 import { Category } from './categories';
@@ -63,7 +65,7 @@ export type FeedItemType = 'news' | 'ad' | 'sponsored' | 'event' | 'poll' | 'pos
 
 export interface FeedItem {
   type: FeedItemType;
-  data: NewsArticle | Advertisement | SponsoredPost;
+  data: NewsArticle | Advertisement | SponsoredPost | Post | PollItem | any;
   position: number;
   ranking_score?: number;
 }
